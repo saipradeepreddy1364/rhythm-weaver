@@ -71,6 +71,10 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const tick = useCallback(() => {
+    setProgress(prev => prev + 1);
+  }, []);
+
   const isFavorite = useCallback((id: string) => favorites.has(id), [favorites]);
 
   return (
