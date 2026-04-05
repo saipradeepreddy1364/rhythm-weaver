@@ -80,7 +80,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   return (
     <PlayerContext.Provider value={{
       currentSong, isPlaying, queue, progress, favorites, recentlyPlayed,
-      playSong, togglePlay, nextSong, prevSong, setProgress, toggleFavorite, isFavorite,
+      playSong, togglePlay, nextSong, prevSong, setProgress, tick, toggleFavorite, isFavorite,
       showPlayer, setShowPlayer,
     }}>
       {children}
