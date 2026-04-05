@@ -6,22 +6,20 @@ import { useEffect } from "react";
 export function MiniPlayer() {
   const {
     currentSong, isPlaying, togglePlay, nextSong, prevSong,
-    progress, setProgress, toggleFavorite, isFavorite, setShowPlayer,
+    progress, setProgress, tick, toggleFavorite, isFavorite, setShowPlayer,
   } = usePlayer();
 
   useEffect(() => {
     if (!isPlaying || !currentSong) return;
     const interval = setInterval(() => {
-      setProgress(prev => {
-        if (prev >= currentSong.duration) {
-          nextSong();
-          return 0;
-        }
-        return prev + 1;
-      });
+      if (progress >= currentSong.duration) {
+        nextSong();
+      } else {
+        tick();
+      }
     }, 1000);
     return () => clearInterval(interval);
-  }, [isPlaying, currentSong, setProgress, nextSong]);
+  }, [isPlaying, currentSong, tick, nextSong, progress]);
 
   if (!currentSong) return null;
 
