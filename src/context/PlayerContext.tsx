@@ -16,6 +16,7 @@ interface PlayerContextType extends PlayerState {
   nextSong: () => void;
   prevSong: () => void;
   setProgress: (p: number) => void;
+  tick: () => void;
   toggleFavorite: (id: string) => void;
   isFavorite: (id: string) => boolean;
   showPlayer: boolean;
