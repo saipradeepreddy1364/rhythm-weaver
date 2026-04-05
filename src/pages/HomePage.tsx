@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { Song, mapApiSong } from "@/data/songs";
-import { api } from "@/services/api";
+import { api, extractResults } from "@/services/api";
 import { SongRow } from "@/components/SongRow";
-import { SongCard } from "@/components/SongCard";
 import { usePlayer } from "@/context/PlayerContext";
 
 export default function HomePage() {
@@ -16,18 +15,16 @@ export default function HomePage() {
       api.searchSongs("top hindi hits 2025", 1, 10),
       api.searchSongs("top telugu hits 2025", 1, 10),
     ]).then(([hindi, telugu]) => {
-      setTrendingHindi((hindi?.data?.results || []).map(mapApiSong));
-      setTrendingTelugu((telugu?.data?.results || []).map(mapApiSong));
-      setLoading(false);
-    }).catch(() => {
-      setLoading(false);
-    });
+      setTrendingHindi(extractResults(hindi).map(mapApiSong));
+      setTrendingTelugu(extractResults(telugu).map(mapApiSong));
+    }).catch(console.error)
+      .finally(() => setLoading(false));
   }, []);
 
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <p className="text-muted-foreground animate-pulse">Loading...</p>
+        <p className="text-muted-foreground animate-pulse">Loading songs...</p>
       </div>
     );
   }
@@ -72,10 +69,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   return (
     <div className="mb-8">
       <h2 className="text-lg font-bold text-foreground mb-3">{title}</h2>
-      <div
-        className="flex gap-4 overflow-x-auto pb-2"
-        style={{ scrollbarWidth: "none" }}
-      >
+      <div className="flex gap-4 overflow-x-auto pb-2" style={{ scrollbarWidth: "none" }}>
         {children}
       </div>
     </div>
@@ -90,17 +84,11 @@ function QuickPick({ song, queue }: { song: Song; queue: Song[] }) {
       className="flex items-center gap-3 bg-card/60 hover:bg-accent rounded-md overflow-hidden transition-colors text-left w-full"
     >
       {song.albumArt ? (
-        <img
-          src={song.albumArt}
-          alt={song.title}
-          className="w-12 h-12 object-cover flex-shrink-0"
-        />
+        <img src={song.albumArt} alt={song.title} className="w-12 h-12 object-cover flex-shrink-0" />
       ) : (
         <div className="w-12 h-12 bg-gradient-to-br from-rose-500 to-purple-600 flex-shrink-0" />
       )}
-      <span className="text-xs font-medium text-foreground truncate pr-2">
-        {song.title}
-      </span>
+      <span className="text-xs font-medium text-foreground truncate pr-2">{song.title}</span>
     </button>
   );
 }

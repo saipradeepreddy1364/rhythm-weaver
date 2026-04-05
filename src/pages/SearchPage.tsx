@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Song, mapApiSong } from "@/data/songs";
-import { api } from "@/services/api";
+import { api, extractResults } from "@/services/api";
 import { SongCard } from "@/components/SongCard";
 import { Search, X, Loader2 } from "lucide-react";
 
@@ -31,7 +31,7 @@ export default function SearchPage() {
     const q = buildQuery();
     api.searchSongs(q, 1, 50)
       .then((res) => {
-        const results = (res?.data?.results || []).map(mapApiSong);
+        const results = extractResults(res).map(mapApiSong);
         setSongs(results);
       })
       .catch(() => setSongs([]))
