@@ -1,17 +1,16 @@
 import { usePlayer } from "@/context/PlayerContext";
 import { formatDuration } from "@/data/songs";
+import { LikeButton } from "@/components/LikeButton";
 import {
-  Play,
-  Pause,
-  SkipBack,
-  SkipForward,
-  Heart,
-  ChevronDown,
-  Shuffle,
-  Repeat,
+  Play, Pause, SkipBack, SkipForward,
+  ChevronDown, Shuffle, Repeat, ListMusic,
 } from "lucide-react";
 
-export function FullPlayer() {
+interface FullPlayerProps {
+  onRequireAuth?: () => void;
+}
+
+export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   const {
     currentSong,
     isPlaying,
@@ -21,8 +20,6 @@ export function FullPlayer() {
     progress,
     duration,
     setProgress,
-    toggleFavorite,
-    isFavorite,
     showPlayer,
     setShowPlayer,
   } = usePlayer();
@@ -30,101 +27,148 @@ export function FullPlayer() {
   if (!currentSong || !showPlayer) return null;
 
   const totalDuration = duration || currentSong.duration || 1;
-  const pct = (progress / totalDuration) * 100;
+  const pct = Math.min(100, (progress / totalDuration) * 100);
 
   return (
-    <div className="fixed inset-0 z-50 bg-background flex flex-col animate-slide-up">
-      {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4">
-        <button onClick={() => setShowPlayer(false)}>
-          <ChevronDown className="w-6 h-6 text-foreground" />
-        </button>
-        <p className="text-xs text-muted-foreground uppercase tracking-widest font-medium">
-          Now Playing
-        </p>
-        <div className="w-6" />
-      </div>
-
-      {/* Album Art */}
-      <div className="flex-1 flex items-center justify-center px-12">
+    <div
+      className="fixed inset-0 z-50 flex flex-col"
+      style={{ background: "#0a0a0a" }}
+    >
+      {/* Blurred album art background */}
+      {currentSong.albumArt && (
         <div
-          className="w-72 h-72 sm:w-80 sm:h-80 rounded-2xl overflow-hidden shadow-2xl"
-          style={{ boxShadow: "0 25px 60px -15px rgba(0,0,0,0.5)" }}
-        >
-          {currentSong.albumArt ? (
-            <img
-              src={currentSong.albumArt}
-              alt={currentSong.title}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <div className="w-full h-full bg-gradient-to-br from-rose-500 to-purple-600" />
-          )}
-        </div>
-      </div>
+          className="absolute inset-0 opacity-20"
+          style={{
+            backgroundImage: `url(${currentSong.albumArt})`,
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+            filter: "blur(40px) saturate(2)",
+          }}
+        />
+      )}
 
-      {/* Song Info */}
-      <div className="px-8 mt-6">
-        <div className="flex items-center justify-between">
-          <div className="min-w-0 flex-1">
-            <h2 className="text-xl font-bold text-foreground truncate">
-              {currentSong.title}
-            </h2>
-            <p className="text-sm text-muted-foreground">{currentSong.artist}</p>
-          </div>
+      {/* Dark overlay */}
+      <div className="absolute inset-0" style={{ background: "linear-gradient(to bottom, rgba(10,10,10,0.6) 0%, rgba(10,10,10,0.95) 100%)" }} />
+
+      {/* Content */}
+      <div className="relative flex flex-col flex-1 px-6">
+        {/* Header */}
+        <div className="flex items-center justify-between pt-12 pb-4">
           <button
-            onClick={() => toggleFavorite(currentSong.id)}
-            className="p-2"
+            onClick={() => setShowPlayer(false)}
+            className="w-10 h-10 rounded-full flex items-center justify-center"
+            style={{ background: "rgba(255,255,255,0.08)" }}
           >
-            <Heart
-              className={`w-6 h-6 ${
-                isFavorite(currentSong.id)
-                  ? "fill-primary text-primary"
-                  : "text-muted-foreground"
-              }`}
-            />
+            <ChevronDown className="w-5 h-5 text-white" />
+          </button>
+          <p className="text-xs text-white/40 uppercase tracking-widest font-semibold">
+            Now Playing
+          </p>
+          <button
+            className="w-10 h-10 rounded-full flex items-center justify-center"
+            style={{ background: "rgba(255,255,255,0.08)" }}
+          >
+            <ListMusic className="w-4 h-4 text-white/60" />
           </button>
         </div>
 
-        {/* Seek bar */}
-        <div className="mt-4">
-          <input
-            type="range"
-            min={0}
-            max={totalDuration}
-            value={progress}
-            onChange={(e) => setProgress(Number(e.target.value))}
-            className="w-full h-1 bg-muted rounded-full appearance-none cursor-pointer accent-primary"
+        {/* Album Art */}
+        <div className="flex-1 flex items-center justify-center py-6">
+          <div
+            className="rounded-3xl overflow-hidden shadow-2xl"
+            style={{
+              width: "min(72vw, 300px)",
+              height: "min(72vw, 300px)",
+              boxShadow: "0 30px 80px -20px rgba(0,0,0,0.8)",
+            }}
+          >
+            {currentSong.albumArt ? (
+              <img
+                src={currentSong.albumArt}
+                alt={currentSong.title}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full" style={{ background: "linear-gradient(135deg,#f97316,#ec4899)" }} />
+            )}
+          </div>
+        </div>
+
+        {/* Song Info + Like */}
+        <div className="flex items-center gap-3 mb-5">
+          <div className="flex-1 min-w-0">
+            <h2 className="text-xl font-bold text-white truncate leading-tight">
+              {currentSong.title}
+            </h2>
+            <p className="text-sm text-white/40 mt-1 truncate">{currentSong.artist}</p>
+          </div>
+          <LikeButton
+            song={currentSong}
+            onRequireAuth={onRequireAuth}
+            size="lg"
+            className="text-white/40 hover:text-white p-2"
           />
-          <div className="flex justify-between text-xs text-muted-foreground mt-1">
+        </div>
+
+        {/* Seek bar */}
+        <div className="mb-5">
+          <div
+            className="relative h-1 rounded-full cursor-pointer overflow-hidden"
+            style={{ background: "rgba(255,255,255,0.12)" }}
+            onClick={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              const ratio = (e.clientX - rect.left) / rect.width;
+              setProgress(Math.floor(ratio * totalDuration));
+            }}
+          >
+            <div
+              className="absolute top-0 left-0 h-full rounded-full transition-all duration-1000 ease-linear"
+              style={{
+                width: `${pct}%`,
+                background: "linear-gradient(90deg,#f97316,#ec4899)",
+              }}
+            />
+          </div>
+          <div className="flex justify-between text-xs text-white/30 mt-1.5">
             <span>{formatDuration(progress)}</span>
             <span>{formatDuration(totalDuration)}</span>
           </div>
         </div>
 
         {/* Controls */}
-        <div className="flex items-center justify-center gap-6 mt-4 mb-8">
-          <button className="p-2">
-            <Shuffle className="w-5 h-5 text-muted-foreground" />
+        <div className="flex items-center justify-between mb-10">
+          <button className="p-3 text-white/30 hover:text-white transition-colors">
+            <Shuffle className="w-5 h-5" />
           </button>
-          <button onClick={prevSong} className="p-2">
-            <SkipBack className="w-7 h-7 text-foreground fill-foreground" />
+
+          <button
+            onClick={prevSong}
+            className="p-3 text-white/80 hover:text-white transition-colors active:scale-90"
+          >
+            <SkipBack className="w-7 h-7 fill-current" />
           </button>
+
           <button
             onClick={togglePlay}
-            className="w-16 h-16 rounded-full bg-foreground flex items-center justify-center hover:scale-105 transition-transform"
+            className="w-16 h-16 rounded-full flex items-center justify-center shadow-2xl transition-transform active:scale-90"
+            style={{ background: "linear-gradient(135deg,#f97316,#ec4899)" }}
           >
             {isPlaying ? (
-              <Pause className="w-7 h-7 text-background" />
+              <Pause className="w-7 h-7 text-white fill-white" />
             ) : (
-              <Play className="w-7 h-7 text-background ml-1" />
+              <Play className="w-7 h-7 text-white fill-white ml-1" />
             )}
           </button>
-          <button onClick={nextSong} className="p-2">
-            <SkipForward className="w-7 h-7 text-foreground fill-foreground" />
+
+          <button
+            onClick={nextSong}
+            className="p-3 text-white/80 hover:text-white transition-colors active:scale-90"
+          >
+            <SkipForward className="w-7 h-7 fill-current" />
           </button>
-          <button className="p-2">
-            <Repeat className="w-5 h-5 text-muted-foreground" />
+
+          <button className="p-3 text-white/30 hover:text-white transition-colors">
+            <Repeat className="w-5 h-5" />
           </button>
         </div>
       </div>

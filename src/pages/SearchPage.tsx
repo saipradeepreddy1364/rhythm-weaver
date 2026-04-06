@@ -1,95 +1,233 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { Song, mapApiSong } from "@/data/songs";
 import { api, extractResults } from "@/services/api";
-import { SongCard } from "@/components/SongCard";
-import { Search, X, Loader2 } from "lucide-react";
+import { SongRow } from "@/components/SongRow";
+import { Search, X, Loader2, Disc3, ChevronDown, ChevronUp, Play } from "lucide-react";
+import { usePlayer } from "@/context/PlayerContext";
 
-export default function SearchPage() {
-  const [query, setQuery] = useState("");
-  const [songs, setSongs] = useState<Song[]>([]);
-  const [loading, setLoading] = useState(false);
+interface SearchPageProps {
+  onRequireAuth?: () => void;
+}
+
+interface Album {
+  name: string;
+  coverArt: string;
+  songs: Song[];
+  year?: string;
+}
+
+export default function SearchPage({ onRequireAuth }: SearchPageProps) {
+  const { playSong } = usePlayer();
+  const [query, setQuery]       = useState("");
+  const [songs, setSongs]       = useState<Song[]>([]);
+  const [albums, setAlbums]     = useState<Album[]>([]);
+  const [loading, setLoading]   = useState(false);
   const [searched, setSearched] = useState(false);
+  const [expandedAlbums, setExpandedAlbums] = useState<Set<string>>(new Set());
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const groupIntoAlbums = (songs: Song[]): Album[] => {
+    const map = new Map<string, Album>();
+    songs.forEach((song) => {
+      const key = song.album || song.movie || "";
+      if (!key) return;
+      if (!map.has(key)) {
+        map.set(key, {
+          name: key,
+          coverArt: song.albumArt || "",
+          songs: [],
+          year: song.year,
+        });
+      }
+      map.get(key)!.songs.push(song);
+    });
+    // Only return albums with 2+ songs (likely an actual album/movie)
+    return Array.from(map.values()).filter((a) => a.songs.length >= 2);
+  };
 
   const doSearch = useCallback((q: string) => {
     const trimmed = q.trim();
     if (!trimmed) return;
     setLoading(true);
     setSearched(true);
+    setExpandedAlbums(new Set());
+
     api
       .searchSongs(trimmed, 1, 50)
       .then((res) => {
         const results = extractResults(res).map(mapApiSong);
         setSongs(results);
+        setAlbums(groupIntoAlbums(results));
       })
-      .catch(() => setSongs([]))
+      .catch(() => { setSongs([]); setAlbums([]); })
       .finally(() => setLoading(false));
   }, []);
 
   const handleClear = () => {
     setQuery("");
     setSongs([]);
+    setAlbums([]);
     setSearched(false);
+    inputRef.current?.focus();
   };
 
-  return (
-    <div className="pb-36 px-4 sm:px-6 pt-6 animate-fade-in">
-      <h1 className="text-2xl font-bold text-foreground mb-4">Search</h1>
+  const toggleAlbum = (name: string) => {
+    setExpandedAlbums((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
 
-      {/* Search input */}
-      <div className="relative mb-6">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-        <input
-          type="text"
-          placeholder="Search songs, artists, albums..."
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && doSearch(query)}
-          className="w-full h-12 pl-10 pr-10 rounded-full bg-card text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-          autoFocus
-        />
-        {query ? (
-          <button
-            onClick={handleClear}
-            className="absolute right-3 top-1/2 -translate-y-1/2"
-          >
-            <X className="w-4 h-4 text-muted-foreground" />
-          </button>
-        ) : null}
+  // Songs not belonging to any detected album
+  const soloSongs = songs.filter((s) => {
+    const albumNames = new Set(albums.map((a) => a.name));
+    return !albumNames.has(s.album || "") && !albumNames.has(s.movie || "");
+  });
+
+  return (
+    <div className="pb-4 animate-fade-in">
+      {/* Sticky search bar */}
+      <div
+        className="sticky top-0 z-20 px-4 pt-4 pb-3"
+        style={{ background: "rgba(10,10,10,0.95)", backdropFilter: "blur(20px)" }}
+      >
+        <div
+          className="relative flex items-center rounded-2xl overflow-hidden"
+          style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.08)" }}
+        >
+          <Search className="absolute left-3.5 w-4 h-4 text-white/40 flex-shrink-0" />
+          <input
+            ref={inputRef}
+            type="text"
+            placeholder="Songs, artists, movies…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && doSearch(query)}
+            className="w-full h-11 pl-10 pr-10 bg-transparent text-sm text-white placeholder:text-white/30 focus:outline-none"
+            autoFocus
+          />
+          {query ? (
+            <button
+              onClick={handleClear}
+              className="absolute right-3 p-1"
+            >
+              <X className="w-4 h-4 text-white/40" />
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {/* Loading */}
       {loading && (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        <div className="flex items-center justify-center py-24">
+          <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
         </div>
       )}
 
       {/* Results */}
       {!loading && searched && (
-        <>
-          <p className="text-xs text-muted-foreground mb-3">
-            {songs.length} results for &quot;{query}&quot;
-          </p>
-          <div className="space-y-0.5">
-            {songs.map((song, i) => (
-              <SongCard key={song.id} song={song} queue={songs} index={i} />
-            ))}
-          </div>
-          {songs.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-              <Search className="w-12 h-12 mb-3 opacity-30" />
-              <p className="text-sm">No results found</p>
-              <p className="text-xs mt-1">Try a different search term</p>
+        <div className="px-4 pt-2">
+          {songs.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-white/30">
+              <Search className="w-12 h-12 mb-3" />
+              <p className="text-sm">No results for "{query}"</p>
             </div>
+          ) : (
+            <>
+              {/* ── Albums / Movies section ────────────────────── */}
+              {albums.length > 0 && (
+                <div className="mb-6">
+                  <p className="text-xs font-semibold text-white/40 uppercase tracking-widest mb-3">
+                    Albums & Movies
+                  </p>
+                  <div className="space-y-2">
+                    {albums.map((album) => {
+                      const expanded = expandedAlbums.has(album.name);
+                      return (
+                        <div
+                          key={album.name}
+                          className="rounded-2xl overflow-hidden"
+                          style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}
+                        >
+                          {/* Album header row */}
+                          <button
+                            className="w-full flex items-center gap-3 p-3"
+                            onClick={() => toggleAlbum(album.name)}
+                          >
+                            <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 shadow-lg">
+                              {album.coverArt ? (
+                                <img src={album.coverArt} alt={album.name} className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center" style={{ background: "linear-gradient(135deg,#f97316,#ec4899)" }}>
+                                  <Disc3 className="w-5 h-5 text-white" />
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex-1 text-left min-w-0">
+                              <p className="text-sm font-semibold text-white truncate">{album.name}</p>
+                              <p className="text-xs text-white/40 mt-0.5">{album.songs.length} songs{album.year ? ` · ${album.year}` : ""}</p>
+                            </div>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  playSong(album.songs[0], album.songs);
+                                }}
+                                className="w-8 h-8 rounded-full flex items-center justify-center"
+                                style={{ background: "linear-gradient(135deg,#f97316,#ec4899)" }}
+                              >
+                                <Play className="w-3.5 h-3.5 text-white fill-white ml-0.5" />
+                              </button>
+                              {expanded
+                                ? <ChevronUp className="w-4 h-4 text-white/30" />
+                                : <ChevronDown className="w-4 h-4 text-white/30" />
+                              }
+                            </div>
+                          </button>
+
+                          {/* Expanded song list */}
+                          {expanded && (
+                            <div
+                              className="border-t"
+                              style={{ borderColor: "rgba(255,255,255,0.06)" }}
+                            >
+                              {album.songs.map((song) => (
+                                <SongRow key={song.id} song={song} queue={album.songs} onRequireAuth={onRequireAuth} />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Individual Songs ──────────────────────────── */}
+              {soloSongs.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-white/40 uppercase tracking-widest mb-3">
+                    {albums.length > 0 ? "Singles" : `${songs.length} results`}
+                  </p>
+                  <div className="space-y-0.5">
+                    {soloSongs.map((song) => (
+                      <SongRow key={song.id} song={song} queue={soloSongs} onRequireAuth={onRequireAuth} />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
           )}
-        </>
+        </div>
       )}
 
       {/* Initial state */}
       {!loading && !searched && (
-        <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-          <Search className="w-12 h-12 mb-3 opacity-30" />
-          <p className="text-sm">Search for songs or artists</p>
+        <div className="flex flex-col items-center justify-center py-24 text-white/20 px-6">
+          <Search className="w-14 h-14 mb-4" />
+          <p className="text-sm font-medium text-white/30">Search songs, artists or movies</p>
           <p className="text-xs mt-1">Press Enter to search</p>
         </div>
       )}

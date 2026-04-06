@@ -1,35 +1,56 @@
 import { Home, Search, Library } from "lucide-react";
-import { useLocation, useNavigate } from "react-router-dom";
 
-const tabs = [
-  { path: "/", icon: Home, label: "Home" },
-  { path: "/search", icon: Search, label: "Search" },
-  { path: "/library", icon: Library, label: "Library" },
+type Page = "home" | "search" | "library";
+
+interface BottomNavProps {
+  page: Page;
+  onNavigate: (page: Page) => void;
+}
+
+const tabs: { key: Page; label: string; Icon: typeof Home }[] = [
+  { key: "home",    label: "Home",    Icon: Home    },
+  { key: "search",  label: "Search",  Icon: Search  },
+  { key: "library", label: "Library", Icon: Library },
 ];
 
-export function BottomNav() {
-  const location = useLocation();
-  const navigate = useNavigate();
-
+export function BottomNav({ page, onNavigate }: BottomNavProps) {
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 glass-surface border-t border-border">
-      <div className="flex items-center justify-around py-2">
-        {tabs.map(({ path, icon: Icon, label }) => {
-          const active = location.pathname === path;
-          return (
-            <button
-              key={path}
-              onClick={() => navigate(path)}
-              className="flex flex-col items-center gap-0.5 py-1 px-4 transition-colors"
+    // h-14 = 56px, matches the bottom-14 offset used by MiniPlayer
+    <nav
+      className="fixed bottom-0 left-0 right-0 z-50 h-14 flex items-center"
+      style={{
+        background: "rgba(10,10,10,0.97)",
+        backdropFilter: "blur(20px)",
+        borderTop: "1px solid rgba(255,255,255,0.07)",
+      }}
+    >
+      {tabs.map(({ key, label, Icon }) => {
+        const active = page === key;
+        return (
+          <button
+            key={key}
+            onClick={() => onNavigate(key)}
+            className="flex-1 flex flex-col items-center justify-center gap-0.5 h-full transition-all active:scale-95"
+          >
+            <Icon
+              className="w-5 h-5 transition-colors"
+              style={{ color: active ? "#f97316" : "rgba(255,255,255,0.4)" }}
+            />
+            <span
+              className="text-[10px] font-medium tracking-wide transition-colors"
+              style={{ color: active ? "#f97316" : "rgba(255,255,255,0.4)" }}
             >
-              <Icon className={`w-5 h-5 ${active ? "text-foreground" : "text-muted-foreground"}`} />
-              <span className={`text-[10px] font-medium ${active ? "text-foreground" : "text-muted-foreground"}`}>
-                {label}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+              {label}
+            </span>
+            {active && (
+              <span
+                className="absolute bottom-0 w-8 h-0.5 rounded-full"
+                style={{ background: "linear-gradient(90deg,#f97316,#ec4899)" }}
+              />
+            )}
+          </button>
+        );
+      })}
     </nav>
   );
 }

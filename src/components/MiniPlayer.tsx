@@ -1,110 +1,117 @@
 import { usePlayer } from "@/context/PlayerContext";
 import { formatDuration } from "@/data/songs";
-import { Play, Pause, SkipBack, SkipForward, Heart, ChevronUp } from "lucide-react";
+import { Play, Pause, SkipForward, ChevronUp } from "lucide-react";
+import { LikeButton } from "@/components/LikeButton";
 
-export function MiniPlayer() {
+interface MiniPlayerProps {
+  onRequireAuth?: () => void;
+}
+
+export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
   const {
     currentSong,
     isPlaying,
     togglePlay,
     nextSong,
-    prevSong,
     progress,
     duration,
     setProgress,
-    toggleFavorite,
-    isFavorite,
     setShowPlayer,
   } = usePlayer();
 
   if (!currentSong) return null;
 
   const totalDuration = duration || currentSong.duration || 1;
-  const pct = (progress / totalDuration) * 100;
+  const pct = Math.min(100, (progress / totalDuration) * 100);
 
   return (
-    <div className="fixed bottom-16 left-0 right-0 z-40 glass-surface border-t border-border animate-slide-up">
-      {/* Progress bar */}
+    // sits just above the bottom nav (which is 56px tall = pb-14 / bottom-14)
+    <div className="fixed bottom-14 left-0 right-0 z-40 px-2 pb-1.5">
       <div
-        className="h-1 bg-muted cursor-pointer"
-        onClick={(e) => {
-          const rect = e.currentTarget.getBoundingClientRect();
-          const ratio = (e.clientX - rect.left) / rect.width;
-          setProgress(Math.floor(ratio * totalDuration));
+        className="rounded-2xl overflow-hidden shadow-2xl"
+        style={{
+          background: "rgba(18,18,18,0.97)",
+          backdropFilter: "blur(24px)",
+          border: "1px solid rgba(255,255,255,0.08)",
         }}
       >
+        {/* Thin progress bar at very top */}
         <div
-          className="h-full bg-primary transition-all duration-1000 ease-linear"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-
-      <div className="flex items-center gap-3 px-4 py-2">
-        {/* Album art */}
-        <div
-          className="w-10 h-10 rounded-full flex-shrink-0 cursor-pointer overflow-hidden bg-card"
-          onClick={() => setShowPlayer(true)}
+          className="h-0.5 w-full cursor-pointer"
+          style={{ background: "rgba(255,255,255,0.08)" }}
+          onClick={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const ratio = (e.clientX - rect.left) / rect.width;
+            setProgress(Math.floor(ratio * totalDuration));
+          }}
         >
-          {currentSong.albumArt ? (
-            <img
-              src={currentSong.albumArt}
-              alt={currentSong.title}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <div className="w-full h-full bg-gradient-to-br from-rose-500 to-purple-600" />
-          )}
+          <div
+            className="h-full transition-all duration-1000 ease-linear rounded-full"
+            style={{
+              width: `${pct}%`,
+              background: "linear-gradient(90deg, #f97316, #ec4899)",
+            }}
+          />
         </div>
 
-        {/* Song info */}
-        <div
-          className="flex-1 min-w-0 cursor-pointer"
-          onClick={() => setShowPlayer(true)}
-        >
-          <p className="text-sm font-medium truncate text-foreground">
-            {currentSong.title}
-          </p>
-          <p className="text-xs text-muted-foreground truncate">
-            {currentSong.artist}
-          </p>
-        </div>
-
-        {/* Controls */}
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => toggleFavorite(currentSong.id)}
-            className="p-2"
-          >
-            <Heart
-              className={`w-4 h-4 ${
-                isFavorite(currentSong.id)
-                  ? "fill-primary text-primary"
-                  : "text-muted-foreground"
-              }`}
-            />
-          </button>
-          <button onClick={prevSong} className="p-2">
-            <SkipBack className="w-4 h-4 text-foreground" />
-          </button>
-          <button
-            onClick={togglePlay}
-            className="p-2 bg-foreground rounded-full w-8 h-8 flex items-center justify-center"
-          >
-            {isPlaying ? (
-              <Pause className="w-4 h-4 text-background" />
-            ) : (
-              <Play className="w-4 h-4 text-background ml-0.5" />
-            )}
-          </button>
-          <button onClick={nextSong} className="p-2">
-            <SkipForward className="w-4 h-4 text-foreground" />
-          </button>
+        <div className="flex items-center gap-3 px-3 py-2.5">
+          {/* Album art — tap to open full player */}
           <button
             onClick={() => setShowPlayer(true)}
-            className="p-2 sm:hidden"
+            className="w-10 h-10 rounded-xl flex-shrink-0 overflow-hidden shadow-lg"
           >
-            <ChevronUp className="w-4 h-4 text-muted-foreground" />
+            {currentSong.albumArt ? (
+              <img
+                src={currentSong.albumArt}
+                alt={currentSong.title}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full bg-gradient-to-br from-orange-500 to-pink-600" />
+            )}
           </button>
+
+          {/* Song info — tap to open full player */}
+          <button
+            className="flex-1 min-w-0 text-left"
+            onClick={() => setShowPlayer(true)}
+          >
+            <p className="text-sm font-semibold truncate text-white leading-tight">
+              {currentSong.title}
+            </p>
+            <p className="text-xs text-white/50 truncate mt-0.5 leading-tight">
+              {currentSong.artist}
+            </p>
+          </button>
+
+          {/* Controls — right side only: like + play + next */}
+          <div className="flex items-center gap-0.5 flex-shrink-0">
+            <LikeButton
+              song={currentSong}
+              onRequireAuth={onRequireAuth}
+              size="sm"
+              className="p-2 text-white/60 hover:text-white"
+            />
+
+            <button
+              onClick={togglePlay}
+              className="w-9 h-9 rounded-full flex items-center justify-center transition-transform active:scale-95"
+              style={{ background: "linear-gradient(135deg, #f97316, #ec4899)" }}
+            >
+              {isPlaying ? (
+                <Pause className="w-4 h-4 text-white fill-white" />
+              ) : (
+                <Play className="w-4 h-4 text-white fill-white ml-0.5" />
+              )}
+            </button>
+
+            <button
+              onClick={nextSong}
+              className="p-2 text-white/60 hover:text-white transition-colors"
+            >
+              <SkipForward className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
     </div>
