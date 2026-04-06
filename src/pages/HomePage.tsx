@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Song, mapApiSong } from "@/data/songs";
-import { api } from "@/services/api";
+import { api, extractResults } from "@/services/api";
 import { SongRow } from "@/components/SongRow";
 import { SongCard } from "@/components/SongCard";
 import { usePlayer } from "@/context/PlayerContext";
@@ -13,14 +13,25 @@ const BASE_URL =
 const PLAYLISTS = {
   trendingHindi: "1134543272",
   trendingTelugu: "1134543280",
-  bollywood2025: "1134543279",
-  romantic: "91369254",
-  party: "1134543281",
-  retro: "1134543277",
+  bollywood2025:  "1134543279",
+  romantic:       "91369254",
+  party:          "1134543281",
+  retro:          "1134543277",
 };
 
+/**
+ * Backend wraps upstream in ApiResponse, giving double-nested structure:
+ *   { data: { data: { songs: [...] } } }   ← playlists
+ *   { data: { data: { results: [...] } } } ← search
+ * extractResults() handles both depths.
+ */
 function mapPlaylistSongs(res: any): Song[] {
-  const songs = res?.data?.songs || res?.data?.list || [];
+  const songs = extractResults(res);
+  return songs.map(mapApiSong).filter((s: Song) => s.audioUrl);
+}
+
+function mapSearchSongs(res: any): Song[] {
+  const songs = extractResults(res);
   return songs.map(mapApiSong).filter((s: Song) => s.audioUrl);
 }
 
@@ -28,110 +39,102 @@ async function wakeServer(): Promise<void> {
   try {
     await fetch(`${BASE_URL}/search/songs?query=hindi&page=1&limit=1`);
   } catch {
-    // ignore, just waking up
+    // ignore — just waking the free Render instance
   }
 }
 
 export default function HomePage() {
   const { recentlyPlayed } = usePlayer();
-  const [trendingHindi, setTrendingHindi] = useState<Song[]>([]);
+  const [trendingHindi,  setTrendingHindi]  = useState<Song[]>([]);
   const [trendingTelugu, setTrendingTelugu] = useState<Song[]>([]);
-  const [bollywood, setBollywood] = useState<Song[]>([]);
-  const [romantic, setRomantic] = useState<Song[]>([]);
-  const [party, setParty] = useState<Song[]>([]);
-  const [retro, setRetro] = useState<Song[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [waking, setWaking] = useState(true);
+  const [bollywood,      setBollywood]      = useState<Song[]>([]);
+  const [romantic,       setRomantic]       = useState<Song[]>([]);
+  const [party,          setParty]          = useState<Song[]>([]);
+  const [retro,          setRetro]          = useState<Song[]>([]);
+  const [loading,        setLoading]        = useState(true);
+  const [waking,         setWaking]         = useState(true);
 
   useEffect(() => {
     const load = async () => {
-      // Step 1: wake the server
       setWaking(true);
       await wakeServer();
       setWaking(false);
 
-      // Step 2: fetch all playlists
       try {
         const [hindi, telugu, bolly, rom, par, ret] = await Promise.all([
-          api.getPlaylist(PLAYLISTS.trendingHindi, 1, 50),
-          api.getPlaylist(PLAYLISTS.trendingTelugu, 1, 50),
-          api.getPlaylist(PLAYLISTS.bollywood2025, 1, 50),
-          api.getPlaylist(PLAYLISTS.romantic, 1, 50),
-          api.getPlaylist(PLAYLISTS.party, 1, 50),
-          api.getPlaylist(PLAYLISTS.retro, 1, 50),
+          api.getPlaylist(PLAYLISTS.trendingHindi),
+          api.getPlaylist(PLAYLISTS.trendingTelugu),
+          api.getPlaylist(PLAYLISTS.bollywood2025),
+          api.getPlaylist(PLAYLISTS.romantic),
+          api.getPlaylist(PLAYLISTS.party),
+          api.getPlaylist(PLAYLISTS.retro),
         ]);
 
-        const h = mapPlaylistSongs(hindi);
-        const t = mapPlaylistSongs(telugu);
-        const b = mapPlaylistSongs(bolly);
-        const r = mapPlaylistSongs(rom);
-        const p = mapPlaylistSongs(par);
+        const h  = mapPlaylistSongs(hindi);
+        const t  = mapPlaylistSongs(telugu);
+        const b  = mapPlaylistSongs(bolly);
+        const r  = mapPlaylistSongs(rom);
+        const p  = mapPlaylistSongs(par);
         const re = mapPlaylistSongs(ret);
 
-        // Fallback to search if playlist empty
+        // If a playlist returned nothing, fall back to a search query
         const fallbacks: Promise<void>[] = [];
 
         if (h.length === 0)
           fallbacks.push(
-            api.searchSongs("top hindi hits 2025", 1, 20).then((res) =>
-              setTrendingHindi((res?.data?.results || []).map(mapApiSong))
-            )
+            api.searchSongs("top hindi hits 2025", 1, 20)
+              .then((res) => setTrendingHindi(mapSearchSongs(res)))
           );
         else setTrendingHindi(h);
 
         if (t.length === 0)
           fallbacks.push(
-            api.searchSongs("top telugu hits 2025", 1, 20).then((res) =>
-              setTrendingTelugu((res?.data?.results || []).map(mapApiSong))
-            )
+            api.searchSongs("top telugu hits 2025", 1, 20)
+              .then((res) => setTrendingTelugu(mapSearchSongs(res)))
           );
         else setTrendingTelugu(t);
 
         if (b.length === 0)
           fallbacks.push(
-            api.searchSongs("latest bollywood 2025", 1, 20).then((res) =>
-              setBollywood((res?.data?.results || []).map(mapApiSong))
-            )
+            api.searchSongs("latest bollywood 2025", 1, 20)
+              .then((res) => setBollywood(mapSearchSongs(res)))
           );
         else setBollywood(b);
 
         if (r.length === 0)
           fallbacks.push(
-            api.searchSongs("hindi romantic songs", 1, 20).then((res) =>
-              setRomantic((res?.data?.results || []).map(mapApiSong))
-            )
+            api.searchSongs("hindi romantic songs", 1, 20)
+              .then((res) => setRomantic(mapSearchSongs(res)))
           );
         else setRomantic(r);
 
         if (p.length === 0)
           fallbacks.push(
-            api.searchSongs("party hits hindi", 1, 20).then((res) =>
-              setParty((res?.data?.results || []).map(mapApiSong))
-            )
+            api.searchSongs("party hits hindi", 1, 20)
+              .then((res) => setParty(mapSearchSongs(res)))
           );
         else setParty(p);
 
         if (re.length === 0)
           fallbacks.push(
-            api.searchSongs("old hindi classic songs", 1, 20).then((res) =>
-              setRetro((res?.data?.results || []).map(mapApiSong))
-            )
+            api.searchSongs("old hindi classic songs", 1, 20)
+              .then((res) => setRetro(mapSearchSongs(res)))
           );
         else setRetro(re);
 
         await Promise.all(fallbacks);
+
       } catch (err) {
-        console.error("Failed to load songs:", err);
-        // Last resort: pure search fallback
+        console.error("Failed to load playlists, using search fallback:", err);
         try {
           const [h, t, b] = await Promise.all([
-            api.searchSongs("top hindi hits 2025", 1, 20),
-            api.searchSongs("top telugu hits 2025", 1, 20),
-            api.searchSongs("latest bollywood 2025", 1, 20),
+            api.searchSongs("top hindi hits 2025",    1, 20),
+            api.searchSongs("top telugu hits 2025",   1, 20),
+            api.searchSongs("latest bollywood 2025",  1, 20),
           ]);
-          setTrendingHindi((h?.data?.results || []).map(mapApiSong));
-          setTrendingTelugu((t?.data?.results || []).map(mapApiSong));
-          setBollywood((b?.data?.results || []).map(mapApiSong));
+          setTrendingHindi(mapSearchSongs(h));
+          setTrendingTelugu(mapSearchSongs(t));
+          setBollywood(mapSearchSongs(b));
         } catch {
           // nothing we can do
         }
@@ -166,7 +169,9 @@ export default function HomePage() {
     ...romantic,
     ...party,
     ...retro,
-  ].filter((song, index, self) => index === self.findIndex((s) => s.id === song.id));
+  ].filter(
+    (song, index, self) => index === self.findIndex((s) => s.id === song.id)
+  );
 
   return (
     <div className="pb-36 px-4 sm:px-6 pt-6 animate-fade-in">
@@ -265,11 +270,20 @@ export default function HomePage() {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="mb-8">
       <h2 className="text-lg font-bold text-foreground mb-3">{title}</h2>
-      <div className="flex gap-4 overflow-x-auto pb-2" style={{ scrollbarWidth: "none" }}>
+      <div
+        className="flex gap-4 overflow-x-auto pb-2"
+        style={{ scrollbarWidth: "none" }}
+      >
         {children}
       </div>
     </div>
@@ -284,11 +298,17 @@ function QuickPick({ song, queue }: { song: Song; queue: Song[] }) {
       className="flex items-center gap-3 bg-card/60 hover:bg-accent rounded-md overflow-hidden transition-colors text-left w-full"
     >
       {song.albumArt ? (
-        <img src={song.albumArt} alt={song.title} className="w-12 h-12 object-cover flex-shrink-0" />
+        <img
+          src={song.albumArt}
+          alt={song.title}
+          className="w-12 h-12 object-cover flex-shrink-0"
+        />
       ) : (
         <div className="w-12 h-12 bg-gradient-to-br from-rose-500 to-purple-600 flex-shrink-0" />
       )}
-      <span className="text-xs font-medium text-foreground truncate pr-2">{song.title}</span>
+      <span className="text-xs font-medium text-foreground truncate pr-2">
+        {song.title}
+      </span>
     </button>
   );
 }

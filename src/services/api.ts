@@ -38,11 +38,33 @@ export const api = {
       .then((r) => r.json()),
 };
 
+/**
+ * The backend wraps the upstream JioSaavn response in its own ApiResponse,
+ * producing a double-nested structure:
+ *   { data: { data: { results: [...] } } }   ← search endpoints
+ *   { data: { data: { songs:   [...] } } }   ← playlist / album endpoints
+ *   { data: { data: { list:    [...] } } }   ← some playlist variants
+ *
+ * We try both depths so the function works regardless of nesting level.
+ */
 export function extractResults(res: any): any[] {
   return (
-    res?.data?.results ||
-    res?.data?.songs ||
-    res?.data?.list ||
-    []
+    // double-nested (backend ApiResponse wrapping upstream response)
+    res?.data?.data?.results ||
+    res?.data?.data?.songs   ||
+    res?.data?.data?.list    ||
+    // single-nested (direct upstream or future fix)
+    res?.data?.results       ||
+    res?.data?.songs         ||
+    res?.data?.list          ||
+    // bare array fallback
+    (Array.isArray(res?.data) ? res.data : [])
   );
+}
+
+/**
+ * Extract playlist/album songs — same double-nesting applies.
+ */
+export function extractSongs(res: any): any[] {
+  return extractResults(res);
 }
