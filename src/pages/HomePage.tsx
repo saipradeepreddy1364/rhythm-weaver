@@ -6,20 +6,30 @@ import { SongCard } from "@/components/SongCard";
 import { usePlayer } from "@/context/PlayerContext";
 import { Loader2 } from "lucide-react";
 
-// JioSaavn curated playlist IDs
-// These are real playlist IDs from JioSaavn with 50-100 songs each
+const BASE_URL =
+  (import.meta as any).env?.VITE_API_BASE_URL ||
+  "https://musicbackend-g2sp.onrender.com/api";
+
 const PLAYLISTS = {
-  trendingHindi: "1134543272",   // Top 50 Hindi Songs
-  trendingTelugu: "1134543280",  // Top 50 Telugu Songs
-  bollywood2025: "1134543279",   // Bollywood 2025
-  romantic: "91369254",          // Romance Classics
-  party: "1134543281",           // Party Hits
-  retro: "1134543277",           // Old is Gold
+  trendingHindi: "1134543272",
+  trendingTelugu: "1134543280",
+  bollywood2025: "1134543279",
+  romantic: "91369254",
+  party: "1134543281",
+  retro: "1134543277",
 };
 
 function mapPlaylistSongs(res: any): Song[] {
   const songs = res?.data?.songs || res?.data?.list || [];
   return songs.map(mapApiSong).filter((s: Song) => s.audioUrl);
+}
+
+async function wakeServer(): Promise<void> {
+  try {
+    await fetch(`${BASE_URL}/search/songs?query=hindi&page=1&limit=1`);
+  } catch {
+    // ignore, just waking up
+  }
 }
 
 export default function HomePage() {
@@ -31,17 +41,26 @@ export default function HomePage() {
   const [party, setParty] = useState<Song[]>([]);
   const [retro, setRetro] = useState<Song[]>([]);
   const [loading, setLoading] = useState(true);
+  const [waking, setWaking] = useState(true);
 
   useEffect(() => {
-    Promise.all([
-      api.getPlaylist(PLAYLISTS.trendingHindi, 1, 50),
-      api.getPlaylist(PLAYLISTS.trendingTelugu, 1, 50),
-      api.getPlaylist(PLAYLISTS.bollywood2025, 1, 50),
-      api.getPlaylist(PLAYLISTS.romantic, 1, 50),
-      api.getPlaylist(PLAYLISTS.party, 1, 50),
-      api.getPlaylist(PLAYLISTS.retro, 1, 50),
-    ])
-      .then(([hindi, telugu, bolly, rom, par, ret]) => {
+    const load = async () => {
+      // Step 1: wake the server
+      setWaking(true);
+      await wakeServer();
+      setWaking(false);
+
+      // Step 2: fetch all playlists
+      try {
+        const [hindi, telugu, bolly, rom, par, ret] = await Promise.all([
+          api.getPlaylist(PLAYLISTS.trendingHindi, 1, 50),
+          api.getPlaylist(PLAYLISTS.trendingTelugu, 1, 50),
+          api.getPlaylist(PLAYLISTS.bollywood2025, 1, 50),
+          api.getPlaylist(PLAYLISTS.romantic, 1, 50),
+          api.getPlaylist(PLAYLISTS.party, 1, 50),
+          api.getPlaylist(PLAYLISTS.retro, 1, 50),
+        ]);
+
         const h = mapPlaylistSongs(hindi);
         const t = mapPlaylistSongs(telugu);
         const b = mapPlaylistSongs(bolly);
@@ -49,8 +68,9 @@ export default function HomePage() {
         const p = mapPlaylistSongs(par);
         const re = mapPlaylistSongs(ret);
 
-        // Fallback to search if playlist returns empty
+        // Fallback to search if playlist empty
         const fallbacks: Promise<void>[] = [];
+
         if (h.length === 0)
           fallbacks.push(
             api.searchSongs("top hindi hits 2025", 1, 20).then((res) =>
@@ -99,22 +119,46 @@ export default function HomePage() {
           );
         else setRetro(re);
 
-        return Promise.all(fallbacks);
-      })
-      .catch((err) => console.error("Failed to load:", err))
-      .finally(() => setLoading(false));
+        await Promise.all(fallbacks);
+      } catch (err) {
+        console.error("Failed to load songs:", err);
+        // Last resort: pure search fallback
+        try {
+          const [h, t, b] = await Promise.all([
+            api.searchSongs("top hindi hits 2025", 1, 20),
+            api.searchSongs("top telugu hits 2025", 1, 20),
+            api.searchSongs("latest bollywood 2025", 1, 20),
+          ]);
+          setTrendingHindi((h?.data?.results || []).map(mapApiSong));
+          setTrendingTelugu((t?.data?.results || []).map(mapApiSong));
+          setBollywood((b?.data?.results || []).map(mapApiSong));
+        } catch {
+          // nothing we can do
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    load();
   }, []);
 
-  if (loading) {
+  if (waking || loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-3">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
-        <p className="text-sm text-muted-foreground">Loading songs...</p>
+        <p className="text-sm text-muted-foreground">
+          {waking ? "Starting music server..." : "Loading songs..."}
+        </p>
+        {waking && (
+          <p className="text-xs text-muted-foreground opacity-60">
+            Free server wakes up in ~15 seconds
+          </p>
+        )}
       </div>
     );
   }
 
-  // Deduplicated all songs list
   const allFetched = [
     ...trendingHindi,
     ...trendingTelugu,
@@ -122,9 +166,7 @@ export default function HomePage() {
     ...romantic,
     ...party,
     ...retro,
-  ].filter(
-    (song, index, self) => index === self.findIndex((s) => s.id === song.id)
-  );
+  ].filter((song, index, self) => index === self.findIndex((s) => s.id === song.id));
 
   return (
     <div className="pb-36 px-4 sm:px-6 pt-6 animate-fade-in">
@@ -144,7 +186,6 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* Recently Played */}
       {recentlyPlayed.length > 0 && (
         <Section title="Recently Played">
           {recentlyPlayed.map((song) => (
@@ -153,7 +194,6 @@ export default function HomePage() {
         </Section>
       )}
 
-      {/* Trending Hindi */}
       {trendingHindi.length > 0 && (
         <Section title={`Trending Hindi (${trendingHindi.length})`}>
           {trendingHindi.map((song) => (
@@ -162,7 +202,6 @@ export default function HomePage() {
         </Section>
       )}
 
-      {/* Trending Telugu */}
       {trendingTelugu.length > 0 && (
         <Section title={`Trending Telugu (${trendingTelugu.length})`}>
           {trendingTelugu.map((song) => (
@@ -171,7 +210,6 @@ export default function HomePage() {
         </Section>
       )}
 
-      {/* Latest Bollywood */}
       {bollywood.length > 0 && (
         <Section title={`Latest Bollywood (${bollywood.length})`}>
           {bollywood.map((song) => (
@@ -180,7 +218,6 @@ export default function HomePage() {
         </Section>
       )}
 
-      {/* Romantic */}
       {romantic.length > 0 && (
         <Section title={`Romantic Vibes (${romantic.length})`}>
           {romantic.map((song) => (
@@ -189,7 +226,6 @@ export default function HomePage() {
         </Section>
       )}
 
-      {/* Party */}
       {party.length > 0 && (
         <Section title={`Party Hits (${party.length})`}>
           {party.map((song) => (
@@ -198,7 +234,6 @@ export default function HomePage() {
         </Section>
       )}
 
-      {/* Retro */}
       {retro.length > 0 && (
         <Section title={`Old is Gold (${retro.length})`}>
           {retro.map((song) => (
@@ -207,7 +242,6 @@ export default function HomePage() {
         </Section>
       )}
 
-      {/* All Songs */}
       {allFetched.length > 0 && (
         <>
           <h2 className="text-lg font-bold text-foreground mt-8 mb-3">
@@ -215,34 +249,27 @@ export default function HomePage() {
           </h2>
           <div className="space-y-0.5">
             {allFetched.map((song, i) => (
-              <SongCard
-                key={song.id}
-                song={song}
-                queue={allFetched}
-                index={i}
-              />
+              <SongCard key={song.id} song={song} queue={allFetched} index={i} />
             ))}
           </div>
         </>
+      )}
+
+      {allFetched.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+          <p className="text-sm">No songs loaded</p>
+          <p className="text-xs mt-1">Try refreshing the page</p>
+        </div>
       )}
     </div>
   );
 }
 
-function Section({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="mb-8">
       <h2 className="text-lg font-bold text-foreground mb-3">{title}</h2>
-      <div
-        className="flex gap-4 overflow-x-auto pb-2"
-        style={{ scrollbarWidth: "none" }}
-      >
+      <div className="flex gap-4 overflow-x-auto pb-2" style={{ scrollbarWidth: "none" }}>
         {children}
       </div>
     </div>
@@ -257,17 +284,11 @@ function QuickPick({ song, queue }: { song: Song; queue: Song[] }) {
       className="flex items-center gap-3 bg-card/60 hover:bg-accent rounded-md overflow-hidden transition-colors text-left w-full"
     >
       {song.albumArt ? (
-        <img
-          src={song.albumArt}
-          alt={song.title}
-          className="w-12 h-12 object-cover flex-shrink-0"
-        />
+        <img src={song.albumArt} alt={song.title} className="w-12 h-12 object-cover flex-shrink-0" />
       ) : (
         <div className="w-12 h-12 bg-gradient-to-br from-rose-500 to-purple-600 flex-shrink-0" />
       )}
-      <span className="text-xs font-medium text-foreground truncate pr-2">
-        {song.title}
-      </span>
+      <span className="text-xs font-medium text-foreground truncate pr-2">{song.title}</span>
     </button>
   );
 }
