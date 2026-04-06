@@ -5,7 +5,17 @@ import { useLibrary } from "@/context/LibraryContext";
 import { usePlayer } from "@/context/PlayerContext";
 import { SongRow } from "@/components/SongRow";
 import type { Song } from "@/data/songs";
-import type { Playlist } from "@/supabase/db";
+
+// Playlist interface defined locally to avoid module resolution issues
+interface Playlist {
+  id: string;
+  name: string;
+  user_id: string;
+  created_at: string;
+  updated_at: string;
+  cover_art?: string;
+  song_count?: number;
+}
 
 interface LibraryPageProps {
   onRequireAuth: () => void;

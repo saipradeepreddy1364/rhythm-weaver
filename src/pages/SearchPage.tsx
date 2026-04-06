@@ -13,7 +13,7 @@ interface Album {
   name: string;
   coverArt: string;
   songs: Song[];
-  year?: string;
+  year?: number;
 }
 
 export default function SearchPage({ onRequireAuth }: SearchPageProps) {
@@ -160,7 +160,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                               {album.coverArt ? (
                                 <img src={album.coverArt} alt={album.name} className="w-full h-full object-cover" />
                               ) : (
-                                <div className="w-full h-full flex items-center justify-center" style={{ background: "linear-gradient(135deg,#f97316,#ec4899)" }}>
+                                <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-orange-500 to-pink-500">
                                   <Disc3 className="w-5 h-5 text-white" />
                                 </div>
                               )}
@@ -175,8 +175,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                                   e.stopPropagation();
                                   playSong(album.songs[0], album.songs);
                                 }}
-                                className="w-8 h-8 rounded-full flex items-center justify-center"
-                                style={{ background: "linear-gradient(135deg,#f97316,#ec4899)" }}
+                                className="w-8 h-8 rounded-full flex items-center justify-center bg-gradient-to-br from-orange-500 to-pink-500"
                               >
                                 <Play className="w-3.5 h-3.5 text-white fill-white ml-0.5" />
                               </button>

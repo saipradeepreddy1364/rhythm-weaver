@@ -8,6 +8,8 @@ export interface Song {
   language?: string;
   year?: number;
   genre?: string;
+  album?: string;      // ADD THIS - for album grouping
+  movie?: string;      // ADD THIS - for movie grouping
 }
 
 export function formatDuration(seconds: number): string {
@@ -45,6 +47,8 @@ export function mapApiSong(item: any): Song {
     language: item.language,
     year: item.year ? Number(item.year) : undefined,
     genre: item.genre,
+    album: item.album || item.movie || "",     // ADD THIS
+    movie: item.movie || item.album || "",     // ADD THIS
   };
 }
 

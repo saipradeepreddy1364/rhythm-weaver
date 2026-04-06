@@ -1,19 +1,16 @@
-import { createClient } from "@supabase/supabase-js";
-import type { Database } from "./types";
-
-const SUPABASE_URL = (import.meta as any).env.VITE_SUPABASE_URL as string;
-const SUPABASE_ANON_KEY = (import.meta as any).env.VITE_SUPABASE_ANON_KEY as string;
-
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  console.error(
-    "Missing Supabase env vars. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to your .env file."
-  );
+export interface Playlist {
+  id: string;
+  name: string;
+  user_id: string;
+  created_at: string;
+  updated_at: string;
+  cover_art?: string;
+  song_count?: number;
 }
 
-export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: {
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: true,
-  },
-});
+export interface PlaylistSong {
+  id: string;
+  playlist_id: string;
+  song_id: string;
+  added_at: string;
+}
