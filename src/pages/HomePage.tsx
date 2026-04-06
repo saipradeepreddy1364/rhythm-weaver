@@ -1,3 +1,14 @@
+/**
+ * HomePage — Spotify-like mobile home screen
+ * Features:
+ *  - 2×N quick-access grid (like Spotify "Good evening")
+ *  - Horizontal album/movie carousels
+ *  - Individual movie album cards with cover art
+ *  - Category chips (language) → loads vertically below
+ *  - Both vertical list rows and horizontal card scrolls
+ *  - No minimum song count enforced
+ */
+
 import { useState, useEffect, useCallback } from "react";
 import { api, extractResults } from "@/services/api";
 import { Song, mapApiSong } from "@/data/songs";
@@ -41,7 +52,14 @@ function groupIntoAlbums(songs: Song[]): Album[] {
     const key = s.album || s.movie || "";
     if (!key) return;
     if (!map.has(key)) {
-      map.set(key, { id: key, name: key, artist: s.artist, coverArt: s.albumArt || "", songs: [], year: s.year });
+      map.set(key, { 
+        id: key, 
+        name: key, 
+        artist: s.artist, 
+        coverArt: s.albumArt || "", 
+        songs: [], 
+        year: s.year 
+      });
     }
     map.get(key)!.songs.push(s);
   });
@@ -302,7 +320,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
             {/* Solo song cards — horizontal scroll */}
             {hasSoloSongs && !section.showSongRows && (
               <HorizontalScroll>
-                {soloSongs.map((song) => (
+                {soloSongs.slice(0, 10).map((song) => (
                   <SongCard key={song.id} song={song} queue={soloSongs} />
                 ))}
               </HorizontalScroll>
@@ -311,7 +329,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
             {/* Solo song rows — vertical list */}
             {hasSoloSongs && section.showSongRows && (
               <div className="px-2 space-y-0.5">
-                {soloSongs.map((song) => (
+                {soloSongs.slice(0, 8).map((song) => (
                   <SongRow key={song.id} song={song} queue={section.songs} onRequireAuth={onRequireAuth} />
                 ))}
               </div>
@@ -422,10 +440,24 @@ function SongCard({ song, queue }: { song: Song; queue: Song[] }) {
     >
       <div className="relative w-32 h-32 rounded-xl overflow-hidden mb-2 shadow-lg">
         {song.albumArt ? (
-          <img src={song.albumArt} alt={song.title} className="w-full h-full object-cover" />
+          <img src={song.albumArt} alt={song.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
         ) : (
           <div className="w-full h-full bg-gradient-to-br from-orange-500 to-pink-500" />
         )}
+        {/* Play overlay on hover/active */}
+        <div className="absolute inset-0 bg-black/0 group-active:bg-black/40 transition-all flex items-center justify-center">
+          <div
+            className="w-9 h-9 rounded-full flex items-center justify-center shadow-lg opacity-0 group-active:opacity-100 transition-all"
+            style={{ background: "linear-gradient(135deg,#f97316,#ec4899)" }}
+          >
+            {isActive && isPlaying ? (
+              <Pause className="w-4 h-4 text-white fill-white" />
+            ) : (
+              <Play className="w-4 h-4 text-white fill-white ml-0.5" />
+            )}
+          </div>
+        </div>
+        {/* Playing indicator */}
         {isActive && isPlaying && (
           <div className="absolute bottom-2 right-2 flex items-end gap-0.5">
             {[0, 150, 300].map((d) => (
@@ -435,16 +467,6 @@ function SongCard({ song, queue }: { song: Song; queue: Song[] }) {
                 style={{ background: "#f97316", height: d === 150 ? "12px" : "8px", animationDelay: `${d}ms` }}
               />
             ))}
-          </div>
-        )}
-        {/* Pause overlay when active */}
-        {isActive && (
-          <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
-            {isPlaying ? (
-              <Pause className="w-8 h-8 text-white fill-white" />
-            ) : (
-              <Play className="w-8 h-8 text-white fill-white ml-1" />
-            )}
           </div>
         )}
       </div>
