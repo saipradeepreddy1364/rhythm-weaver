@@ -7,6 +7,7 @@
  *  - Category chips (language) → loads vertically below
  *  - Both vertical list rows and horizontal card scrolls
  *  - No minimum song count enforced
+ *  - True Spotify mobile aesthetic
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -20,7 +21,7 @@ import {
   Play, Pause, ChevronRight, Disc3, Flame,
   Sparkles, TrendingUp, Heart, Mic2,
   Music2, Headphones, Star, Globe2, Loader2,
-  Radio, Zap, Clock,
+  Radio, Zap, Clock, Bell, Settings,
 } from "lucide-react";
 
 interface HomePageProps {
@@ -67,12 +68,12 @@ function greeting() {
 }
 
 const QUICK_ACCESS = [
-  { label: "Liked Songs",    gradient: "from-indigo-600 to-blue-500",   icon: <Heart className="w-4 h-4 fill-white" /> },
-  { label: "Latest Telugu",  gradient: "from-orange-500 to-red-500",    icon: <Zap className="w-4 h-4" /> },
-  { label: "Hindi Hits",     gradient: "from-pink-500 to-rose-500",     icon: <Mic2 className="w-4 h-4" /> },
-  { label: "Tamil Fresh",    gradient: "from-purple-500 to-violet-500", icon: <Headphones className="w-4 h-4" /> },
-  { label: "Punjabi Beats",  gradient: "from-yellow-500 to-amber-500",  icon: <Music2 className="w-4 h-4" /> },
-  { label: "Chill Vibes",    gradient: "from-teal-500 to-cyan-500",     icon: <Radio className="w-4 h-4" /> },
+  { label: "Liked Songs",   gradient: "from-indigo-700 to-blue-600",   icon: <Heart className="w-4 h-4 fill-white text-white" /> },
+  { label: "Latest Telugu", gradient: "from-orange-600 to-red-600",    icon: <Zap className="w-4 h-4 text-white" /> },
+  { label: "Hindi Hits",    gradient: "from-pink-600 to-rose-600",     icon: <Mic2 className="w-4 h-4 text-white" /> },
+  { label: "Tamil Fresh",   gradient: "from-purple-700 to-violet-600", icon: <Headphones className="w-4 h-4 text-white" /> },
+  { label: "Punjabi Beats", gradient: "from-yellow-600 to-amber-500",  icon: <Music2 className="w-4 h-4 text-white" /> },
+  { label: "Chill Vibes",   gradient: "from-teal-600 to-cyan-500",     icon: <Radio className="w-4 h-4 text-white" /> },
 ];
 
 const LANGUAGES = [
@@ -103,20 +104,20 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
     setLoading(true);
     try {
       const queries = [
-        { id: "trending",  title: "Trending Now",          subtitle: "Top hits this week",        icon: <TrendingUp className="w-4 h-4" />, query: "trending india 2025",           showSongRows: false },
-        { id: "telugu25",  title: "Telugu Blockbusters",   subtitle: "Latest Tollywood fire",     icon: <Flame className="w-4 h-4" />,      query: "telugu hits 2025",              showSongRows: true  },
-        { id: "hindi25",   title: "Bollywood Now",         subtitle: "Fresh from Bollywood",      icon: <Sparkles className="w-4 h-4" />,   query: "bollywood 2025",                showSongRows: true  },
-        { id: "tamil25",   title: "Kollywood Vibes",       subtitle: "Tamil chart-toppers",       icon: <Music2 className="w-4 h-4" />,     query: "tamil hits 2025",               showSongRows: true  },
-        { id: "punjabi",   title: "Punjabi Bangers",       subtitle: "Dance & party anthems",     icon: <Zap className="w-4 h-4" />,        query: "punjabi songs 2025",            showSongRows: false },
-        { id: "kannada",   title: "Sandalwood Hits",       subtitle: "Latest Kannada music",      icon: <Globe2 className="w-4 h-4" />,     query: "kannada songs 2025",            showSongRows: true  },
-        { id: "malayalam", title: "Mollywood Melodies",    subtitle: "Kerala's finest",           icon: <Headphones className="w-4 h-4" />, query: "malayalam hits 2025",           showSongRows: true  },
-        { id: "retro",     title: "Evergreen Classics",    subtitle: "All-time favourites",       icon: <Star className="w-4 h-4" />,       query: "old hindi classic songs 90s",   showSongRows: true  },
-        { id: "romantic",  title: "Love Songs",            subtitle: "For every mood",            icon: <Heart className="w-4 h-4" />,      query: "romantic hindi songs",          showSongRows: true  },
-        { id: "lofi",      title: "Late Night Lofi",       subtitle: "Chill & focus",             icon: <Radio className="w-4 h-4" />,      query: "lofi chill hindi",              showSongRows: false },
-        { id: "anirudh",   title: "Anirudh Universe",      subtitle: "The maestro's world",       icon: <Mic2 className="w-4 h-4" />,       query: "anirudh ravichander hits",      showSongRows: true  },
-        { id: "arrahman",  title: "A.R. Rahman Classics",  subtitle: "Timeless masterpieces",     icon: <Star className="w-4 h-4" />,       query: "a r rahman hits",               showSongRows: true  },
-        { id: "devotional",title: "Devotional & Bhakti",   subtitle: "Spiritual classics",        icon: <Sparkles className="w-4 h-4" />,   query: "devotional bhakti songs hindi", showSongRows: false },
-        { id: "english",   title: "Global Hits",           subtitle: "English pop & more",        icon: <Globe2 className="w-4 h-4" />,     query: "english pop hits 2025",         showSongRows: false },
+        { id: "trending",   title: "Trending Now",         subtitle: "Top hits this week",      icon: <TrendingUp className="w-4 h-4" />, query: "trending india 2025",           showSongRows: false },
+        { id: "telugu25",   title: "Telugu Blockbusters",  subtitle: "Latest Tollywood fire",   icon: <Flame className="w-4 h-4" />,      query: "telugu hits 2025",              showSongRows: true  },
+        { id: "hindi25",    title: "Bollywood Now",        subtitle: "Fresh from Bollywood",    icon: <Sparkles className="w-4 h-4" />,   query: "bollywood 2025",                showSongRows: true  },
+        { id: "tamil25",    title: "Kollywood Vibes",      subtitle: "Tamil chart-toppers",     icon: <Music2 className="w-4 h-4" />,     query: "tamil hits 2025",               showSongRows: true  },
+        { id: "punjabi",    title: "Punjabi Bangers",      subtitle: "Dance & party anthems",   icon: <Zap className="w-4 h-4" />,        query: "punjabi songs 2025",            showSongRows: false },
+        { id: "kannada",    title: "Sandalwood Hits",      subtitle: "Latest Kannada music",    icon: <Globe2 className="w-4 h-4" />,     query: "kannada songs 2025",            showSongRows: true  },
+        { id: "malayalam",  title: "Mollywood Melodies",   subtitle: "Kerala's finest",         icon: <Headphones className="w-4 h-4" />, query: "malayalam hits 2025",           showSongRows: true  },
+        { id: "retro",      title: "Evergreen Classics",   subtitle: "All-time favourites",     icon: <Star className="w-4 h-4" />,       query: "old hindi classic songs 90s",   showSongRows: true  },
+        { id: "romantic",   title: "Love Songs",           subtitle: "For every mood",          icon: <Heart className="w-4 h-4" />,      query: "romantic hindi songs",          showSongRows: true  },
+        { id: "lofi",       title: "Late Night Lofi",      subtitle: "Chill & focus",           icon: <Radio className="w-4 h-4" />,      query: "lofi chill hindi",              showSongRows: false },
+        { id: "anirudh",    title: "Anirudh Universe",     subtitle: "The maestro's world",     icon: <Mic2 className="w-4 h-4" />,       query: "anirudh ravichander hits",      showSongRows: true  },
+        { id: "arrahman",   title: "A.R. Rahman Classics", subtitle: "Timeless masterpieces",   icon: <Star className="w-4 h-4" />,       query: "a r rahman hits",               showSongRows: true  },
+        { id: "devotional", title: "Devotional & Bhakti",  subtitle: "Spiritual classics",      icon: <Sparkles className="w-4 h-4" />,   query: "devotional bhakti songs hindi", showSongRows: false },
+        { id: "english",    title: "Global Hits",          subtitle: "English pop & more",      icon: <Globe2 className="w-4 h-4" />,     query: "english pop hits 2025",         showSongRows: false },
       ];
 
       const results = await Promise.all(
@@ -169,14 +170,57 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
   const recentSongs = recentlyPlayed.slice(0, 6);
 
   return (
-    <div className="pb-4 overflow-y-auto" style={{ background: "#0a0a0a" }}>
+    <div className="pb-4 overflow-y-auto" style={{ background: "#121212" }}>
 
-      {/* ── Greeting ── */}
-      <div className="px-4 pt-5 pb-4">
-        <h1 className="text-2xl font-bold text-white tracking-tight">
-          Good {greeting()}
-          {user && <span className="text-white/50">, {user.email?.split("@")[0]}</span>}
-        </h1>
+      {/* ── Top bar (Spotify style) ── */}
+      <div className="flex items-center justify-between px-4 pt-12 pb-4">
+        <div className="flex items-center gap-3">
+          {user ? (
+            <div
+              className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-white"
+              style={{ background: "linear-gradient(135deg,#1DB954,#1ed760)" }}
+            >
+              {user.email?.charAt(0).toUpperCase() ?? "U"}
+            </div>
+          ) : (
+            <div
+              className="w-8 h-8 rounded-full flex items-center justify-center"
+              style={{ background: "rgba(255,255,255,0.1)" }}
+            >
+              <span className="text-white/60 text-xs font-bold">P</span>
+            </div>
+          )}
+          <h1 className="text-2xl font-bold text-white tracking-tight">
+            Good {greeting()}
+          </h1>
+        </div>
+        <div className="flex items-center gap-2">
+          <button className="w-8 h-8 flex items-center justify-center rounded-full" style={{ background: "rgba(255,255,255,0.06)" }}>
+            <Bell className="w-4 h-4 text-white/70" />
+          </button>
+          <button className="w-8 h-8 flex items-center justify-center rounded-full" style={{ background: "rgba(255,255,255,0.06)" }}>
+            <Clock className="w-4 h-4 text-white/70" />
+          </button>
+          <button className="w-8 h-8 flex items-center justify-center rounded-full" style={{ background: "rgba(255,255,255,0.06)" }}>
+            <Settings className="w-4 h-4 text-white/70" />
+          </button>
+        </div>
+      </div>
+
+      {/* ── Filter chips (All / Music / Podcasts) ── */}
+      <div className="flex gap-2 px-4 mb-5">
+        {["All", "Music", "Podcasts"].map((chip, i) => (
+          <button
+            key={chip}
+            className="px-4 py-1.5 rounded-full text-sm font-semibold transition-all active:scale-95"
+            style={{
+              background: i === 0 ? "#1DB954" : "rgba(255,255,255,0.1)",
+              color: "#fff",
+            }}
+          >
+            {chip}
+          </button>
+        ))}
       </div>
 
       {/* ── Quick Access 2-col Grid (Spotify style) ── */}
@@ -185,15 +229,16 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
           {QUICK_ACCESS.map((item) => (
             <button
               key={item.label}
-              className="flex items-center gap-3 rounded-lg overflow-hidden text-left active:scale-95 transition-transform"
-              style={{ background: "rgba(255,255,255,0.08)", height: "52px" }}
+              className="flex items-center gap-0 rounded-md overflow-hidden text-left active:scale-95 transition-transform"
+              style={{ background: "rgba(255,255,255,0.12)", height: "52px" }}
             >
+              {/* Left color block with icon */}
               <div
-                className={`w-14 h-full flex-shrink-0 flex items-center justify-center bg-gradient-to-br ${item.gradient}`}
+                className={`w-14 h-full flex items-center justify-center flex-shrink-0 bg-gradient-to-br ${item.gradient}`}
               >
-                <span className="text-white">{item.icon}</span>
+                {item.icon}
               </div>
-              <span className="text-sm font-semibold text-white pr-2 leading-tight">
+              <span className="flex-1 px-3 text-sm font-semibold text-white leading-tight line-clamp-2">
                 {item.label}
               </span>
             </button>
@@ -204,7 +249,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
       {/* ── Recently Played ── */}
       {recentSongs.length > 0 && (
         <div className="mb-6">
-          <SectionHeader title="Recently Played" icon={<Clock className="w-4 h-4" />} />
+          <SectionHeader title="Recently played" />
           <HorizontalScroll>
             {recentSongs.map((song) => (
               <SongCard key={song.id} song={song} queue={recentSongs} />
@@ -213,60 +258,52 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
         </div>
       )}
 
-      {/* ── Language Filter Chips ── */}
-      <div className="mb-6">
-        <SectionHeader title="Browse by Language" />
+      {/* ── Language chips ── */}
+      <div className="mb-2 px-4">
+        <p className="text-[13px] font-semibold text-white/40 uppercase tracking-widest mb-3">Browse by language</p>
         <div
-          className="flex gap-2 overflow-x-auto px-4 pb-1"
-          style={{ scrollbarWidth: "none" }}
+          className="flex gap-2 overflow-x-auto pb-1"
+          style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" } as React.CSSProperties}
         >
-          {LANGUAGES.map((lang) => {
-            const active = activeLang === lang.label;
-            return (
-              <button
-                key={lang.label}
-                onClick={() => handleLangClick(lang)}
-                className="flex-shrink-0 px-4 py-2 rounded-full text-sm font-semibold transition-all active:scale-95"
-                style={{
-                  background: active ? lang.color : "rgba(255,255,255,0.08)",
-                  color: active ? "#fff" : "rgba(255,255,255,0.6)",
-                  border: `1px solid ${active ? lang.color : "transparent"}`,
-                }}
-              >
-                {lang.label}
-              </button>
-            );
-          })}
+          {LANGUAGES.map((lang) => (
+            <button
+              key={lang.label}
+              onClick={() => handleLangClick(lang)}
+              className="flex-shrink-0 px-4 py-1.5 rounded-full text-sm font-semibold transition-all active:scale-95"
+              style={{
+                background: activeLang === lang.label ? lang.color : "rgba(255,255,255,0.08)",
+                color: activeLang === lang.label ? "#fff" : "rgba(255,255,255,0.7)",
+                border: activeLang === lang.label ? "none" : "1px solid rgba(255,255,255,0.1)",
+              }}
+            >
+              {lang.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* ── Language Results ── */}
+      {/* ── Language results ── */}
       {activeLang && (
-        <div id="lang-results" className="mb-6">
+        <div id="lang-results" className="mb-6 mt-4">
           {langLoading ? (
-            <div className="flex justify-center py-10">
-              <Loader2 className="w-6 h-6 animate-spin text-orange-500" />
+            <div className="flex justify-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin" style={{ color: "#1DB954" }} />
             </div>
           ) : (
             <>
+              <SectionHeader title={`${activeLang} Albums`} />
               {langAlbums.length > 0 && (
-                <div className="mb-4">
-                  <SectionHeader title={`${activeLang} Albums`} subtitle="Movie & album collections" />
-                  <HorizontalScroll>
-                    {langAlbums.map((album) => (
-                      <AlbumCard key={album.id} album={album} />
-                    ))}
-                  </HorizontalScroll>
-                </div>
+                <HorizontalScroll>
+                  {langAlbums.map((album) => (
+                    <AlbumCard key={album.id} album={album} />
+                  ))}
+                </HorizontalScroll>
               )}
               {langSongs.length > 0 && (
-                <div className="mb-4">
-                  <SectionHeader title={`${activeLang} Songs`} />
-                  <div className="px-2 space-y-0.5">
-                    {langSongs.map((song) => (
-                      <SongRow key={song.id} song={song} queue={langSongs} onRequireAuth={onRequireAuth} />
-                    ))}
-                  </div>
+                <div className="mt-3 px-2 space-y-0.5">
+                  {langSongs.map((song) => (
+                    <SongRow key={song.id} song={song} queue={langSongs} onRequireAuth={onRequireAuth} />
+                  ))}
                 </div>
               )}
             </>
@@ -274,10 +311,10 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
         </div>
       )}
 
-      {/* ── Loading skeleton ── */}
+      {/* ── Loading ── */}
       {loading && (
         <div className="flex justify-center py-16">
-          <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
+          <Loader2 className="w-8 h-8 animate-spin" style={{ color: "#1DB954" }} />
         </div>
       )}
 
@@ -353,13 +390,13 @@ function SectionHeader({
     <div className="flex items-end justify-between px-4 mb-3">
       <div className="flex-1">
         <div className="flex items-center gap-2">
-          {icon && <span className="text-orange-400">{icon}</span>}
+          {icon && <span style={{ color: "#1DB954" }}>{icon}</span>}
           <h2 className="font-bold text-[17px] text-white tracking-tight leading-tight">{title}</h2>
         </div>
-        {subtitle && <p className="text-xs text-white/30 mt-0.5">{subtitle}</p>}
+        {subtitle && <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>{subtitle}</p>}
       </div>
       {onMore && (
-        <button onClick={onMore} className="flex items-center gap-0.5 text-xs text-white/30 hover:text-white/60">
+        <button onClick={onMore} className="flex items-center gap-0.5 text-xs font-semibold" style={{ color: "#1DB954" }}>
           See all <ChevronRight className="w-3.5 h-3.5" />
         </button>
       )}
@@ -370,7 +407,7 @@ function SectionHeader({
 function HorizontalScroll({ children }: { children: React.ReactNode }) {
   return (
     <div
-      className="flex gap-3 overflow-x-auto px-4 pb-2"
+      className="flex gap-4 overflow-x-auto px-4 pb-2"
       style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" } as React.CSSProperties}
     >
       {children}
@@ -383,9 +420,9 @@ function AlbumCard({ album }: { album: Album }) {
   return (
     <button
       onClick={() => album.songs[0] && playSong(album.songs[0], album.songs)}
-      className="flex-shrink-0 w-36 text-left group active:scale-95 transition-transform"
+      className="flex-shrink-0 w-40 text-left group active:scale-95 transition-transform"
     >
-      <div className="relative w-36 h-36 rounded-xl overflow-hidden mb-2 shadow-lg">
+      <div className="relative w-40 h-40 rounded-lg overflow-hidden mb-2 shadow-lg">
         {album.coverArt ? (
           <img
             src={album.coverArt}
@@ -393,31 +430,27 @@ function AlbumCard({ album }: { album: Album }) {
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
           />
         ) : (
-          <div className="w-full h-full bg-gradient-to-br from-orange-500 to-pink-500 flex items-center justify-center">
-            <Disc3 className="w-8 h-8 text-white/60" />
+          <div
+            className="w-full h-full flex items-center justify-center"
+            style={{ background: "linear-gradient(135deg,#333,#555)" }}
+          >
+            <Disc3 className="w-10 h-10" style={{ color: "rgba(255,255,255,0.3)" }} />
           </div>
         )}
-        {/* Play overlay on active */}
-        <div className="absolute inset-0 bg-black/0 group-active:bg-black/40 transition-all flex items-center justify-center">
+        {/* Green play button on hover/active */}
+        <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-all translate-y-1 group-hover:translate-y-0 group-active:translate-y-0">
           <div
-            className="w-10 h-10 rounded-full flex items-center justify-center shadow-lg opacity-0 group-active:opacity-100 transition-all"
-            style={{ background: "linear-gradient(135deg,#f97316,#ec4899)" }}
+            className="w-10 h-10 rounded-full flex items-center justify-center shadow-xl"
+            style={{ background: "#1DB954" }}
           >
-            <Play className="w-4 h-4 text-white fill-white ml-0.5" />
+            <Play className="w-5 h-5 text-black fill-black ml-0.5" />
           </div>
         </div>
-        {/* Song count badge */}
-        {album.songs.length > 1 && (
-          <div
-            className="absolute bottom-2 left-2 text-[10px] font-semibold text-white/80 px-1.5 py-0.5 rounded-full"
-            style={{ background: "rgba(0,0,0,0.6)" }}
-          >
-            {album.songs.length} songs
-          </div>
-        )}
       </div>
       <p className="text-sm font-semibold text-white truncate leading-tight">{album.name}</p>
-      <p className="text-xs text-white/40 truncate mt-0.5">{album.artist}</p>
+      <p className="text-xs truncate mt-0.5" style={{ color: "rgba(255,255,255,0.5)" }}>
+        {album.artist}{album.year ? ` · ${album.year}` : ""}
+      </p>
     </button>
   );
 }
@@ -429,38 +462,58 @@ function SongCard({ song, queue }: { song: Song; queue: Song[] }) {
   return (
     <button
       onClick={() => (isActive ? togglePlay() : playSong(song, queue))}
-      className="flex-shrink-0 w-32 text-left group active:scale-95 transition-transform"
+      className="flex-shrink-0 w-36 text-left group active:scale-95 transition-transform"
     >
-      <div className="relative w-32 h-32 rounded-xl overflow-hidden mb-2 shadow-lg">
+      <div className="relative w-36 h-36 rounded-lg overflow-hidden mb-2 shadow-lg">
         {song.albumArt ? (
           <img src={song.albumArt} alt={song.title} className="w-full h-full object-cover" />
         ) : (
-          <div className="w-full h-full bg-gradient-to-br from-orange-500 to-pink-500" />
+          <div
+            className="w-full h-full flex items-center justify-center"
+            style={{ background: "#333" }}
+          >
+            <Music2 className="w-8 h-8" style={{ color: "rgba(255,255,255,0.2)" }} />
+          </div>
         )}
+        {/* Play bars when active */}
         {isActive && isPlaying && (
           <div className="absolute bottom-2 right-2 flex items-end gap-0.5">
-            {[0, 150, 300].map((d) => (
+            {[8, 14, 10].map((h, i) => (
               <div
-                key={d}
+                key={i}
                 className="w-0.5 rounded-full animate-pulse"
-                style={{ background: "#f97316", height: d === 150 ? "12px" : "8px", animationDelay: `${d}ms` }}
+                style={{ background: "#1DB954", height: `${h}px`, animationDelay: `${i * 150}ms` }}
               />
             ))}
           </div>
         )}
-        {/* Pause overlay when active */}
+        {/* Play/pause overlay when active */}
         {isActive && (
-          <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
+          <div
+            className="absolute inset-0 flex items-center justify-center"
+            style={{ background: "rgba(0,0,0,0.35)" }}
+          >
             {isPlaying ? (
-              <Pause className="w-8 h-8 text-white fill-white" />
+              <Pause className="w-8 h-8 fill-white text-white" />
             ) : (
-              <Play className="w-8 h-8 text-white fill-white ml-1" />
+              <Play className="w-8 h-8 fill-white text-white ml-1" />
             )}
           </div>
         )}
+        {/* Green play button on hover (inactive) */}
+        {!isActive && (
+          <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-all translate-y-1 group-hover:translate-y-0 group-active:translate-y-0">
+            <div
+              className="w-9 h-9 rounded-full flex items-center justify-center shadow-lg"
+              style={{ background: "#1DB954" }}
+            >
+              <Play className="w-4 h-4 text-black fill-black ml-0.5" />
+            </div>
+          </div>
+        )}
       </div>
-      <p className="text-xs font-semibold text-white truncate leading-tight">{song.title}</p>
-      <p className="text-[10px] text-white/40 truncate mt-0.5">{song.artist}</p>
+      <p className="text-sm font-semibold text-white truncate leading-tight">{song.title}</p>
+      <p className="text-xs truncate mt-0.5" style={{ color: "rgba(255,255,255,0.5)" }}>{song.artist}</p>
     </button>
   );
 }
