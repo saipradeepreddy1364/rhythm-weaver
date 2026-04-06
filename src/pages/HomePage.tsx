@@ -1,6 +1,11 @@
 /**
- * HomePage — Spotify-like mobile-first music home screen
- * Features: Vertical scrolling sections with horizontal scrolling cards
+ * HomePage — Full Spotify-like mobile home screen
+ * Features:
+ *  - Top quick-access 2×N grid (like Spotify's "Good evening" section)
+ *  - Horizontal scrolling album/artist/song carousels per section
+ *  - Multi-language: Hindi, Telugu, Tamil, Kannada, Malayalam, Punjabi, Bengali, Marathi
+ *  - Individual songs, albums, and artist rows
+ *  - No song limits — loads all results
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -11,11 +16,11 @@ import { usePlayer } from "@/context/PlayerContext";
 import { useLibrary } from "@/context/LibraryContext";
 import { useAuth } from "@/context/AuthContext";
 import {
-  Play, ChevronRight, Disc3, Flame, Clock,
-  Sparkles, Radio, TrendingUp, Heart, Mic2,
-  Music2, Headphones, Calendar, Star,
+  Play, Pause, ChevronRight, Disc3, Flame,
+  Sparkles, TrendingUp, Heart, Mic2,
+  Music2, Headphones, Star, Globe2, Loader2,
+  Radio, Zap, Clock, ListMusic,
 } from "lucide-react";
-import { Loader2 } from "lucide-react";
 
 interface HomePageProps {
   onRequireAuth: () => void;
@@ -38,25 +43,8 @@ interface Section {
   songs: Song[];
   albums?: Album[];
   type: "songs" | "albums" | "mix" | "featured";
+  showSongRows?: boolean;
 }
-
-const MOODS = [
-  { label: "Chill", emoji: "🌙", gradient: "from-blue-500/20 to-purple-500/20" },
-  { label: "Focus", emoji: "🎯", gradient: "from-green-500/20 to-teal-500/20" },
-  { label: "Energize", emoji: "⚡", gradient: "from-yellow-500/20 to-orange-500/20" },
-  { label: "Party", emoji: "🎉", gradient: "from-pink-500/20 to-red-500/20" },
-  { label: "Romance", emoji: "💕", gradient: "from-rose-500/20 to-pink-500/20" },
-  { label: "Feel-good", emoji: "😊", gradient: "from-emerald-500/20 to-green-500/20" },
-  { label: "Commute", emoji: "🚇", gradient: "from-indigo-500/20 to-blue-500/20" },
-  { label: "Gaming", emoji: "🎮", gradient: "from-purple-500/20 to-violet-500/20" },
-];
-
-const GENRES = [
-  { label: "Hindi", icon: <Mic2 className="w-4 h-4" />, gradient: "from-orange-500/30 to-red-500/30" },
-  { label: "Telugu", icon: <Music2 className="w-4 h-4" />, gradient: "from-purple-500/30 to-pink-500/30" },
-  { label: "Tamil", icon: <Headphones className="w-4 h-4" />, gradient: "from-blue-500/30 to-cyan-500/30" },
-  { label: "Punjabi", icon: <Calendar className="w-4 h-4" />, gradient: "from-yellow-500/30 to-orange-500/30" },
-];
 
 function groupIntoAlbums(songs: Song[]): Album[] {
   const map = new Map<string, Album>();
@@ -78,52 +66,89 @@ function groupIntoAlbums(songs: Song[]): Album[] {
   return Array.from(map.values()).filter((a) => a.songs.length >= 2);
 }
 
+function greeting() {
+  const h = new Date().getHours();
+  if (h < 12) return "morning";
+  if (h < 17) return "afternoon";
+  return "evening";
+}
+
+// Quick-access items (Spotify top grid)
+const QUICK_ACCESS = [
+  { label: "Liked Songs", icon: <Heart className="w-4 h-4" />, gradient: "from-indigo-600 to-blue-400", query: null },
+  { label: "Latest Telugu", icon: <Zap className="w-4 h-4" />, gradient: "from-orange-500 to-red-500", query: "latest telugu 2025" },
+  { label: "Hindi Hits", icon: <Mic2 className="w-4 h-4" />, gradient: "from-pink-500 to-rose-400", query: "hindi hits 2025" },
+  { label: "Tamil Fresh", icon: <Headphones className="w-4 h-4" />, gradient: "from-purple-500 to-violet-400", query: "latest tamil 2025" },
+  { label: "Punjabi Beats", icon: <Music2 className="w-4 h-4" />, gradient: "from-yellow-500 to-amber-400", query: "punjabi 2025" },
+  { label: "Chill Vibes", icon: <Radio className="w-4 h-4" />, gradient: "from-teal-500 to-cyan-400", query: "lofi chill songs" },
+];
+
+// Language genre chips
+const LANGUAGES = [
+  { label: "Hindi",     query: "hindi songs 2025",         color: "#f97316" },
+  { label: "Telugu",    query: "telugu songs 2025",        color: "#ec4899" },
+  { label: "Tamil",     query: "tamil songs 2025",         color: "#8b5cf6" },
+  { label: "Kannada",   query: "kannada songs 2025",       color: "#06b6d4" },
+  { label: "Malayalam", query: "malayalam songs 2025",     color: "#10b981" },
+  { label: "Punjabi",   query: "punjabi songs 2025",       color: "#f59e0b" },
+  { label: "Bengali",   query: "bengali songs 2025",       color: "#e11d48" },
+  { label: "Marathi",   query: "marathi songs 2025",       color: "#6366f1" },
+  { label: "English",   query: "english pop hits 2025",    color: "#64748b" },
+];
+
 export default function HomePage({ onRequireAuth }: HomePageProps) {
   const { playSong } = usePlayer();
   const { recentlyPlayed } = useLibrary();
   const { user } = useAuth();
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const [sections, setSections] = useState<Section[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedMood, setSelectedMood] = useState<string | null>(null);
-  const [moodSongs, setMoodSongs] = useState<Song[]>([]);
-  const [moodLoading, setMoodLoading] = useState(false);
-  const [featuredPlaylists, setFeaturedPlaylists] = useState<Album[]>([]);
+  const [activeLang, setActiveLang] = useState<string | null>(null);
+  const [langSongs, setLangSongs] = useState<Song[]>([]);
+  const [langAlbums, setLangAlbums] = useState<Album[]>([]);
+  const [langLoading, setLangLoading] = useState(false);
+  const [quickSongs, setQuickSongs] = useState<Record<string, Song[]>>({});
 
   const loadHome = useCallback(async () => {
     setLoading(true);
     try {
-      // Fetch multiple trending/curated queries in parallel
-      const queries = [
-        { id: "trending", title: "Trending Now", subtitle: "Top hits this week", icon: <TrendingUp className="w-4 h-4" />, query: "trending hindi 2025", limit: 30 },
-        { id: "telugu", title: "Telugu Blockbusters", subtitle: "Latest Tollywood hits", icon: <Flame className="w-4 h-4" />, query: "telugu hits 2025", limit: 30 },
-        { id: "bollywood", title: "Bollywood Cafeteria", subtitle: "Fresh Hindi cinema", icon: <Sparkles className="w-4 h-4" />, query: "bollywood hits 2025", limit: 30 },
-        { id: "lofi", title: "Late Night Vibes", subtitle: "Chill & relax", icon: <Radio className="w-4 h-4" />, query: "lofi chill hindi", limit: 25 },
-        { id: "retro", title: "Evergreen Classics", subtitle: "Old is gold", icon: <Star className="w-4 h-4" />, query: "old hindi classic songs 90s", limit: 25 },
-        { id: "romantic", title: "Romantic Rendezvous", subtitle: "Love songs for every mood", icon: <Heart className="w-4 h-4" />, query: "hindi romantic songs 2025", limit: 25 },
+      const queries: { id: string; title: string; subtitle: string; icon: React.ReactNode; query: string; showSongRows?: boolean }[] = [
+        { id: "trending",   title: "Trending Now",            subtitle: "Top hits this week",           icon: <TrendingUp className="w-4 h-4" />, query: "trending india 2025",            showSongRows: false },
+        { id: "telugu25",   title: "Telugu Blockbusters",     subtitle: "Latest Tollywood fire",        icon: <Flame className="w-4 h-4" />,      query: "telugu hits 2025",               showSongRows: true  },
+        { id: "hindi25",    title: "Bollywood Now",           subtitle: "Fresh from Bollywood",         icon: <Sparkles className="w-4 h-4" />,   query: "bollywood 2025",                 showSongRows: true  },
+        { id: "tamil25",    title: "Kollywood Vibes",         subtitle: "Tamil chart-toppers",          icon: <Music2 className="w-4 h-4" />,      query: "tamil hits 2025",                showSongRows: true  },
+        { id: "punjabi",    title: "Punjabi Bangers",         subtitle: "Dance & party anthems",        icon: <Zap className="w-4 h-4" />,         query: "punjabi songs 2025",             showSongRows: false },
+        { id: "kannada",    title: "Sandalwood Hits",         subtitle: "Latest Kannada music",         icon: <Globe2 className="w-4 h-4" />,      query: "kannada songs 2025",             showSongRows: true  },
+        { id: "malayalam",  title: "Mollywood Melodies",      subtitle: "Kerala's finest",              icon: <Headphones className="w-4 h-4" />, query: "malayalam hits 2025",            showSongRows: true  },
+        { id: "retro",      title: "Evergreen Classics",      subtitle: "All-time favourites",          icon: <Star className="w-4 h-4" />,        query: "old hindi classic songs 90s",    showSongRows: true  },
+        { id: "romantic",   title: "Love Songs",              subtitle: "For every mood",               icon: <Heart className="w-4 h-4" />,       query: "romantic hindi songs",           showSongRows: true  },
+        { id: "lofi",       title: "Late Night Lofi",         subtitle: "Chill & focus",                icon: <Radio className="w-4 h-4" />,       query: "lofi chill hindi",               showSongRows: false },
+        { id: "anirudh",    title: "Anirudh Universe",        subtitle: "The maestro's world",          icon: <Mic2 className="w-4 h-4" />,        query: "anirudh ravichander hits",       showSongRows: true  },
+        { id: "arrahman",   title: "A.R. Rahman Classics",   subtitle: "Timeless masterpieces",        icon: <Star className="w-4 h-4" />,        query: "a r rahman hits",                showSongRows: true  },
+        { id: "bengali",    title: "Bangla Beat",             subtitle: "Bengali chart music",          icon: <Globe2 className="w-4 h-4" />,      query: "bengali songs 2025",             showSongRows: false },
+        { id: "bhakti",     title: "Devotional & Bhakti",     subtitle: "Spiritual classics",           icon: <Sparkles className="w-4 h-4" />,   query: "devotional bhakti songs hindi",  showSongRows: false },
+        { id: "english",    title: "Global Hits",             subtitle: "English pop & more",           icon: <Globe2 className="w-4 h-4" />,      query: "english pop hits 2025",          showSongRows: false },
       ];
 
       const results = await Promise.all(
-        queries.map(({ query, limit }) =>
-          api.searchSongs(query, 1, limit)
+        queries.map(({ query }) =>
+          api.searchSongs(query, 1, 50)
             .then((res) => extractResults(res).map(mapApiSong))
             .catch(() => [] as Song[])
         )
       );
 
-      const built: Section[] = queries.map(({ id, title, subtitle, icon }, i) => {
+      const built: Section[] = queries.map(({ id, title, subtitle, icon, showSongRows }, i) => {
         const songs = results[i];
         const albums = groupIntoAlbums(songs);
-        return { id, title, subtitle, icon, songs, albums, type: albums.length > 0 ? "mix" : "songs" };
+        return {
+          id, title, subtitle, icon, songs, albums,
+          type: albums.length > 0 ? "mix" : "songs",
+          showSongRows,
+        };
       });
 
       setSections(built);
-
-      // Create featured playlists section from first few albums
-      const allAlbums = built.flatMap(s => s.albums || []);
-      setFeaturedPlaylists(allAlbums.slice(0, 8));
-
     } finally {
       setLoading(false);
     }
@@ -131,178 +156,203 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
 
   useEffect(() => { loadHome(); }, [loadHome]);
 
-  const handleMoodClick = async (mood: string) => {
-    if (selectedMood === mood) {
-      setSelectedMood(null);
-      setMoodSongs([]);
+  const handleLangClick = async (lang: typeof LANGUAGES[0]) => {
+    if (activeLang === lang.label) {
+      setActiveLang(null);
+      setLangSongs([]);
+      setLangAlbums([]);
       return;
     }
-    setSelectedMood(mood);
-    setMoodLoading(true);
+    setActiveLang(lang.label);
+    setLangLoading(true);
     try {
-      const res = await api.searchSongs(`${mood} hindi songs`, 1, 30);
-      setMoodSongs(extractResults(res).map(mapApiSong));
+      const res = await api.searchSongs(lang.query, 1, 60);
+      const songs = extractResults(res).map(mapApiSong);
+      setLangSongs(songs);
+      setLangAlbums(groupIntoAlbums(songs));
     } catch {
-      setMoodSongs([]);
+      setLangSongs([]);
+      setLangAlbums([]);
     } finally {
-      setMoodLoading(false);
-      // Scroll to mood results
+      setLangLoading(false);
       setTimeout(() => {
-        document.getElementById("mood-results")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        document.getElementById("lang-results")?.scrollIntoView({ behavior: "smooth", block: "start" });
       }, 100);
     }
   };
 
+  // Recently played — show top 6
+  const recentSongs = recentlyPlayed.slice(0, 6);
+
   return (
-    <div ref={scrollContainerRef} className="pb-36 animate-fade-in overflow-y-auto">
-      
-      {/* Hero Greeting Section */}
-      <div className="px-4 mb-6 pt-2">
-        <p className="text-white/40 text-sm font-medium tracking-wide">Good {greeting()},</p>
-        <h1 className="text-3xl font-bold text-white mt-1 tracking-tight">
-          {user ? (user as any).user_metadata?.username ?? "Music Lover" : "Music Lover"} 🎵
+    <div className="pb-36 overflow-y-auto animate-fade-in" style={{ background: "#0a0a0a" }}>
+
+      {/* ── Header Greeting ── */}
+      <div
+        className="px-4 pt-12 pb-4"
+        style={{
+          background: "linear-gradient(to bottom, rgba(249,115,22,0.18) 0%, transparent 100%)",
+        }}
+      >
+        <p className="text-white/50 text-sm font-medium">
+          Good {greeting()}
+        </p>
+        <h1 className="text-2xl font-bold text-white mt-0.5 tracking-tight">
+          {user
+            ? (user as any).user_metadata?.username ?? "Music Lover"
+            : "Music Lover"} 🎵
         </h1>
-        <p className="text-white/30 text-xs mt-1">Discover your next favorite song</p>
       </div>
 
-      {/* ── Featured Playlists Banner (Spotify-like hero) ── */}
-      {featuredPlaylists.length > 0 && (
-        <div className="mb-6">
-          <SectionHeader title="Featured Playlists" icon={<Star className="w-4 h-4" />} />
-          <div className="flex gap-3 overflow-x-auto px-4 pb-2" style={{ scrollbarWidth: "none" }}>
-            {featuredPlaylists.slice(0, 6).map((playlist, idx) => (
-              <FeaturedCard key={playlist.id} album={playlist} index={idx} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── Mood & Genres Section (Horizontal Chips) ── */}
-      <div className="mb-6">
-        <SectionHeader title="Your Mood & Genres" icon={<Sparkles className="w-4 h-4" />} />
-        
-        {/* Mood Chips */}
-        <div className="flex gap-2 overflow-x-auto px-4 pb-3 mb-3" style={{ scrollbarWidth: "none" }}>
-          {MOODS.map(({ label, emoji, gradient }) => (
+      {/* ── Quick Access Grid (Spotify-style 2-column) ── */}
+      <div className="px-4 mb-6">
+        <div className="grid grid-cols-2 gap-2">
+          {QUICK_ACCESS.map(({ label, icon, gradient }) => (
             <button
               key={label}
-              onClick={() => handleMoodClick(label)}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-medium whitespace-nowrap transition-all active:scale-95 flex-shrink-0 ${
-                selectedMood === label ? "shadow-lg" : ""
-              }`}
-              style={{
-                background: selectedMood === label
-                  ? "linear-gradient(135deg,#f97316,#ec4899)"
-                  : `linear-gradient(135deg, ${gradient})`,
-                color: selectedMood === label ? "#fff" : "rgba(255,255,255,0.8)",
-                border: selectedMood === label ? "none" : "1px solid rgba(255,255,255,0.1)",
-              }}
+              className="flex items-center gap-3 rounded-xl overflow-hidden h-14 active:scale-95 transition-transform"
+              style={{ background: "rgba(255,255,255,0.08)" }}
             >
-              <span className="text-base">{emoji}</span>
-              {label}
+              <div className={`w-14 h-14 flex-shrink-0 flex items-center justify-center bg-gradient-to-br ${gradient}`}>
+                {icon}
+              </div>
+              <span className="text-sm font-semibold text-white truncate pr-3 leading-tight text-left">
+                {label}
+              </span>
             </button>
           ))}
         </div>
-
-        {/* Genre Chips */}
-        <div className="flex gap-2 overflow-x-auto px-4 pb-1" style={{ scrollbarWidth: "none" }}>
-          {GENRES.map(({ label, icon, gradient }) => (
-            <button
-              key={label}
-              onClick={() => handleMoodClick(label)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all active:scale-95 flex-shrink-0 ${
-                selectedMood === label ? "shadow-lg" : ""
-              }`}
-              style={{
-                background: selectedMood === label
-                  ? "linear-gradient(135deg,#f97316,#ec4899)"
-                  : `linear-gradient(135deg, ${gradient})`,
-                color: selectedMood === label ? "#fff" : "rgba(255,255,255,0.8)",
-                border: selectedMood === label ? "none" : "1px solid rgba(255,255,255,0.1)",
-              }}
-            >
-              {icon}
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {/* Mood results section */}
-        {selectedMood && (
-          <div id="mood-results" className="mt-4 px-4">
-            <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-              <span className="text-lg">{MOODS.find(m => m.label === selectedMood)?.emoji || "🎵"}</span>
-              {selectedMood} Songs
-            </h3>
-            {moodLoading ? (
-              <div className="flex justify-center py-8">
-                <Loader2 className="w-6 h-6 animate-spin text-orange-500" />
-              </div>
-            ) : moodSongs.length > 0 ? (
-              <div className="space-y-0.5">
-                {moodSongs.slice(0, 10).map((song) => (
-                  <SongRow key={song.id} song={song} queue={moodSongs} onRequireAuth={onRequireAuth} />
-                ))}
-              </div>
-            ) : (
-              <p className="text-white/40 text-sm text-center py-8">No songs found for this mood</p>
-            )}
-          </div>
-        )}
       </div>
 
-      {/* ── Recently Played Section (Horizontal Cards) ── */}
-      {user && recentlyPlayed.length > 0 && (
+      {/* ── Recently Played ── */}
+      {recentSongs.length > 0 && (
         <div className="mb-6">
           <SectionHeader title="Recently Played" icon={<Clock className="w-4 h-4" />} />
-          <HorizontalScrollCarousel>
-            {recentlyPlayed.slice(0, 15).map((song) => (
-              <HorizontalSongCard key={song.id} song={song} queue={recentlyPlayed} />
+          <HorizontalScroll>
+            {recentSongs.map((song) => (
+              <SongCard key={song.id} song={song} queue={recentSongs} size="sm" />
             ))}
-          </HorizontalScrollCarousel>
+          </HorizontalScroll>
         </div>
       )}
 
-      {/* ── Loading State ── */}
+      {/* ── Language Filter Chips ── */}
+      <div className="mb-2">
+        <SectionHeader title="Browse by Language" icon={<Globe2 className="w-4 h-4" />} />
+        <div className="flex gap-2 overflow-x-auto px-4 pb-3" style={{ scrollbarWidth: "none" }}>
+          {LANGUAGES.map((lang) => {
+            const active = activeLang === lang.label;
+            return (
+              <button
+                key={lang.label}
+                onClick={() => handleLangClick(lang)}
+                className="flex-shrink-0 px-5 py-2 rounded-full text-sm font-semibold whitespace-nowrap transition-all active:scale-95"
+                style={{
+                  background: active ? lang.color : "rgba(255,255,255,0.07)",
+                  color: active ? "#fff" : "rgba(255,255,255,0.55)",
+                  border: active ? "none" : "1px solid rgba(255,255,255,0.08)",
+                }}
+              >
+                {lang.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Language Results ── */}
+      {activeLang && (
+        <div id="lang-results" className="mb-8">
+          {langLoading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin text-orange-500" />
+            </div>
+          ) : (
+            <>
+              {langAlbums.length > 0 && (
+                <div className="mb-4">
+                  <p className="text-xs font-semibold text-white/40 uppercase tracking-widest px-4 mb-3">
+                    {activeLang} Albums & Movies
+                  </p>
+                  <HorizontalScroll>
+                    {langAlbums.map((album) => (
+                      <AlbumCard key={album.id} album={album} />
+                    ))}
+                  </HorizontalScroll>
+                </div>
+              )}
+
+              {/* All songs (no limit) */}
+              {langSongs.length > 0 && (
+                <div className="px-4">
+                  <p className="text-xs font-semibold text-white/40 uppercase tracking-widest mb-3">
+                    {langAlbums.length > 0 ? `${activeLang} Singles` : `${langSongs.length} ${activeLang} Songs`}
+                  </p>
+                  <div className="space-y-0.5">
+                    {langSongs.map((song) => (
+                      <SongRow key={song.id} song={song} queue={langSongs} onRequireAuth={onRequireAuth} />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── Loading ── */}
       {loading && (
         <div className="flex justify-center py-20">
           <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
         </div>
       )}
 
-      {/* ── Dynamic Sections (Each with horizontal scrolling) ── */}
-      {!loading && sections.map((section) => (
-        <div key={section.id} className="mb-8">
-          <SectionHeader title={section.title} subtitle={section.subtitle} icon={section.icon} />
-          
-          {/* Albums horizontal scroll */}
-          {section.albums && section.albums.length > 0 && (
-            <HorizontalScrollCarousel>
-              {section.albums.map((album) => (
-                <AlbumCard key={album.id} album={album} />
-              ))}
-            </HorizontalScrollCarousel>
-          )}
+      {/* ── Dynamic Sections ── */}
+      {!loading && sections.map((section) => {
+        // Solo songs (not belonging to any album)
+        const albumNames = new Set((section.albums || []).map((a) => a.name));
+        const soloSongs = section.songs.filter(
+          (s) => !albumNames.has(s.album || "") && !albumNames.has(s.movie || "")
+        );
 
-          {/* Song rows for singles not in albums */}
-          {(() => {
-            const albumNames = new Set((section.albums || []).map((a) => a.name));
-            const solo = section.songs.filter(
-              (s) => !albumNames.has(s.album || "") && !albumNames.has(s.movie || "")
-            );
-            if (solo.length === 0) return null;
-            return (
+        return (
+          <div key={section.id} className="mb-8">
+            <SectionHeader
+              title={section.title}
+              subtitle={section.subtitle}
+              icon={section.icon}
+            />
+
+            {/* Albums horizontal scroll */}
+            {section.albums && section.albums.length > 0 && (
+              <HorizontalScroll>
+                {section.albums.map((album) => (
+                  <AlbumCard key={album.id} album={album} />
+                ))}
+              </HorizontalScroll>
+            )}
+
+            {/* Song cards (horizontal) for non-album songs */}
+            {soloSongs.length > 0 && !section.showSongRows && (
+              <HorizontalScroll>
+                {soloSongs.map((song) => (
+                  <SongCard key={song.id} song={song} queue={soloSongs} />
+                ))}
+              </HorizontalScroll>
+            )}
+
+            {/* Song rows (vertical) for sections that prefer list view */}
+            {soloSongs.length > 0 && section.showSongRows && (
               <div className="px-4 space-y-0.5">
-                {solo.slice(0, 8).map((song) => (
+                {soloSongs.map((song) => (
                   <SongRow key={song.id} song={song} queue={section.songs} onRequireAuth={onRequireAuth} />
                 ))}
               </div>
-            );
-          })()}
-        </div>
-      ))}
+            )}
+          </div>
+        );
+      })}
 
-      {/* Bottom spacer */}
       <div className="h-8" />
     </div>
   );
@@ -310,10 +360,15 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function SectionHeader({ title, subtitle, icon, onMore }: { 
-  title: string; 
-  subtitle?: string; 
-  icon?: React.ReactNode; 
+function SectionHeader({
+  title,
+  subtitle,
+  icon,
+  onMore,
+}: {
+  title: string;
+  subtitle?: string;
+  icon?: React.ReactNode;
   onMore?: () => void;
 }) {
   return (
@@ -321,101 +376,27 @@ function SectionHeader({ title, subtitle, icon, onMore }: {
       <div className="flex-1">
         <div className="flex items-center gap-2">
           {icon && <span className="text-orange-400">{icon}</span>}
-          <h2 className="font-bold text-lg text-white tracking-tight">{title}</h2>
+          <h2 className="font-bold text-[17px] text-white tracking-tight leading-tight">{title}</h2>
         </div>
         {subtitle && <p className="text-xs text-white/30 mt-0.5">{subtitle}</p>}
       </div>
       {onMore && (
-        <button onClick={onMore} className="text-white/30 hover:text-white/60 transition-colors">
-          <ChevronRight className="w-5 h-5" />
+        <button onClick={onMore} className="flex items-center gap-0.5 text-xs text-white/30 hover:text-white/60">
+          See all <ChevronRight className="w-3.5 h-3.5" />
         </button>
       )}
     </div>
   );
 }
 
-function HorizontalScrollCarousel({ children }: { children: React.ReactNode }) {
+function HorizontalScroll({ children }: { children: React.ReactNode }) {
   return (
-    <div 
-      className="flex gap-3 overflow-x-auto px-4 pb-2 scroll-smooth"
-      style={{ scrollbarWidth: "thin", scrollbarColor: "#f97316 rgba(255,255,255,0.1)" }}
+    <div
+      className="flex gap-3 overflow-x-auto px-4 pb-2"
+      style={{ scrollbarWidth: "none" }}
     >
       {children}
     </div>
-  );
-}
-
-function FeaturedCard({ album, index }: { album: Album; index: number }) {
-  const { playSong } = usePlayer();
-  const gradients = [
-    "from-orange-500 to-red-500",
-    "from-purple-500 to-pink-500",
-    "from-blue-500 to-cyan-500",
-    "from-green-500 to-emerald-500",
-    "from-yellow-500 to-orange-500",
-    "from-indigo-500 to-purple-500",
-  ];
-  
-  return (
-    <button
-      onClick={() => playSong(album.songs[0], album.songs)}
-      className="flex-shrink-0 w-40 text-left group active:scale-95 transition-all duration-200"
-    >
-      <div className="relative w-40 h-40 rounded-xl overflow-hidden mb-2 shadow-lg">
-        {album.coverArt ? (
-          <img src={album.coverArt} alt={album.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-        ) : (
-          <div className={`w-full h-full bg-gradient-to-br ${gradients[index % gradients.length]} flex items-center justify-center`}>
-            <Disc3 className="w-12 h-12 text-white/60" />
-          </div>
-        )}
-        {/* Play overlay */}
-        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center">
-          <div className="w-10 h-10 rounded-full bg-orange-500 flex items-center justify-center shadow-lg opacity-0 group-hover:opacity-100 transition-all transform translate-y-2 group-hover:translate-y-0">
-            <Play className="w-5 h-5 text-white fill-white ml-0.5" />
-          </div>
-        </div>
-      </div>
-      <p className="text-sm font-semibold text-white truncate leading-tight">{album.name}</p>
-      <p className="text-xs text-white/40 truncate mt-0.5">{album.songs.length} songs</p>
-    </button>
-  );
-}
-
-function HorizontalSongCard({ song, queue }: { song: Song; queue: Song[] }) {
-  const { playSong, currentSong, isPlaying, togglePlay } = usePlayer();
-  const isActive = currentSong?.id === song.id;
-
-  return (
-    <button
-      onClick={() => isActive ? togglePlay() : playSong(song, queue)}
-      className="flex-shrink-0 w-32 text-left group active:scale-95 transition-transform"
-    >
-      <div className="relative w-32 h-32 rounded-xl overflow-hidden mb-2 shadow-lg">
-        {song.albumArt ? (
-          <img src={song.albumArt} alt={song.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-        ) : (
-          <div className="w-full h-full bg-gradient-to-br from-orange-500 to-pink-500" />
-        )}
-        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center">
-          <div className="w-9 h-9 rounded-full bg-orange-500 flex items-center justify-center shadow-lg opacity-0 group-hover:opacity-100 transition-all transform translate-y-2 group-hover:translate-y-0">
-            {isActive && isPlaying
-              ? <span className="w-3 h-3 border-2 border-white rounded-sm" />
-              : <Play className="w-4 h-4 text-white fill-white ml-0.5" />
-            }
-          </div>
-        </div>
-        {isActive && isPlaying && (
-          <div className="absolute bottom-2 right-2 flex items-end gap-0.5">
-            {[0, 150, 300].map((d) => (
-              <div key={d} className="w-0.5 rounded-full animate-pulse" style={{ background: "#f97316", height: d === 150 ? "12px" : "8px", animationDelay: `${d}ms` }} />
-            ))}
-          </div>
-        )}
-      </div>
-      <p className="text-xs font-semibold text-white truncate leading-tight">{song.title}</p>
-      <p className="text-[10px] text-white/40 truncate mt-0.5">{song.artist}</p>
-    </button>
   );
 }
 
@@ -428,15 +409,19 @@ function AlbumCard({ album }: { album: Album }) {
     >
       <div className="relative w-36 h-36 rounded-xl overflow-hidden mb-2 shadow-lg">
         {album.coverArt ? (
-          <img src={album.coverArt} alt={album.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+          <img
+            src={album.coverArt}
+            alt={album.name}
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+          />
         ) : (
           <div className="w-full h-full bg-gradient-to-br from-orange-500 to-pink-500 flex items-center justify-center">
             <Disc3 className="w-8 h-8 text-white/60" />
           </div>
         )}
-        {/* Play overlay */}
-        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center">
-          <div className="w-10 h-10 rounded-full bg-orange-500 flex items-center justify-center shadow-lg opacity-0 group-hover:opacity-100 transition-all transform translate-y-2 group-hover:translate-y-0">
+        <div className="absolute inset-0 bg-black/0 group-active:bg-black/30 transition-all flex items-center justify-center">
+          <div className="w-10 h-10 rounded-full flex items-center justify-center shadow-lg opacity-0 group-active:opacity-100 transition-all"
+            style={{ background: "linear-gradient(135deg,#f97316,#ec4899)" }}>
             <Play className="w-4 h-4 text-white fill-white ml-0.5" />
           </div>
         </div>
@@ -447,9 +432,45 @@ function AlbumCard({ album }: { album: Album }) {
   );
 }
 
-function greeting() {
-  const h = new Date().getHours();
-  if (h < 12) return "morning";
-  if (h < 17) return "afternoon";
-  return "evening";
+function SongCard({
+  song,
+  queue,
+  size = "md",
+}: {
+  song: Song;
+  queue: Song[];
+  size?: "sm" | "md";
+}) {
+  const { playSong, currentSong, isPlaying, togglePlay } = usePlayer();
+  const isActive = currentSong?.id === song.id;
+  const w = size === "sm" ? "w-28" : "w-32";
+  const hw = size === "sm" ? "h-28" : "h-32";
+
+  return (
+    <button
+      onClick={() => (isActive ? togglePlay() : playSong(song, queue))}
+      className={`flex-shrink-0 ${w} text-left group active:scale-95 transition-transform`}
+    >
+      <div className={`relative ${w} ${hw} rounded-xl overflow-hidden mb-2 shadow-lg`}>
+        {song.albumArt ? (
+          <img src={song.albumArt} alt={song.title} className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full bg-gradient-to-br from-orange-500 to-pink-500" />
+        )}
+        {isActive && isPlaying && (
+          <div className="absolute bottom-2 right-2 flex items-end gap-0.5">
+            {[0, 150, 300].map((d) => (
+              <div
+                key={d}
+                className="w-0.5 rounded-full animate-pulse"
+                style={{ background: "#f97316", height: d === 150 ? "12px" : "8px", animationDelay: `${d}ms` }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+      <p className="text-xs font-semibold text-white truncate leading-tight">{song.title}</p>
+      <p className="text-[10px] text-white/40 truncate mt-0.5">{song.artist}</p>
+    </button>
+  );
 }
