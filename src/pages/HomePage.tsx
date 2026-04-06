@@ -4,7 +4,7 @@ import { api, extractResults } from "@/services/api";
 import { SongRow } from "@/components/SongRow";
 import { SongCard } from "@/components/SongCard";
 import { usePlayer } from "@/context/PlayerContext";
-import { Loader2, ChevronRight, Disc3, Music2, Play } from "lucide-react";
+import { Disc3, Music2, Play, ChevronRight } from "lucide-react";
 
 // ─────────────────────────────────────────────
 // Config
@@ -14,7 +14,6 @@ const BASE_URL =
   (import.meta as any).env?.VITE_API_BASE_URL ||
   "https://musicbackend-g2sp.onrender.com/api";
 
-/** Saavn playlist IDs */
 const PLAYLISTS = {
   trendingHindi:  "1134543272",
   trendingTelugu: "1134543280",
@@ -22,13 +21,9 @@ const PLAYLISTS = {
   romantic:       "91369254",
   party:          "1134543281",
   retro:          "1134543277",
-  // Telugu specific playlists
-  teluguHits:     "1134543280",
-  teluguRomantic: "1134543283",
 };
 
-// How many search pages to fetch per category (each page = up to 50 songs)
-const SEARCH_PAGES = 4; // 4 × 50 = up to 200 songs per category
+const SEARCH_PAGES = 4; // 4 × 50 = up to 200 songs per query
 
 // ─────────────────────────────────────────────
 // Types
@@ -40,24 +35,20 @@ interface Album {
   art: string;
   songs: Song[];
   year?: string;
-  language?: string;
 }
 
 // ─────────────────────────────────────────────
-// Helpers
+// Data helpers
 // ─────────────────────────────────────────────
 
 function mapPlaylistSongs(res: any): Song[] {
-  const songs = extractResults(res);
-  return songs.map(mapApiSong).filter((s: Song) => s.audioUrl);
+  return extractResults(res).map(mapApiSong).filter((s: Song) => s.audioUrl);
 }
 
 function mapSearchSongs(res: any): Song[] {
-  const songs = extractResults(res);
-  return songs.map(mapApiSong).filter((s: Song) => s.audioUrl);
+  return extractResults(res).map(mapApiSong).filter((s: Song) => s.audioUrl);
 }
 
-/** Deduplicate by song id */
 function dedupe(songs: Song[]): Song[] {
   const seen = new Set<string>();
   return songs.filter((s) => {
@@ -67,21 +58,19 @@ function dedupe(songs: Song[]): Song[] {
   });
 }
 
-/**
- * Group songs into albums (by album field).
- * Songs with no album field go into the "Singles" bucket.
- */
 function groupIntoAlbums(songs: Song[]): { albums: Album[]; singles: Song[] } {
   const map = new Map<string, Album>();
   const singles: Song[] = [];
 
   for (const song of songs) {
     const albumName: string =
-      (song as any).album ||
-      (song as any).albumName ||
-      "";
+      (song as any).album || (song as any).albumName || "";
 
-    if (!albumName || albumName.trim() === "" || albumName.toLowerCase() === "unknown") {
+    if (
+      !albumName ||
+      albumName.trim() === "" ||
+      albumName.toLowerCase() === "unknown"
+    ) {
       singles.push(song);
       continue;
     }
@@ -94,17 +83,15 @@ function groupIntoAlbums(songs: Song[]): { albums: Album[]; singles: Song[] } {
         art: song.albumArt || "",
         songs: [],
         year: (song as any).year || "",
-        language: (song as any).language || "",
       });
     }
     map.get(key)!.songs.push(song);
   }
 
   const albums = Array.from(map.values())
-    .filter((a) => a.songs.length >= 2)          // only real albums (2+ tracks)
+    .filter((a) => a.songs.length >= 2)
     .sort((a, b) => b.songs.length - a.songs.length);
 
-  // Songs from single-track "albums" become singles too
   const soloAlbumSongs = Array.from(map.values())
     .filter((a) => a.songs.length < 2)
     .flatMap((a) => a.songs);
@@ -112,10 +99,6 @@ function groupIntoAlbums(songs: Song[]): { albums: Album[]; singles: Song[] } {
   return { albums, singles: [...singles, ...soloAlbumSongs] };
 }
 
-/**
- * Fetch ALL pages for a search query up to maxPages.
- * The API supports page + limit params.
- */
 async function fetchAllSearchPages(
   query: string,
   maxPages = SEARCH_PAGES,
@@ -126,9 +109,9 @@ async function fetchAllSearchPages(
     try {
       const res = await api.searchSongs(query, page, perPage);
       const songs = mapSearchSongs(res);
-      if (songs.length === 0) break; // no more results
+      if (songs.length === 0) break;
       all.push(...songs);
-      if (songs.length < perPage) break; // last page
+      if (songs.length < perPage) break;
     } catch {
       break;
     }
@@ -140,20 +123,44 @@ async function wakeServer(): Promise<void> {
   try {
     await fetch(`${BASE_URL}/search/songs?query=hindi&page=1&limit=1`);
   } catch {
-    // ignore
+    // silent wake
   }
 }
 
 // ─────────────────────────────────────────────
-// Greeting helper
+// Skeleton shimmer — shown while loading
 // ─────────────────────────────────────────────
 
-function getGreeting(): string {
-  const h = new Date().getHours();
-  if (h < 12) return "Good Morning";
-  if (h < 17) return "Good Afternoon";
-  if (h < 21) return "Good Evening";
-  return "Good Night";
+function SkeletonCard() {
+  return (
+    <div className="flex-shrink-0 w-[140px] animate-pulse">
+      <div className="w-[140px] h-[140px] rounded-md bg-white/10 mb-2" />
+      <div className="h-3 bg-white/10 rounded w-4/5 mb-1.5" />
+      <div className="h-2.5 bg-white/10 rounded w-3/5" />
+    </div>
+  );
+}
+
+function SkeletonQuickPick() {
+  return (
+    <div className="flex items-center bg-[#282828] rounded overflow-hidden animate-pulse h-14">
+      <div className="w-14 h-14 bg-white/10 flex-shrink-0" />
+      <div className="h-3 bg-white/10 rounded w-3/5 ml-3" />
+    </div>
+  );
+}
+
+function SkeletonSection({ count = 5 }: { count?: number }) {
+  return (
+    <div className="mb-7">
+      <div className="h-5 bg-white/10 rounded w-44 mb-4 animate-pulse" />
+      <div className="flex gap-4 overflow-hidden">
+        {Array.from({ length: count }).map((_, i) => (
+          <SkeletonCard key={i} />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 // ─────────────────────────────────────────────
@@ -163,45 +170,38 @@ function getGreeting(): string {
 export default function HomePage() {
   const { recentlyPlayed } = usePlayer();
 
-  // Hindi
   const [hindiSingles,  setHindiSingles]  = useState<Song[]>([]);
   const [hindiAlbums,   setHindiAlbums]   = useState<Album[]>([]);
-
-  // Telugu
   const [teluguSingles, setTeluguSingles] = useState<Song[]>([]);
   const [teluguAlbums,  setTeluguAlbums]  = useState<Album[]>([]);
+  const [bollywood,     setBollywood]     = useState<Song[]>([]);
+  const [romantic,      setRomantic]      = useState<Song[]>([]);
+  const [party,         setParty]         = useState<Song[]>([]);
+  const [retro,         setRetro]         = useState<Song[]>([]);
 
-  // Extra sections
-  const [bollywood,   setBollywood]   = useState<Song[]>([]);
-  const [romantic,    setRomantic]    = useState<Song[]>([]);
-  const [party,       setParty]       = useState<Song[]>([]);
-  const [retro,       setRetro]       = useState<Song[]>([]);
-
-  const [loading, setLoading] = useState(true);
-  const [waking,  setWaking]  = useState(true);
-  const [progress, setProgress] = useState("");
+  // Granular ready flags — page renders immediately with skeletons,
+  // each section swaps in as data arrives (no full-page loading block)
+  const [quickReady,  setQuickReady]  = useState(false);
+  const [hindiReady,  setHindiReady]  = useState(false);
+  const [teluguReady, setTeluguReady] = useState(false);
+  const [extrasReady, setExtrasReady] = useState(false);
 
   useEffect(() => {
     const load = async () => {
-      // ── 1. Wake server ────────────────────────────────────
-      setWaking(true);
-      setProgress("Starting music server...");
-      await wakeServer();
-      setWaking(false);
-      setProgress("Loading songs...");
+      // Fire-and-forget wake — never blocks the page
+      wakeServer();
 
       try {
-        // ── 2. Try playlists first (fast) ─────────────────
-        const [
-          hindiRes, teluguRes, bollyRes, romRes, parRes, retroRes
-        ] = await Promise.all([
-          api.getPlaylist(PLAYLISTS.trendingHindi).catch(() => null),
-          api.getPlaylist(PLAYLISTS.trendingTelugu).catch(() => null),
-          api.getPlaylist(PLAYLISTS.bollywood2025).catch(() => null),
-          api.getPlaylist(PLAYLISTS.romantic).catch(() => null),
-          api.getPlaylist(PLAYLISTS.party).catch(() => null),
-          api.getPlaylist(PLAYLISTS.retro).catch(() => null),
-        ]);
+        // ── Phase 1: Playlists (fast, ~1-2 s) ────────────────────
+        const [hindiRes, teluguRes, bollyRes, romRes, parRes, retroRes] =
+          await Promise.all([
+            api.getPlaylist(PLAYLISTS.trendingHindi).catch(() => null),
+            api.getPlaylist(PLAYLISTS.trendingTelugu).catch(() => null),
+            api.getPlaylist(PLAYLISTS.bollywood2025).catch(() => null),
+            api.getPlaylist(PLAYLISTS.romantic).catch(() => null),
+            api.getPlaylist(PLAYLISTS.party).catch(() => null),
+            api.getPlaylist(PLAYLISTS.retro).catch(() => null),
+          ]);
 
         let hindiSongs  = hindiRes  ? mapPlaylistSongs(hindiRes)  : [];
         let teluguSongs = teluguRes ? mapPlaylistSongs(teluguRes) : [];
@@ -210,88 +210,83 @@ export default function HomePage() {
         let par         = parRes    ? mapPlaylistSongs(parRes)     : [];
         let ret         = retroRes  ? mapPlaylistSongs(retroRes)   : [];
 
-        // ── 3. Full search for Hindi (all pages) ──────────
-        setProgress("Loading Hindi songs...");
-        const hindiSearch = await fetchAllSearchPages("hindi songs 2025", SEARCH_PAGES, 50);
-        const hindiOldSearch = await fetchAllSearchPages("top hindi hits evergreen", 3, 50);
-        hindiSongs = dedupe([...hindiSongs, ...hindiSearch, ...hindiOldSearch]);
-
-        // ── 4. Full search for Telugu (all pages) ─────────
-        setProgress("Loading Telugu songs...");
-        const teluguSearch     = await fetchAllSearchPages("telugu songs 2024 2025", SEARCH_PAGES, 50);
-        const teluguOldSearch  = await fetchAllSearchPages("telugu hit songs all time", 3, 50);
-        const teluguMovies     = await fetchAllSearchPages("telugu movie songs", 3, 50);
-        teluguSongs = dedupe([...teluguSongs, ...teluguSearch, ...teluguOldSearch, ...teluguMovies]);
-
-        // ── 5. Bollywood extra fetch ───────────────────────
-        setProgress("Loading Bollywood...");
-        if (bolly.length < 30) {
-          const extra = await fetchAllSearchPages("latest bollywood 2025", 3, 50);
-          bolly = dedupe([...bolly, ...extra]);
+        // Immediately show whatever we got from playlists
+        if (hindiSongs.length > 0) {
+          const { albums: hA, singles: hS } = groupIntoAlbums(hindiSongs);
+          setHindiSingles(hS);
+          setHindiAlbums(hA);
         }
-
-        // ── 6. Romantic / Party / Retro fallback ──────────
-        if (rom.length < 10)  rom  = await fetchAllSearchPages("hindi romantic songs", 2, 50);
-        if (par.length < 10)  par  = await fetchAllSearchPages("party hits hindi dj", 2, 50);
-        if (ret.length < 10)  ret  = await fetchAllSearchPages("old hindi classic songs 90s", 2, 50);
-
-        // ── 7. Group into albums + singles ────────────────
-        const { albums: hAlbums, singles: hSingles } = groupIntoAlbums(hindiSongs);
-        const { albums: tAlbums, singles: tSingles } = groupIntoAlbums(teluguSongs);
-
-        setHindiSingles(hSingles);
-        setHindiAlbums(hAlbums);
-        setTeluguSingles(tSingles);
-        setTeluguAlbums(tAlbums);
+        if (teluguSongs.length > 0) {
+          const { albums: tA, singles: tS } = groupIntoAlbums(teluguSongs);
+          setTeluguSingles(tS);
+          setTeluguAlbums(tA);
+        }
         setBollywood(bolly);
         setRomantic(rom);
         setParty(par);
         setRetro(ret);
+        setQuickReady(true);
+        setExtrasReady(true);
+
+        // ── Phase 2: Enrich Hindi (all search pages) ─────────────
+        const [hindiSearch, hindiOld] = await Promise.all([
+          fetchAllSearchPages("hindi songs 2025",         SEARCH_PAGES, 50),
+          fetchAllSearchPages("top hindi hits evergreen",  3,           50),
+        ]);
+        hindiSongs = dedupe([...hindiSongs, ...hindiSearch, ...hindiOld]);
+        const { albums: hA2, singles: hS2 } = groupIntoAlbums(hindiSongs);
+        setHindiSingles(hS2);
+        setHindiAlbums(hA2);
+        setHindiReady(true);
+
+        // ── Phase 3: Enrich Telugu (all search pages) ────────────
+        const [tSearch, tOld, tMovies] = await Promise.all([
+          fetchAllSearchPages("telugu songs 2024 2025",    SEARCH_PAGES, 50),
+          fetchAllSearchPages("telugu hit songs all time",  3,           50),
+          fetchAllSearchPages("telugu movie songs",         3,           50),
+        ]);
+        teluguSongs = dedupe([...teluguSongs, ...tSearch, ...tOld, ...tMovies]);
+        const { albums: tA2, singles: tS2 } = groupIntoAlbums(teluguSongs);
+        setTeluguSingles(tS2);
+        setTeluguAlbums(tA2);
+        setTeluguReady(true);
+
+        // ── Phase 4: Enrich extras ────────────────────────────────
+        if (bolly.length < 30) {
+          const extra = await fetchAllSearchPages("latest bollywood 2025", 3, 50);
+          setBollywood(dedupe([...bolly, ...extra]));
+        }
+        if (rom.length < 10)
+          setRomantic(await fetchAllSearchPages("hindi romantic songs",     2, 50));
+        if (par.length < 10)
+          setParty(await fetchAllSearchPages("party hits hindi dj",         2, 50));
+        if (ret.length < 10)
+          setRetro(await fetchAllSearchPages("old hindi classic songs 90s", 2, 50));
 
       } catch (err) {
-        console.error("Load error, using fallback search:", err);
+        console.error("Load error:", err);
         try {
-          setProgress("Trying fallback...");
           const [h, t, b] = await Promise.all([
             fetchAllSearchPages("top hindi hits 2025", 3, 50),
             fetchAllSearchPages("telugu songs 2025",   3, 50),
             fetchAllSearchPages("latest bollywood",    2, 50),
           ]);
-          const { albums: hAlbums, singles: hSingles } = groupIntoAlbums(h);
-          const { albums: tAlbums, singles: tSingles } = groupIntoAlbums(t);
-          setHindiSingles(hSingles);
-          setHindiAlbums(hAlbums);
-          setTeluguSingles(tSingles);
-          setTeluguAlbums(tAlbums);
+          const { albums: hA, singles: hS } = groupIntoAlbums(h);
+          const { albums: tA, singles: tS } = groupIntoAlbums(t);
+          setHindiSingles(hS);  setHindiAlbums(hA);
+          setTeluguSingles(tS); setTeluguAlbums(tA);
           setBollywood(b);
-        } catch {
-          // nothing we can do
-        }
-      } finally {
-        setLoading(false);
-        setProgress("");
+        } catch { /* nothing */ }
+        setQuickReady(true);
+        setHindiReady(true);
+        setTeluguReady(true);
+        setExtrasReady(true);
       }
     };
 
     load();
   }, []);
 
-  // ── Loading state ────────────────────────────────────────
-  if (waking || loading) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-3">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-        <p className="text-sm text-muted-foreground">{progress || "Loading..."}</p>
-        {waking && (
-          <p className="text-xs text-muted-foreground opacity-60">
-            Free server wakes up in ~15 seconds
-          </p>
-        )}
-      </div>
-    );
-  }
-
-  // ── All songs deduplicated ────────────────────────────────
   const allFetched = dedupe([
     ...hindiSingles,
     ...teluguSingles,
@@ -303,153 +298,154 @@ export default function HomePage() {
     ...teluguAlbums.flatMap((a) => a.songs),
   ]);
 
-  // Quick-picks: first 6 from trending hindi singles
   const quickPicks = hindiSingles.slice(0, 6);
 
   return (
-    <div className="pb-36 px-4 sm:px-6 pt-6 animate-fade-in">
+    // pb-44 = ~176px clears both the player bar (~80px) and bottom nav (~64px)
+    <div className="pb-44 px-4 sm:px-6 pt-4 bg-[#121212] min-h-screen">
 
-      {/* ── Header ─────────────────────────────────────── */}
-      <h1 className="text-2xl sm:text-3xl font-bold text-foreground mb-1">
-        {getGreeting()} 👋
-      </h1>
-      <p className="text-sm text-muted-foreground mb-6">
-        {allFetched.length > 0
-          ? `${allFetched.length.toLocaleString()} songs ready to play`
-          : "What do you want to listen to?"}
-      </p>
-
-      {/* ── Quick Picks grid ───────────────────────────── */}
-      {quickPicks.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-8">
-          {quickPicks.map((song) => (
-            <QuickPick key={song.id} song={song} queue={hindiSingles} />
-          ))}
+      {/* ── Quick Picks 2×3 grid ──────────────────────── */}
+      <section className="mb-6 mt-2">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          {quickReady
+            ? quickPicks.map((song) => (
+                <QuickPick key={song.id} song={song} queue={hindiSingles} />
+              ))
+            : Array.from({ length: 6 }).map((_, i) => (
+                <SkeletonQuickPick key={i} />
+              ))}
         </div>
-      )}
+      </section>
 
-      {/* ── Recently Played ────────────────────────────── */}
+      {/* ── Recently Played ───────────────────────────── */}
       {recentlyPlayed.length > 0 && (
-        <HScrollSection title="Recently Played" icon={<Music2 className="w-4 h-4" />}>
+        <HScrollSection title="Recently Played">
           {recentlyPlayed.map((song) => (
             <SongCard key={song.id} song={song} queue={recentlyPlayed} index={0} />
           ))}
         </HScrollSection>
       )}
 
-      {/* ══════════════════════════════════════════════════
+      {/* ════════════════════════════════════════════════
           HINDI SECTION
-      ══════════════════════════════════════════════════ */}
-      <SectionDivider label="हिन्दी · Hindi" />
+      ════════════════════════════════════════════════ */}
+      <LangDivider label="हिन्दी · Hindi" />
 
-      {/* Hindi Albums */}
-      {hindiAlbums.length > 0 && (
-        <HScrollSection
-          title={`Hindi Albums (${hindiAlbums.length})`}
-          icon={<Disc3 className="w-4 h-4" />}
-        >
-          {hindiAlbums.map((album) => (
-            <AlbumCard key={album.id} album={album} />
-          ))}
-        </HScrollSection>
+      {hindiReady ? (
+        <>
+          {hindiAlbums.length > 0 && (
+            <HScrollSection
+              title={`Hindi Albums (${hindiAlbums.length})`}
+              icon={<Disc3 className="w-4 h-4" />}
+            >
+              {hindiAlbums.map((album) => (
+                <AlbumCard key={album.id} album={album} />
+              ))}
+            </HScrollSection>
+          )}
+          {hindiSingles.length > 0 && (
+            <HScrollSection
+              title={`Hindi Singles (${hindiSingles.length})`}
+              icon={<Music2 className="w-4 h-4" />}
+            >
+              {hindiSingles.map((song) => (
+                <SongCard key={song.id} song={song} queue={hindiSingles} index={0} />
+              ))}
+            </HScrollSection>
+          )}
+        </>
+      ) : (
+        <>
+          <SkeletonSection count={5} />
+          <SkeletonSection count={5} />
+        </>
       )}
 
-      {/* Hindi Singles — horizontal scroll preview */}
-      {hindiSingles.length > 0 && (
-        <HScrollSection
-          title={`Hindi Singles (${hindiSingles.length})`}
-          icon={<Music2 className="w-4 h-4" />}
-        >
-          {hindiSingles.map((song) => (
-            <SongCard key={song.id} song={song} queue={hindiSingles} index={0} />
-          ))}
-        </HScrollSection>
+      {extrasReady ? (
+        <>
+          {bollywood.length > 0 && (
+            <HScrollSection title={`Latest Bollywood (${bollywood.length})`}>
+              {bollywood.map((song) => (
+                <SongCard key={song.id} song={song} queue={bollywood} index={0} />
+              ))}
+            </HScrollSection>
+          )}
+          {romantic.length > 0 && (
+            <HScrollSection title={`Romantic Vibes (${romantic.length})`}>
+              {romantic.map((song) => (
+                <SongCard key={song.id} song={song} queue={romantic} index={0} />
+              ))}
+            </HScrollSection>
+          )}
+          {party.length > 0 && (
+            <HScrollSection title={`Party Hits (${party.length})`}>
+              {party.map((song) => (
+                <SongCard key={song.id} song={song} queue={party} index={0} />
+              ))}
+            </HScrollSection>
+          )}
+          {retro.length > 0 && (
+            <HScrollSection title={`Old is Gold (${retro.length})`}>
+              {retro.map((song) => (
+                <SongCard key={song.id} song={song} queue={retro} index={0} />
+              ))}
+            </HScrollSection>
+          )}
+        </>
+      ) : (
+        <>
+          <SkeletonSection />
+          <SkeletonSection />
+        </>
       )}
 
-      {/* Bollywood 2025 */}
-      {bollywood.length > 0 && (
-        <HScrollSection title={`Latest Bollywood (${bollywood.length})`}>
-          {bollywood.map((song) => (
-            <SongCard key={song.id} song={song} queue={bollywood} index={0} />
-          ))}
-        </HScrollSection>
-      )}
-
-      {/* Romantic */}
-      {romantic.length > 0 && (
-        <HScrollSection title={`Romantic Vibes (${romantic.length})`}>
-          {romantic.map((song) => (
-            <SongCard key={song.id} song={song} queue={romantic} index={0} />
-          ))}
-        </HScrollSection>
-      )}
-
-      {/* Retro */}
-      {retro.length > 0 && (
-        <HScrollSection title={`Old is Gold (${retro.length})`}>
-          {retro.map((song) => (
-            <SongCard key={song.id} song={song} queue={retro} index={0} />
-          ))}
-        </HScrollSection>
-      )}
-
-      {/* Party */}
-      {party.length > 0 && (
-        <HScrollSection title={`Party Hits (${party.length})`}>
-          {party.map((song) => (
-            <SongCard key={song.id} song={song} queue={party} index={0} />
-          ))}
-        </HScrollSection>
-      )}
-
-      {/* ══════════════════════════════════════════════════
+      {/* ════════════════════════════════════════════════
           TELUGU SECTION
-      ══════════════════════════════════════════════════ */}
-      <SectionDivider label="తెలుగు · Telugu" />
+      ════════════════════════════════════════════════ */}
+      <LangDivider label="తెలుగు · Telugu" />
 
-      {/* Telugu Albums */}
-      {teluguAlbums.length > 0 && (
-        <HScrollSection
-          title={`Telugu Albums (${teluguAlbums.length})`}
-          icon={<Disc3 className="w-4 h-4" />}
-        >
-          {teluguAlbums.map((album) => (
-            <AlbumCard key={album.id} album={album} />
-          ))}
-        </HScrollSection>
+      {teluguReady ? (
+        <>
+          {teluguAlbums.length > 0 && (
+            <HScrollSection
+              title={`Telugu Albums (${teluguAlbums.length})`}
+              icon={<Disc3 className="w-4 h-4" />}
+            >
+              {teluguAlbums.map((album) => (
+                <AlbumCard key={album.id} album={album} />
+              ))}
+            </HScrollSection>
+          )}
+          {teluguSingles.length > 0 && (
+            <HScrollSection
+              title={`Telugu Singles (${teluguSingles.length})`}
+              icon={<Music2 className="w-4 h-4" />}
+            >
+              {teluguSingles.map((song) => (
+                <SongCard key={song.id} song={song} queue={teluguSingles} index={0} />
+              ))}
+            </HScrollSection>
+          )}
+        </>
+      ) : (
+        <>
+          <SkeletonSection count={5} />
+          <SkeletonSection count={5} />
+        </>
       )}
 
-      {/* Telugu Singles — horizontal scroll preview */}
-      {teluguSingles.length > 0 && (
-        <HScrollSection
-          title={`Telugu Singles (${teluguSingles.length})`}
-          icon={<Music2 className="w-4 h-4" />}
-        >
-          {teluguSingles.map((song) => (
-            <SongCard key={song.id} song={song} queue={teluguSingles} index={0} />
-          ))}
-        </HScrollSection>
-      )}
-
-      {/* ══════════════════════════════════════════════════
-          ALL SONGS (full vertical list)
-      ══════════════════════════════════════════════════ */}
+      {/* ════════════════════════════════════════════════
+          ALL SONGS — full vertical list
+      ════════════════════════════════════════════════ */}
       {allFetched.length > 0 && (
         <>
-          <SectionDivider label={`All Songs · ${allFetched.length.toLocaleString()}`} />
+          <LangDivider label={`All Songs · ${allFetched.length.toLocaleString()}`} />
           <div className="space-y-0.5">
-            {allFetched.map((song, i) => (
+            {allFetched.map((song) => (
               <SongRow key={song.id} song={song} queue={allFetched} />
             ))}
           </div>
         </>
-      )}
-
-      {allFetched.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-          <p className="text-sm">No songs loaded</p>
-          <p className="text-xs mt-1">Try refreshing the page</p>
-        </div>
       )}
     </div>
   );
@@ -459,20 +455,20 @@ export default function HomePage() {
 // Sub-components
 // ─────────────────────────────────────────────
 
-/** Visual divider with language label */
-function SectionDivider({ label }: { label: string }) {
+/** Spotify-style section divider with centred label */
+function LangDivider({ label }: { label: string }) {
   return (
-    <div className="flex items-center gap-3 my-6">
-      <div className="h-px flex-1 bg-border" />
-      <span className="text-xs font-semibold tracking-wider text-muted-foreground uppercase whitespace-nowrap">
+    <div className="flex items-center gap-3 my-5">
+      <div className="h-px flex-1 bg-white/[0.08]" />
+      <span className="text-[11px] font-bold tracking-widest text-white/35 uppercase whitespace-nowrap">
         {label}
       </span>
-      <div className="h-px flex-1 bg-border" />
+      <div className="h-px flex-1 bg-white/[0.08]" />
     </div>
   );
 }
 
-/** Horizontally scrollable section with optional icon */
+/** Horizontally scrollable shelf */
 function HScrollSection({
   title,
   icon,
@@ -485,15 +481,19 @@ function HScrollSection({
   const ref = useRef<HTMLDivElement>(null);
 
   return (
-    <div className="mb-8">
-      <div className="flex items-center gap-2 mb-3">
-        {icon && <span className="text-primary">{icon}</span>}
-        <h2 className="text-base font-bold text-foreground flex-1 truncate">{title}</h2>
-        <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+    <div className="mb-7">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          {icon && <span className="text-[#1DB954]">{icon}</span>}
+          <h2 className="text-[15px] font-bold text-white">{title}</h2>
+        </div>
+        <button className="flex items-center gap-0.5 text-[11px] font-semibold tracking-wider text-white/40 hover:text-white transition-colors uppercase">
+          See all <ChevronRight className="w-3 h-3" />
+        </button>
       </div>
       <div
         ref={ref}
-        className="flex gap-3 overflow-x-auto pb-2"
+        className="flex gap-4 overflow-x-auto pb-1"
         style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
       >
         {children}
@@ -502,74 +502,68 @@ function HScrollSection({
   );
 }
 
-/** Album card shown in horizontal scroll rows */
+/** Album / playlist card */
 function AlbumCard({ album }: { album: Album }) {
   const { playSong } = usePlayer();
 
-  const handlePlay = () => {
-    if (album.songs.length > 0) {
-      playSong(album.songs[0], album.songs);
-    }
-  };
-
   return (
     <button
-      onClick={handlePlay}
-      className="flex-shrink-0 w-36 group text-left"
+      onClick={() => album.songs.length > 0 && playSong(album.songs[0], album.songs)}
+      className="flex-shrink-0 w-[140px] group text-left"
     >
-      <div className="relative w-36 h-36 rounded-lg overflow-hidden mb-2 bg-gradient-to-br from-rose-500/20 to-purple-600/20">
+      <div className="relative w-[140px] h-[140px] rounded-md overflow-hidden mb-2 bg-[#282828]">
         {album.art ? (
           <img
             src={album.art}
             alt={album.name}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            className="w-full h-full object-cover group-hover:brightness-75 transition-all duration-200"
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
-            <Disc3 className="w-10 h-10 text-muted-foreground/40" />
+            <Disc3 className="w-10 h-10 text-white/20" />
           </div>
         )}
-        {/* Play overlay */}
-        <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-          <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center shadow-lg">
-            <Play className="w-5 h-5 text-primary-foreground fill-current ml-0.5" />
+        {/* Green Spotify-style play button */}
+        <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 translate-y-1 group-hover:translate-y-0 transition-all duration-150">
+          <div className="w-10 h-10 rounded-full bg-[#1DB954] flex items-center justify-center shadow-2xl">
+            <Play className="w-5 h-5 text-black fill-current ml-0.5" />
           </div>
         </div>
-        {/* Track count badge */}
-        <div className="absolute bottom-1.5 right-1.5 bg-black/70 text-white text-[10px] px-1.5 py-0.5 rounded-full">
-          {album.songs.length} tracks
-        </div>
       </div>
-      <p className="text-xs font-semibold text-foreground truncate leading-tight">
-        {album.name}
+      <p className="text-[13px] font-semibold text-white truncate">{album.name}</p>
+      <p className="text-[11px] text-white/50 mt-0.5 truncate">
+        {album.year ? `${album.year} · ` : ""}
+        {album.songs.length} tracks
       </p>
-      {album.year && (
-        <p className="text-[10px] text-muted-foreground mt-0.5">{album.year}</p>
-      )}
     </button>
   );
 }
 
-/** Quick pick tile — small 2-column grid */
+/** Quick-pick tile in the 2×3 grid at the top */
 function QuickPick({ song, queue }: { song: Song; queue: Song[] }) {
   const { playSong } = usePlayer();
   return (
     <button
       onClick={() => playSong(song, queue)}
-      className="flex items-center gap-3 bg-card/60 hover:bg-accent rounded-md overflow-hidden transition-colors text-left w-full"
+      className="flex items-center bg-[#282828] hover:bg-[#3E3E3E] rounded overflow-hidden transition-colors text-left w-full group h-14"
     >
       {song.albumArt ? (
         <img
           src={song.albumArt}
           alt={song.title}
-          className="w-12 h-12 object-cover flex-shrink-0"
+          className="w-14 h-14 object-cover flex-shrink-0"
         />
       ) : (
-        <div className="w-12 h-12 bg-gradient-to-br from-rose-500 to-purple-600 flex-shrink-0" />
+        <div className="w-14 h-14 bg-gradient-to-br from-[#1DB954]/30 to-[#1a1a1a] flex-shrink-0" />
       )}
-      <span className="text-xs font-medium text-foreground truncate pr-2">
+      <span className="text-[12px] font-semibold text-white truncate px-3 flex-1">
         {song.title}
       </span>
+      <div className="pr-2 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+        <div className="w-7 h-7 rounded-full bg-[#1DB954] flex items-center justify-center">
+          <Play className="w-3.5 h-3.5 text-black fill-current ml-0.5" />
+        </div>
+      </div>
     </button>
   );
 }
