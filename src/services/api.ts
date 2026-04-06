@@ -49,3 +49,4 @@ export function extractResults(res: any): any[] {
     res?.data?.list ||
     []
   );
+}
