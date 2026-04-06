@@ -1,3 +1,4 @@
+// src/contexts/LibraryContext.tsx (COMPLETE CORRECTED VERSION)
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { supabase } from "@/lib/supabase/client";
 import type { Song } from "@/data/songs";
@@ -21,7 +22,7 @@ interface LibraryContextType {
   playlists: Playlist[];
   toggleLike: (song: Song) => Promise<void>;
   isLiked: (songId: string) => boolean;
-  addToRecentlyPlayed: (song: Song) => void;
+  addToRecentlyPlayed: (song: Song) => Promise<void>;
   createNewPlaylist: (name: string) => Promise<Playlist | null>;
   removePlaylist: (playlistId: string) => Promise<void>;
   updatePlaylistName: (playlistId: string, newName: string) => Promise<void>;
@@ -59,12 +60,13 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const loadRecentlyPlayedFromDB = async () => {
     if (!user) return;
-    const { data, error } = await (supabase
+    
+    const { data, error } = await supabase
       .from("recently_played")
       .select("*")
       .eq("user_id", user.id)
       .order("played_at", { ascending: false })
-      .limit(50) as any);
+      .limit(50);
     
     if (error) {
       console.error("Error loading recently played:", error);
@@ -72,7 +74,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     }
     
     if (data && data.length > 0) {
-      const songs: Song[] = data.map((item: any) => ({
+      const songs: Song[] = data.map((item) => ({
         id: item.song_id,
         title: item.song_title,
         artist: item.song_artist,
@@ -87,10 +89,11 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const loadLikedSongs = async () => {
     if (!user) return;
-    const { data, error } = await (supabase
+    
+    const { data, error } = await supabase
       .from("liked_songs")
       .select("*")
-      .eq("user_id", user.id) as any);
+      .eq("user_id", user.id);
     
     if (error) {
       console.error("Error loading liked songs:", error);
@@ -98,7 +101,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     }
     
     if (data) {
-      const songs: Song[] = data.map((item: any) => ({
+      const songs: Song[] = data.map((item) => ({
         id: item.song_id,
         title: item.song_title,
         artist: item.song_artist,
@@ -113,10 +116,11 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const loadPlaylists = async () => {
     if (!user) return;
-    const { data, error } = await (supabase
+    
+    const { data, error } = await supabase
       .from("playlists")
       .select("*")
-      .eq("user_id", user.id) as any);
+      .eq("user_id", user.id);
     
     if (error) {
       console.error("Error loading playlists:", error);
@@ -125,18 +129,17 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     
     if (data) {
       const playlistsWithCounts: Playlist[] = [];
+      
       for (const playlist of data) {
-        const { count, error: countError } = await (supabase
+        const { count, error: countError } = await supabase
           .from("playlist_songs")
           .select("*", { count: "exact", head: true })
-          .eq("playlist_id", playlist.id) as any);
+          .eq("playlist_id", playlist.id);
         
         if (!countError) {
-          const newPlaylist = { ...playlist, song_count: count || 0 };
-          playlistsWithCounts.push(newPlaylist);
+          playlistsWithCounts.push({ ...playlist, song_count: count || 0 });
         } else {
-          const newPlaylist = { ...playlist, song_count: 0 };
-          playlistsWithCounts.push(newPlaylist);
+          playlistsWithCounts.push({ ...playlist, song_count: 0 });
         }
       }
       setPlaylists(playlistsWithCounts);
@@ -149,11 +152,11 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     const isAlreadyLiked = likedSongs.some(s => s.id === song.id);
     
     if (isAlreadyLiked) {
-      const { error } = await (supabase
+      const { error } = await supabase
         .from("liked_songs")
         .delete()
         .eq("user_id", user.id)
-        .eq("song_id", song.id) as any);
+        .eq("song_id", song.id);
       
       if (!error) {
         setLikedSongs(prev => prev.filter(s => s.id !== song.id));
@@ -161,7 +164,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         console.error("Error unliking song:", error);
       }
     } else {
-      const { error } = await (supabase
+      const { error } = await supabase
         .from("liked_songs")
         .insert({ 
           user_id: user.id,
@@ -172,7 +175,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
           song_album_art: song.albumArt || null,
           song_audio_url: song.audioUrl,
           song_duration: song.duration || null
-        }) as any);
+        });
       
       if (!error) {
         setLikedSongs(prev => [...prev, song]);
@@ -200,7 +203,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     });
 
     if (user) {
-      const { error } = await (supabase
+      const { error } = await supabase
         .from("recently_played")
         .insert({
           user_id: user.id,
@@ -211,7 +214,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
           song_album_art: song.albumArt || null,
           song_audio_url: song.audioUrl,
           song_duration: song.duration || null
-        }) as any);
+        });
       
       if (error) {
         console.error("Error saving to recently played:", error);
@@ -221,7 +224,8 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const createNewPlaylist = async (name: string): Promise<Playlist | null> => {
     if (!user) return null;
-    const { data, error } = await (supabase
+    
+    const { data, error } = await supabase
       .from("playlists")
       .insert({ 
         user_id: user.id, 
@@ -229,7 +233,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         is_public: false
       })
       .select()
-      .single() as any);
+      .single();
     
     if (error) {
       console.error("Error creating playlist:", error);
@@ -246,10 +250,11 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const removePlaylist = async (playlistId: string) => {
     if (!user) return;
-    const { error } = await (supabase
+    
+    const { error } = await supabase
       .from("playlists")
       .delete()
-      .eq("id", playlistId) as any);
+      .eq("id", playlistId);
     
     if (!error) {
       setPlaylists(prev => prev.filter(p => p.id !== playlistId));
@@ -260,10 +265,11 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const updatePlaylistName = async (playlistId: string, newName: string) => {
     if (!user) return;
-    const { error } = await (supabase
+    
+    const { error } = await supabase
       .from("playlists")
       .update({ name: newName, updated_at: new Date().toISOString() })
-      .eq("id", playlistId) as any);
+      .eq("id", playlistId);
     
     if (!error) {
       setPlaylists(prev =>
@@ -282,16 +288,16 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const addToPlaylist = async (playlistId: string, song: Song) => {
     if (!user) return;
     
-    const { data: existingSongs } = await (supabase
+    const { data: existingSongs } = await supabase
       .from("playlist_songs")
       .select("position")
       .eq("playlist_id", playlistId)
       .order("position", { ascending: false })
-      .limit(1) as any);
+      .limit(1);
     
     const nextPosition = existingSongs && existingSongs.length > 0 ? existingSongs[0].position + 1 : 0;
     
-    const { error } = await (supabase
+    const { error } = await supabase
       .from("playlist_songs")
       .insert({ 
         playlist_id: playlistId,
@@ -303,7 +309,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         song_audio_url: song.audioUrl,
         song_duration: song.duration || null,
         position: nextPosition
-      }) as any);
+      });
     
     if (!error) {
       setPlaylists(prev =>
@@ -321,11 +327,12 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const removeFromPlaylist = async (playlistId: string, songId: string) => {
     if (!user) return;
-    const { error } = await (supabase
+    
+    const { error } = await supabase
       .from("playlist_songs")
       .delete()
       .eq("playlist_id", playlistId)
-      .eq("song_id", songId) as any);
+      .eq("song_id", songId);
     
     if (!error) {
       setPlaylists(prev =>
@@ -342,11 +349,11 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   };
 
   const getPlaylist = async (playlistId: string): Promise<Song[]> => {
-    const { data, error } = await (supabase
+    const { data, error } = await supabase
       .from("playlist_songs")
       .select("*")
       .eq("playlist_id", playlistId)
-      .order("position", { ascending: true }) as any);
+      .order("position", { ascending: true });
     
     if (error) {
       console.error("Error getting playlist:", error);
@@ -355,7 +362,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     
     if (!data) return [];
     
-    const songs: Song[] = data.map((item: any) => ({
+    const songs: Song[] = data.map((item) => ({
       id: item.song_id,
       title: item.song_title,
       artist: item.song_artist,
