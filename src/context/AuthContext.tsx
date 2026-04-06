@@ -31,18 +31,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       if (session?.user) fetchProfile(session.user.id);
       setLoading(false);
     });
 
+    // Listen for auth changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
-      if (session?.user) fetchProfile(session.user.id);
-      else setProfile(null);
+      if (session?.user) {
+        fetchProfile(session.user.id);
+      } else {
+        setProfile(null);
+      }
       setLoading(false);
     });
 
@@ -76,9 +81,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (data.user) {
       const { error: profileError } = await supabase
         .from("profiles")
-        .insert({ 
-          id: data.user.id, 
-          username: username
+        .insert({
+          id: data.user.id,
+          username: username,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
         } as any);
       if (profileError) {
         console.error("Profile creation error:", profileError);

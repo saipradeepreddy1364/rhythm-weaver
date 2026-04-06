@@ -6,7 +6,6 @@ import { usePlayer } from "@/context/PlayerContext";
 import { SongRow } from "@/components/SongRow";
 import type { Song } from "@/data/songs";
 
-// Playlist interface defined locally to avoid module resolution issues
 interface Playlist {
   id: string;
   name: string;
@@ -23,7 +22,6 @@ interface LibraryPageProps {
 
 type Tab = "liked" | "recent" | "playlists" | { type: "playlist"; id: string };
 
-// Filter recently played to only show songs played in the last 3 days
 function filterRecent(songs: Song[]): Song[] {
   const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
   const cutoff = Date.now() - THREE_DAYS_MS;
@@ -50,13 +48,13 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
   } = useLibrary();
   const { playSong } = usePlayer();
 
-  const [tab, setTab]                     = useState<Tab>("liked");
+  const [tab, setTab] = useState<Tab>("liked");
   const [playlistSongs, setPlaylistSongs] = useState<Song[]>([]);
   const [loadingPlaylist, setLoadingPlaylist] = useState(false);
-  const [editingId, setEditingId]         = useState<string | null>(null);
-  const [editName, setEditName]           = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
   const [creatingPlaylist, setCreatingPlaylist] = useState(false);
-  const [newPlaylistName, setNewPlaylistName]   = useState("");
+  const [newPlaylistName, setNewPlaylistName] = useState("");
 
   const recentFiltered = filterRecent(recentlyPlayed);
 
@@ -115,16 +113,8 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
       ? playlists.find((p) => p.id === tab.id)
       : null;
 
-  const topTabs = [
-    { key: "liked" as const,     label: "Playlists", icon: ListMusic },
-    { key: "recent" as const,    label: "Albums",    icon: Clock     },
-    { key: "playlists" as const, label: "Artists",   icon: Heart     },
-  ];
-
   return (
     <div style={{ background: "#121212", minHeight: "100%" }}>
-
-      {/* Back button inside a playlist */}
       {currentPlaylist ? (
         <div className="px-4 pt-12 pb-4">
           <button
@@ -135,7 +125,6 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
             <X className="w-4 h-4" /> Back
           </button>
 
-          {/* Playlist hero */}
           <div className="flex flex-col items-center mb-6">
             <div
               className="w-48 h-48 rounded-lg overflow-hidden flex items-center justify-center shadow-2xl mb-5"
@@ -159,12 +148,6 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                   style={{ background: "#1DB954" }}
                 >
                   <Play className="w-4 h-4 fill-black" /> Play
-                </button>
-                <button
-                  className="flex items-center gap-2 px-6 py-3 rounded-full text-sm font-bold transition-all active:scale-95"
-                  style={{ background: "rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.8)" }}
-                >
-                  Shuffle
                 </button>
               </div>
             )}
@@ -190,7 +173,6 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
         </div>
       ) : (
         <>
-          {/* ── Header ── */}
           <div className="px-4 pt-12 pb-2">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
@@ -211,14 +193,10 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
               </button>
             </div>
 
-            {/* Tab pills */}
-            <div
-              className="flex gap-2 overflow-x-auto pb-1"
-              style={{ scrollbarWidth: "none" } as React.CSSProperties}
-            >
+            <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
               {[
-                { key: "liked" as const,     label: "Playlists" },
-                { key: "recent" as const,    label: "Recently played" },
+                { key: "liked" as const, label: "Playlists" },
+                { key: "recent" as const, label: "Recently played" },
                 { key: "playlists" as const, label: "Albums" },
               ].map(({ key, label }) => {
                 const active = tab === key;
@@ -241,7 +219,6 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
           </div>
 
           <div className="px-4">
-            {/* ── Create playlist input ── */}
             {creatingPlaylist && (
               <div
                 className="flex gap-2 mb-4 mt-3 rounded-lg px-3 py-3"
@@ -271,10 +248,8 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
               </div>
             )}
 
-            {/* ── Liked Songs (shown as playlists tab) ── */}
             {tab === "liked" && (
               <>
-                {/* Liked songs pinned card */}
                 {likedSongs.length > 0 && (
                   <button
                     onClick={() => playSong(likedSongs[0], likedSongs)}
@@ -296,20 +271,16 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                   </button>
                 )}
 
-                {/* Playlists list */}
                 {playlists.length === 0 && !creatingPlaylist && (
                   <LibraryEmpty
                     icon={<ListMusic className="w-9 h-9" />}
                     title="Create your first playlist"
-                    subtitle='Tap the + button above to get started.'
+                    subtitle="Tap the + button above to get started."
                   />
                 )}
                 <div className="space-y-0.5 mt-1">
                   {playlists.map((p) => (
-                    <div
-                      key={p.id}
-                      className="flex items-center gap-3 py-2 group"
-                    >
+                    <div key={p.id} className="flex items-center gap-3 py-2 group">
                       <button
                         onClick={() => openPlaylist(p)}
                         className="w-14 h-14 rounded-md overflow-hidden flex-shrink-0 flex items-center justify-center shadow-lg"
@@ -374,7 +345,6 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
               </>
             )}
 
-            {/* ── Recently Played ── */}
             {tab === "recent" && (
               <>
                 {recentFiltered.length === 0 ? (
@@ -398,7 +368,6 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
               </>
             )}
 
-            {/* ── Albums tab (using playlists key) ── */}
             {tab === "playlists" && (
               <LibraryEmpty
                 icon={<Heart className="w-9 h-9" />}
@@ -409,8 +378,6 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
           </div>
         </>
       )}
-
-      {/* Bottom spacer */}
       <div className="h-8" />
     </div>
   );

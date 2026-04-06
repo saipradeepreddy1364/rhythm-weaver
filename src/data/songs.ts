@@ -8,11 +8,12 @@ export interface Song {
   language?: string;
   year?: number;
   genre?: string;
-  album?: string;      // ADD THIS - for album grouping
-  movie?: string;      // ADD THIS - for movie grouping
+  album?: string;
+  movie?: string;
 }
 
 export function formatDuration(seconds: number): string {
+  if (!seconds || isNaN(seconds)) return "0:00";
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${m}:${s.toString().padStart(2, "0")}`;
@@ -47,8 +48,8 @@ export function mapApiSong(item: any): Song {
     language: item.language,
     year: item.year ? Number(item.year) : undefined,
     genre: item.genre,
-    album: item.album || item.movie || "",     // ADD THIS
-    movie: item.movie || item.album || "",     // ADD THIS
+    album: item.album || item.movie || "",
+    movie: item.movie || item.album || "",
   };
 }
 

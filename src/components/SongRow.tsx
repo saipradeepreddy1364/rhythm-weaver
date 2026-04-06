@@ -23,14 +23,21 @@ export function SongRow({ song, queue, onRequireAuth }: SongRowProps) {
     <div
       className="flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-all active:scale-[0.98]"
       style={{
-        background: isActive ? "rgba(249,115,22,0.1)" : "transparent",
+        background: isActive ? "rgba(29,185,84,0.1)" : "transparent",
       }}
       onClick={handleClick}
     >
       {/* Album art */}
       <div className="relative w-11 h-11 rounded-xl overflow-hidden flex-shrink-0 shadow-md">
         {song.albumArt ? (
-          <img src={song.albumArt} alt={song.title} className="w-full h-full object-cover" />
+          <img 
+            src={song.albumArt} 
+            alt={song.title} 
+            className="w-full h-full object-cover"
+            onError={(e) => {
+              (e.target as HTMLImageElement).src = "https://via.placeholder.com/400x400?text=No+Image";
+            }}
+          />
         ) : (
           <div className="w-full h-full bg-gradient-to-br from-orange-500 to-pink-600" />
         )}
@@ -43,7 +50,7 @@ export function SongRow({ song, queue, onRequireAuth }: SongRowProps) {
                   key={delay}
                   className="w-0.5 rounded-full animate-pulse"
                   style={{
-                    background: "#f97316",
+                    background: "#1DB954",
                     height: delay === 150 ? "16px" : "10px",
                     animationDelay: `${delay}ms`,
                   }}
@@ -52,7 +59,7 @@ export function SongRow({ song, queue, onRequireAuth }: SongRowProps) {
             </div>
           </div>
         )}
-        {/* Play icon on inactive hover — handled by opacity on parent hover */}
+        {/* Play icon on inactive hover */}
         {!isActive && (
           <div className="absolute inset-0 bg-black/0 hover:bg-black/40 flex items-center justify-center transition-all">
             <Play className="w-4 h-4 text-white opacity-0 hover:opacity-100 fill-white" />
@@ -64,7 +71,7 @@ export function SongRow({ song, queue, onRequireAuth }: SongRowProps) {
       <div className="flex-1 min-w-0">
         <p
           className="text-sm font-semibold truncate leading-tight"
-          style={{ color: isActive ? "#f97316" : "rgba(255,255,255,0.9)" }}
+          style={{ color: isActive ? "#1DB954" : "rgba(255,255,255,0.9)" }}
         >
           {song.title}
         </p>

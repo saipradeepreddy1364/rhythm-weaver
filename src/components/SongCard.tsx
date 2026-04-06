@@ -50,6 +50,9 @@ export function SongCard({ song, queue, index }: SongCardProps) {
             src={song.albumArt}
             alt={song.title}
             className="w-full h-full object-cover"
+            onError={(e) => {
+              (e.target as HTMLImageElement).src = "https://via.placeholder.com/400x400?text=No+Image";
+            }}
           />
         ) : (
           <div className="w-full h-full bg-gradient-to-br from-rose-500 to-purple-600" />

@@ -16,10 +16,9 @@ export function AuthModal({ open, onClose, defaultTab = "login" }: AuthModalProp
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  // Form fields
-  const [email, setEmail]         = useState("");
-  const [password, setPassword]   = useState("");
-  const [username, setUsername]   = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [username, setUsername] = useState("");
   const [confirmPw, setConfirmPw] = useState("");
 
   if (!open) return null;
@@ -83,34 +82,34 @@ export function AuthModal({ open, onClose, defaultTab = "login" }: AuthModalProp
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="bg-card border border-border rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+      <div className="bg-[#1a1a1a] border border-white/10 rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden animate-fade-in">
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-6 pb-4">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-              <Music2 className="w-4 h-4 text-primary-foreground" />
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "linear-gradient(135deg,#1DB954,#1ed760)" }}>
+              <Music2 className="w-4 h-4 text-black" />
             </div>
-            <span className="font-bold text-foreground text-lg">RhythmWeaver</span>
+            <span className="font-bold text-white text-lg">RhythmWeaver</span>
           </div>
           <button
             onClick={onClose}
-            className="text-muted-foreground hover:text-foreground transition-colors rounded-lg p-1"
+            className="text-white/40 hover:text-white transition-colors rounded-lg p-1"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Tab switcher */}
-        <div className="flex mx-6 mb-5 bg-muted rounded-lg p-1">
+        <div className="flex mx-6 mb-5 bg-white/5 rounded-lg p-1">
           {(["login", "register"] as const).map((t) => (
             <button
               key={t}
               onClick={() => switchTab(t)}
               className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${
                 tab === t
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
+                  ? "bg-[#2a2a2a] text-white shadow-sm"
+                  : "text-white/40 hover:text-white"
               }`}
             >
               {t === "login" ? "Sign In" : "Sign Up"}
@@ -120,24 +119,21 @@ export function AuthModal({ open, onClose, defaultTab = "login" }: AuthModalProp
 
         {/* Form */}
         <div className="px-6 pb-6 space-y-3">
-          {/* Success */}
           {success && (
             <div className="text-xs text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2">
               {success}
             </div>
           )}
 
-          {/* Error */}
           {error && (
-            <div className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">
+            <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
               {error}
             </div>
           )}
 
-          {/* Username (register only) */}
           {tab === "register" && (
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">
+              <label className="text-xs font-medium text-white/40 mb-1 block">
                 Username
               </label>
               <input
@@ -146,14 +142,13 @@ export function AuthModal({ open, onClose, defaultTab = "login" }: AuthModalProp
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="your_name"
                 autoComplete="username"
-                className="w-full bg-muted border border-border rounded-lg px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all"
               />
             </div>
           )}
 
-          {/* Email */}
           <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1 block">
+            <label className="text-xs font-medium text-white/40 mb-1 block">
               Email
             </label>
             <input
@@ -163,13 +158,12 @@ export function AuthModal({ open, onClose, defaultTab = "login" }: AuthModalProp
               placeholder="you@example.com"
               autoComplete="email"
               onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-              className="w-full bg-muted border border-border rounded-lg px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
+              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all"
             />
           </div>
 
-          {/* Password */}
           <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1 block">
+            <label className="text-xs font-medium text-white/40 mb-1 block">
               Password
             </label>
             <div className="relative">
@@ -180,22 +174,21 @@ export function AuthModal({ open, onClose, defaultTab = "login" }: AuthModalProp
                 placeholder="••••••••"
                 autoComplete={tab === "login" ? "current-password" : "new-password"}
                 onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-                className="w-full bg-muted border border-border rounded-lg px-3 py-2.5 pr-10 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 pr-10 text-sm text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword((v) => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white"
               >
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
           </div>
 
-          {/* Confirm Password (register only) */}
           {tab === "register" && (
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">
+              <label className="text-xs font-medium text-white/40 mb-1 block">
                 Confirm Password
               </label>
               <input
@@ -205,29 +198,27 @@ export function AuthModal({ open, onClose, defaultTab = "login" }: AuthModalProp
                 placeholder="••••••••"
                 autoComplete="new-password"
                 onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-                className="w-full bg-muted border border-border rounded-lg px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all"
               />
             </div>
           )}
 
-          {/* Submit button */}
           <button
             onClick={handleSubmit}
             disabled={loading}
-            className="w-full mt-1 bg-primary hover:bg-primary/90 disabled:opacity-60 text-primary-foreground font-semibold rounded-lg py-2.5 text-sm transition-all flex items-center justify-center gap-2"
+            className="w-full mt-1 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 text-black font-semibold rounded-lg py-2.5 text-sm transition-all flex items-center justify-center gap-2"
           >
             {loading && <Loader2 className="w-4 h-4 animate-spin" />}
             {tab === "login" ? "Sign In" : "Create Account"}
           </button>
 
-          {/* Switch tab hint */}
-          <p className="text-center text-xs text-muted-foreground pt-1">
+          <p className="text-center text-xs text-white/40 pt-1">
             {tab === "login" ? (
               <>
                 Don't have an account?{" "}
                 <button
                   onClick={() => switchTab("register")}
-                  className="text-primary hover:underline font-medium"
+                  className="text-emerald-500 hover:underline font-medium"
                 >
                   Sign up free
                 </button>
@@ -237,7 +228,7 @@ export function AuthModal({ open, onClose, defaultTab = "login" }: AuthModalProp
                 Already have an account?{" "}
                 <button
                   onClick={() => switchTab("login")}
-                  className="text-primary hover:underline font-medium"
+                  className="text-emerald-500 hover:underline font-medium"
                 >
                   Sign in
                 </button>

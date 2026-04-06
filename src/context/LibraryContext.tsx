@@ -1,8 +1,10 @@
-// src/contexts/LibraryContext.tsx (COMPLETE CORRECTED VERSION)
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { supabase } from "@/lib/supabase/client";
 import type { Song } from "@/data/songs";
 import { useAuth } from "./AuthContext";
+
+// ADD THIS LINE - It extends the Supabase client type to fix the error
+const typedSupabase = supabase as any;
 
 interface Playlist {
   id: string;
@@ -37,11 +39,6 @@ interface DBPlaylistRow {
   updated_at: string;
 }
 
-interface DBPlaylistSongRow extends DBSongRow {
-  playlist_id: string;
-  position: number;
-}
-
 interface LibraryContextType {
   likedSongs: Song[];
   recentlyPlayed: Song[];
@@ -58,10 +55,6 @@ interface LibraryContextType {
 }
 
 const LibraryContext = createContext<LibraryContextType | undefined>(undefined);
-
-// Complete type escape — tables are not in generated Supabase types
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabase as unknown as any;
 
 const mapToSong = (item: DBSongRow): Song => ({
   id: item.song_id,
@@ -87,6 +80,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     }
   }, [user]);
 
+  // Load from localStorage as fallback
   useEffect(() => {
     const stored = localStorage.getItem("rw_recently_played");
     if (stored) {
@@ -101,7 +95,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const loadRecentlyPlayedFromDB = async () => {
     if (!user) return;
 
-    const { data, error } = await db
+    const { data, error } = await typedSupabase
       .from("recently_played")
       .select("*")
       .eq("user_id", user.id)
@@ -114,7 +108,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     }
 
     if (data && data.length > 0) {
-      const songs: Song[] = (data as DBSongRow[]).map(mapToSong);
+      const songs: Song[] = (data as unknown as DBSongRow[]).map(mapToSong);
       setRecentlyPlayed(songs);
     }
   };
@@ -122,7 +116,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const loadLikedSongs = async () => {
     if (!user) return;
 
-    const { data, error } = await db
+    const { data, error } = await typedSupabase
       .from("liked_songs")
       .select("*")
       .eq("user_id", user.id);
@@ -133,7 +127,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     }
 
     if (data) {
-      const songs: Song[] = (data as DBSongRow[]).map(mapToSong);
+      const songs: Song[] = (data as unknown as DBSongRow[]).map(mapToSong);
       setLikedSongs(songs);
     }
   };
@@ -141,7 +135,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const loadPlaylists = async () => {
     if (!user) return;
 
-    const { data, error } = await db
+    const { data, error } = await typedSupabase
       .from("playlists")
       .select("*")
       .eq("user_id", user.id);
@@ -154,8 +148,8 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     if (data) {
       const playlistsWithCounts: Playlist[] = [];
 
-      for (const playlist of data as DBPlaylistRow[]) {
-        const { count, error: countError } = await db
+      for (const playlist of data as unknown as DBPlaylistRow[]) {
+        const { count, error: countError } = await typedSupabase
           .from("playlist_songs")
           .select("*", { count: "exact", head: true })
           .eq("playlist_id", playlist.id);
@@ -176,7 +170,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     const isAlreadyLiked = likedSongs.some((s) => s.id === song.id);
 
     if (isAlreadyLiked) {
-      const { error } = await db
+      const { error } = await typedSupabase
         .from("liked_songs")
         .delete()
         .eq("user_id", user.id)
@@ -188,7 +182,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         console.error("Error unliking song:", error);
       }
     } else {
-      const { error } = await db
+      const { error } = await typedSupabase
         .from("liked_songs")
         .insert({
           user_id: user.id,
@@ -199,6 +193,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
           song_album_art: song.albumArt || null,
           song_audio_url: song.audioUrl,
           song_duration: song.duration || null,
+          liked_at: new Date().toISOString()
         });
 
       if (!error) {
@@ -227,7 +222,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     });
 
     if (user) {
-      const { error } = await db
+      const { error } = await typedSupabase
         .from("recently_played")
         .insert({
           user_id: user.id,
@@ -238,6 +233,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
           song_album_art: song.albumArt || null,
           song_audio_url: song.audioUrl,
           song_duration: song.duration || null,
+          played_at: new Date().toISOString()
         });
 
       if (error) {
@@ -249,12 +245,14 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const createNewPlaylist = async (name: string): Promise<Playlist | null> => {
     if (!user) return null;
 
-    const { data, error } = await db
+    const { data, error } = await typedSupabase
       .from("playlists")
       .insert({
         user_id: user.id,
         name: name,
         is_public: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       })
       .select()
       .single();
@@ -265,7 +263,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     }
 
     if (data) {
-      const newPlaylist: Playlist = { ...(data as DBPlaylistRow), song_count: 0 };
+      const newPlaylist: Playlist = { ...(data as unknown as DBPlaylistRow), song_count: 0 };
       setPlaylists((prev) => [...prev, newPlaylist]);
       return newPlaylist;
     }
@@ -275,7 +273,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const removePlaylist = async (playlistId: string) => {
     if (!user) return;
 
-    const { error } = await db
+    const { error } = await typedSupabase
       .from("playlists")
       .delete()
       .eq("id", playlistId);
@@ -290,7 +288,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const updatePlaylistName = async (playlistId: string, newName: string) => {
     if (!user) return;
 
-    const { error } = await db
+    const { error } = await typedSupabase
       .from("playlists")
       .update({ name: newName, updated_at: new Date().toISOString() })
       .eq("id", playlistId);
@@ -312,7 +310,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const addToPlaylist = async (playlistId: string, song: Song) => {
     if (!user) return;
 
-    const { data: existingSongs } = await db
+    const { data: existingSongs } = await typedSupabase
       .from("playlist_songs")
       .select("position")
       .eq("playlist_id", playlistId)
@@ -322,7 +320,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     const rows = existingSongs as { position: number }[] | null;
     const nextPosition = rows && rows.length > 0 ? rows[0].position + 1 : 0;
 
-    const { error } = await db
+    const { error } = await typedSupabase
       .from("playlist_songs")
       .insert({
         playlist_id: playlistId,
@@ -334,6 +332,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         song_audio_url: song.audioUrl,
         song_duration: song.duration || null,
         position: nextPosition,
+        added_at: new Date().toISOString()
       });
 
     if (!error) {
@@ -353,7 +352,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const removeFromPlaylist = async (playlistId: string, songId: string) => {
     if (!user) return;
 
-    const { error } = await db
+    const { error } = await typedSupabase
       .from("playlist_songs")
       .delete()
       .eq("playlist_id", playlistId)
@@ -374,7 +373,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   };
 
   const getPlaylist = async (playlistId: string): Promise<Song[]> => {
-    const { data, error } = await db
+    const { data, error } = await typedSupabase
       .from("playlist_songs")
       .select("*")
       .eq("playlist_id", playlistId)
@@ -387,7 +386,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
     if (!data) return [];
 
-    const songs: Song[] = (data as DBPlaylistSongRow[]).map(mapToSong);
+    const songs: Song[] = (data as unknown as DBSongRow[]).map(mapToSong);
     return songs;
   };
 

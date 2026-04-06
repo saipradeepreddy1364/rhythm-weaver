@@ -31,7 +31,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col"
+      className="fixed inset-0 z-50 flex flex-col animate-fade-in"
       style={{ background: "#0a0a0a" }}
     >
       {/* Blurred album art background */}
@@ -87,9 +87,12 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
                 src={currentSong.albumArt}
                 alt={currentSong.title}
                 className="w-full h-full object-cover"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = "https://via.placeholder.com/400x400?text=No+Image";
+                }}
               />
             ) : (
-              <div className="w-full h-full" style={{ background: "linear-gradient(135deg,#f97316,#ec4899)" }} />
+              <div className="w-full h-full" style={{ background: "linear-gradient(135deg,#1DB954,#1ed760)" }} />
             )}
           </div>
         </div>
@@ -125,7 +128,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
               className="absolute top-0 left-0 h-full rounded-full transition-all duration-1000 ease-linear"
               style={{
                 width: `${pct}%`,
-                background: "linear-gradient(90deg,#f97316,#ec4899)",
+                background: "linear-gradient(90deg,#1DB954,#1ed760)",
               }}
             />
           </div>
@@ -151,12 +154,12 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           <button
             onClick={togglePlay}
             className="w-16 h-16 rounded-full flex items-center justify-center shadow-2xl transition-transform active:scale-90"
-            style={{ background: "linear-gradient(135deg,#f97316,#ec4899)" }}
+            style={{ background: "linear-gradient(135deg,#1DB954,#1ed760)" }}
           >
             {isPlaying ? (
-              <Pause className="w-7 h-7 text-white fill-white" />
+              <Pause className="w-7 h-7 text-black fill-black" />
             ) : (
-              <Play className="w-7 h-7 text-white fill-white ml-1" />
+              <Play className="w-7 h-7 text-black fill-black ml-1" />
             )}
           </button>
 

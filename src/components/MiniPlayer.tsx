@@ -25,7 +25,6 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
   const pct = Math.min(100, (progress / totalDuration) * 100);
 
   return (
-    // sits just above the bottom nav (which is 56px tall = pb-14 / bottom-14)
     <div className="fixed bottom-14 left-0 right-0 z-40 px-2 pb-1.5">
       <div
         className="rounded-2xl overflow-hidden shadow-2xl"
@@ -49,7 +48,7 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
             className="h-full transition-all duration-1000 ease-linear rounded-full"
             style={{
               width: `${pct}%`,
-              background: "linear-gradient(90deg, #f97316, #ec4899)",
+              background: "linear-gradient(90deg, #1DB954, #1ed760)",
             }}
           />
         </div>
@@ -65,9 +64,12 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
                 src={currentSong.albumArt}
                 alt={currentSong.title}
                 className="w-full h-full object-cover"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = "https://via.placeholder.com/400x400?text=No+Image";
+                }}
               />
             ) : (
-              <div className="w-full h-full bg-gradient-to-br from-orange-500 to-pink-600" />
+              <div className="w-full h-full bg-gradient-to-br from-green-500 to-emerald-600" />
             )}
           </button>
 
@@ -84,7 +86,7 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
             </p>
           </button>
 
-          {/* Controls — right side only: like + play + next */}
+          {/* Controls */}
           <div className="flex items-center gap-0.5 flex-shrink-0">
             <LikeButton
               song={currentSong}
@@ -96,12 +98,12 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
             <button
               onClick={togglePlay}
               className="w-9 h-9 rounded-full flex items-center justify-center transition-transform active:scale-95"
-              style={{ background: "linear-gradient(135deg, #f97316, #ec4899)" }}
+              style={{ background: "linear-gradient(135deg, #1DB954, #1ed760)" }}
             >
               {isPlaying ? (
-                <Pause className="w-4 h-4 text-white fill-white" />
+                <Pause className="w-4 h-4 text-black fill-black" />
               ) : (
-                <Play className="w-4 h-4 text-white fill-white ml-0.5" />
+                <Play className="w-4 h-4 text-black fill-black ml-0.5" />
               )}
             </button>
 

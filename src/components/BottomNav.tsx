@@ -15,7 +15,6 @@ const tabs: { key: Page; label: string; Icon: typeof Home }[] = [
 
 export function BottomNav({ page, onNavigate }: BottomNavProps) {
   return (
-    // h-14 = 56px, matches the bottom-14 offset used by MiniPlayer
     <nav
       className="fixed bottom-0 left-0 right-0 z-50 h-14 flex items-center"
       style={{
@@ -34,18 +33,18 @@ export function BottomNav({ page, onNavigate }: BottomNavProps) {
           >
             <Icon
               className="w-5 h-5 transition-colors"
-              style={{ color: active ? "#f97316" : "rgba(255,255,255,0.4)" }}
+              style={{ color: active ? "#1DB954" : "rgba(255,255,255,0.4)" }}
             />
             <span
               className="text-[10px] font-medium tracking-wide transition-colors"
-              style={{ color: active ? "#f97316" : "rgba(255,255,255,0.4)" }}
+              style={{ color: active ? "#1DB954" : "rgba(255,255,255,0.4)" }}
             >
               {label}
             </span>
             {active && (
               <span
                 className="absolute bottom-0 w-8 h-0.5 rounded-full"
-                style={{ background: "linear-gradient(90deg,#f97316,#ec4899)" }}
+                style={{ background: "linear-gradient(90deg,#1DB954,#1ed760)" }}
               />
             )}
           </button>

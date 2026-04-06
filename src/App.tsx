@@ -29,9 +29,9 @@ function AppShell() {
   const { user, profile, logout, loading: authLoading } = useAuth();
   const { currentSong, showPlayer } = usePlayer();
 
-  const [page, setPage]         = useState<Page>("home");
+  const [page, setPage] = useState<Page>("home");
   const [authOpen, setAuthOpen] = useState(false);
-  const [authTab, setAuthTab]   = useState<"login" | "register">("login");
+  const [authTab, setAuthTab] = useState<"login" | "register">("login");
   const [profileOpen, setProfileOpen] = useState(false);
 
   const openAuth = (tab: "login" | "register" = "login") => {
@@ -51,32 +51,32 @@ function AppShell() {
     return (
       <div
         className="flex flex-col items-center justify-center min-h-screen gap-3"
-        style={{ background: "#0a0a0a" }}
+        style={{ background: "#121212" }}
       >
         <div
           className="w-12 h-12 rounded-2xl flex items-center justify-center"
-          style={{ background: "linear-gradient(135deg,#f97316,#ec4899)" }}
+          style={{ background: "linear-gradient(135deg,#1DB954,#1ed760)" }}
         >
           <Music2 className="w-6 h-6 text-white" />
         </div>
-        <Loader2 className="w-5 h-5 animate-spin text-orange-500" />
+        <Loader2 className="w-5 h-5 animate-spin" style={{ color: "#1DB954" }} />
+        <p className="text-xs text-white/40">Loading your music...</p>
       </div>
     );
   }
 
-  // bottom padding: 56px nav + (miniplayer ~68px when visible) + 8px gap
   const bottomPad = currentSong ? "pb-36" : "pb-16";
 
   return (
     <div
-      className="min-h-screen text-foreground flex flex-col"
-      style={{ background: "#0a0a0a", maxWidth: "480px", margin: "0 auto" }}
+      className="min-h-screen flex flex-col"
+      style={{ background: "#121212", maxWidth: "480px", margin: "0 auto" }}
     >
-      {/* ── Top bar ──────────────────────────────────────────────── */}
+      {/* Top bar */}
       <header
         className="sticky top-0 z-30 h-14 flex items-center justify-between px-4"
         style={{
-          background: "rgba(10,10,10,0.95)",
+          background: "rgba(18,18,18,0.95)",
           backdropFilter: "blur(20px)",
           borderBottom: "1px solid rgba(255,255,255,0.06)",
         }}
@@ -84,9 +84,9 @@ function AppShell() {
         <div className="flex items-center gap-2">
           <div
             className="w-7 h-7 rounded-lg flex items-center justify-center"
-            style={{ background: "linear-gradient(135deg,#f97316,#ec4899)" }}
+            style={{ background: "linear-gradient(135deg,#1DB954,#1ed760)" }}
           >
-            <Music2 className="w-3.5 h-3.5 text-white" />
+            <Music2 className="w-3.5 h-3.5 text-black" />
           </div>
           <span className="font-bold text-sm tracking-tight text-white">
             RhythmWeaver
@@ -105,15 +105,15 @@ function AppShell() {
               </span>
               <div
                 className="w-5 h-5 rounded-full flex items-center justify-center"
-                style={{ background: "linear-gradient(135deg,#f97316,#ec4899)" }}
+                style={{ background: "linear-gradient(135deg,#1DB954,#1ed760)" }}
               >
-                <User className="w-2.5 h-2.5 text-white" />
+                <User className="w-2.5 h-2.5 text-black" />
               </div>
             </button>
 
             {profileOpen && (
               <div
-                className="absolute right-0 top-full mt-2 w-44 rounded-2xl shadow-2xl z-50 overflow-hidden"
+                className="absolute right-0 top-full mt-2 w-44 rounded-2xl shadow-2xl z-50 overflow-hidden animate-fade-in"
                 style={{
                   background: "rgba(20,20,20,0.98)",
                   border: "1px solid rgba(255,255,255,0.08)",
@@ -145,7 +145,7 @@ function AppShell() {
             <button
               onClick={() => openAuth("register")}
               className="text-xs font-semibold text-white px-3 py-1.5 rounded-full transition-colors"
-              style={{ background: "linear-gradient(135deg,#f97316,#ec4899)" }}
+              style={{ background: "linear-gradient(135deg,#1DB954,#1ed760)" }}
             >
               Sign Up
             </button>
@@ -153,23 +153,23 @@ function AppShell() {
         )}
       </header>
 
-      {/* ── Page Content ─────────────────────────────────────────── */}
+      {/* Page Content */}
       <main className={`flex-1 ${bottomPad}`}>
-        {page === "home"    && <HomePage    onRequireAuth={() => openAuth("login")} />}
-        {page === "search"  && <SearchPage  onRequireAuth={() => openAuth("login")} />}
+        {page === "home" && <HomePage onRequireAuth={() => openAuth("login")} />}
+        {page === "search" && <SearchPage onRequireAuth={() => openAuth("login")} />}
         {page === "library" && <LibraryPage onRequireAuth={() => openAuth("login")} />}
       </main>
 
-      {/* ── Mini Player (above bottom nav) ───────────────────────── */}
+      {/* Mini Player (above bottom nav) */}
       <MiniPlayer onRequireAuth={() => openAuth("login")} />
 
-      {/* ── Full screen player ───────────────────────────────────── */}
+      {/* Full screen player */}
       <FullPlayer onRequireAuth={() => openAuth("login")} />
 
-      {/* ── Bottom Nav ───────────────────────────────────────────── */}
+      {/* Bottom Nav */}
       <BottomNav page={page} onNavigate={handleNavigate} />
 
-      {/* ── Auth Modal ───────────────────────────────────────────── */}
+      {/* Auth Modal */}
       <AuthModal
         open={authOpen}
         onClose={() => setAuthOpen(false)}

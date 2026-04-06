@@ -1,6 +1,3 @@
-// Auto-generated types for our Supabase schema.
-// Run `npx supabase gen types typescript` to regenerate after schema changes.
-
 export type Database = {
   public: {
     Tables: {

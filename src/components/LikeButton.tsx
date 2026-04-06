@@ -6,7 +6,6 @@ import type { Song } from "@/data/songs";
 
 interface LikeButtonProps {
   song: Song;
-  /** Show the auth modal when user isn't logged in */
   onRequireAuth?: () => void;
   className?: string;
   size?: "sm" | "md" | "lg";
@@ -50,7 +49,7 @@ export function LikeButton({
       className={`flex items-center justify-center transition-all ${
         liked
           ? "text-rose-500 hover:text-rose-400"
-          : "text-muted-foreground hover:text-foreground"
+          : "text-white/40 hover:text-white"
       } ${animating ? "scale-125" : "scale-100"} ${className}`}
       style={{ transition: "transform 0.2s cubic-bezier(.17,.67,.41,1.4)" }}
     >
