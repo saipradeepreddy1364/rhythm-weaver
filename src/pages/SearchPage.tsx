@@ -4,9 +4,25 @@ import { api, extractResults } from "@/services/api";
 import { SongRow } from "@/components/SongRow";
 import { useAuth } from "@/context/AuthContext";
 import {
-  Search, X, Loader2, Disc3, ChevronDown, ChevronUp,
-  Play, User2, Music2, Mic2, Headphones, Globe2,
-  Heart, Flame, Zap, Radio, Star, TrendingUp, Sparkles,
+  Search,
+  X,
+  Loader2,
+  Disc3,
+  ChevronDown,
+  ChevronUp,
+  Play,
+  User2,
+  Music2,
+  Mic2,
+  Headphones,
+  Globe2,
+  Heart,
+  Flame,
+  Zap,
+  Radio,
+  Star,
+  TrendingUp,
+  Sparkles,
 } from "lucide-react";
 import { usePlayer } from "@/context/PlayerContext";
 import { AuthModal } from "@/components/AuthModal";
@@ -91,205 +107,205 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
   const [showAllArtists, setShowAllArtists] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
-  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
-  const lastQueryRef = useRef("");
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const PAGE_SIZE = 50;
-
-  const doSearch = useCallback((q: string, pg = 1, isDebounced = false) => {
-    const trimmed = q.trim();
-    if (!trimmed) {
-      if (pg === 1) {
-        setSearched(false);
-        setSongs([]);
-        setAlbums([]);
-        setArtists([]);
-      }
-      return;
-    }
-    
-    lastQueryRef.current = trimmed;
-
-    if (pg === 1) {
-      setLoading(true);
-      setSearched(true);
-      setExpandedAlbums(new Set());
-      setExpandedArtists(new Set());
-      setShowAllArtists(false);
-    } else {
-      setLoadingMore(true);
-    }
-
-    api.searchSongs(trimmed, pg, PAGE_SIZE)
-      .then((res) => {
-        const results = extractResults(res).map(mapApiSong);
-        if (pg === 1) {
-          setSongs(results);
-          setAlbums(groupIntoAlbums(results));
-          setArtists(groupIntoArtists(results));
-          setPage(1);
-        } else {
-          setSongs((prev) => {
-            const merged = [...prev, ...results];
-            setAlbums(groupIntoAlbums(merged));
-            setArtists(groupIntoArtists(merged));
-            return merged;
-          });
-        }
-        setHasMore(results.length === PAGE_SIZE);
-      })
-      .catch(() => {
-        if (pg === 1) { setSongs([]); setAlbums([]); setArtists([]); }
-        setHasMore(false);
-      })
-      .finally(() => {
-        setLoading(false);
-        setLoadingMore(false);
-      });
-  }, []);
-
-  // Debounced search as user types
-  useEffect(() => {
-    if (debounceTimer.current) {
-      clearTimeout(debounceTimer.current);
-    }
-    
-    if (query.trim()) {
-      debounceTimer.current = setTimeout(() => {
-        doSearch(query, 1);
-      }, 500);
-    } else {
-      setSearched(false);
-      setSongs([]);
-      setAlbums([]);
-      setArtists([]);
-    }
-    
-    return () => {
-      if (debounceTimer.current) {
-        clearTimeout(debounceTimer.current);
-      }
-    };
-  }, [query, doSearch]);
-
-  const loadMore = () => {
-    const nextPage = page + 1;
-    setPage(nextPage);
-    doSearch(lastQueryRef.current, nextPage);
-  };
-
-  const handleClear = () => {
-    setQuery("");
-    setSongs([]);
-    setAlbums([]);
-    setArtists([]);
-    setSearched(false);
-    setHasMore(false);
-    inputRef.current?.focus();
-  };
-
-  const handleBrowseClick = (cat: typeof BROWSE_CATEGORIES[0]) => {
-    setQuery(cat.label);
-    doSearch(cat.label + " songs", 1);
-  };
-
-  const toggleAlbum = (name: string) =>
-    setExpandedAlbums((prev) => {
-      const next = new Set(prev);
-      next.has(name) ? next.delete(name) : next.add(name);
-      return next;
-    });
-
-  const toggleArtist = (name: string) =>
-    setExpandedArtists((prev) => {
-      const next = new Set(prev);
-      next.has(name) ? next.delete(name) : next.add(name);
-      return next;
-    });
-
-  const visibleArtists = showAllArtists ? artists : artists.slice(0, 8);
 
   const handleRequireAuth = () => {
     if (onRequireAuth) onRequireAuth();
     setShowAuthModal(true);
   };
 
+  const doSearch = useCallback(
+    (q: string, pg = 1) => {
+      const trimmed = q.trim();
+      if (!trimmed) {
+        setSearched(false);
+        setSongs([]);
+        setAlbums([]);
+        setArtists([]);
+        return;
+      }
+
+      if (pg === 1) {
+        setLoading(true);
+        setSearched(true);
+        setExpandedAlbums(new Set());
+        setExpandedArtists(new Set());
+        setShowAllArtists(false);
+        setPage(1);
+      } else {
+        setLoadingMore(true);
+      }
+
+      api
+        .searchSongs(trimmed, pg, PAGE_SIZE)
+        .then((res) => {
+          const results = extractResults(res).map(mapApiSong).filter((s: Song) => s.audioUrl);
+          if (pg === 1) {
+            setSongs(results);
+            setAlbums(groupIntoAlbums(results));
+            setArtists(groupIntoArtists(results));
+          } else {
+            setSongs((prev) => {
+              const merged = [...prev, ...results];
+              setAlbums(groupIntoAlbums(merged));
+              setArtists(groupIntoArtists(merged));
+              return merged;
+            });
+          }
+          setHasMore(results.length >= PAGE_SIZE);
+        })
+        .catch(() => {
+          if (pg === 1) {
+            setSongs([]);
+            setAlbums([]);
+            setArtists([]);
+          }
+          setHasMore(false);
+        })
+        .finally(() => {
+          setLoading(false);
+          setLoadingMore(false);
+        });
+    },
+    []
+  );
+
+  // Debounced search triggered on every keystroke (300ms)
+  useEffect(() => {
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+
+    if (query.trim()) {
+      debounceTimer.current = setTimeout(() => {
+        doSearch(query, 1);
+      }, 300);
+    } else {
+      setSearched(false);
+      setSongs([]);
+      setAlbums([]);
+      setArtists([]);
+    }
+
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    };
+  }, [query, doSearch]);
+
+  const loadMore = () => {
+    const nextPage = page + 1;
+    setPage(nextPage);
+    doSearch(query, nextPage);
+  };
+
+  const toggleAlbum = (name: string) => {
+    setExpandedAlbums((prev) => {
+      const s = new Set(prev);
+      s.has(name) ? s.delete(name) : s.add(name);
+      return s;
+    });
+  };
+
+  const toggleArtist = (name: string) => {
+    setExpandedArtists((prev) => {
+      const s = new Set(prev);
+      s.has(name) ? s.delete(name) : s.add(name);
+      return s;
+    });
+  };
+
+  const visibleArtists = showAllArtists ? artists : artists.slice(0, 8);
+
+  const handleCategoryClick = (label: string) => {
+    setQuery(label);
+  };
+
   return (
-    <div className="w-full" style={{ background: "#121212", paddingBottom: "9rem" }}>
-      {/* Sticky search bar */}
+    <div
+      className="w-full min-h-screen"
+      style={{ background: "#121212", paddingBottom: "9rem" }}
+    >
+      {/* ── Sticky search bar ── */}
       <div
         className="sticky top-0 z-20 px-4 pt-12 pb-3"
         style={{ background: "rgba(18,18,18,0.97)", backdropFilter: "blur(20px)" }}
       >
         <div
-          className="flex items-center gap-2 px-3 rounded-xl h-11"
-          style={{ background: "rgba(255,255,255,0.1)" }}
+          className="flex items-center gap-3 rounded-xl px-4 py-3"
+          style={{ background: "rgba(255,255,255,0.08)" }}
         >
-          <Search className="w-4 h-4 flex-shrink-0" style={{ color: "rgba(255,255,255,0.4)" }} />
+          <Search className="w-4 h-4 text-white/40 flex-shrink-0" />
           <input
             ref={inputRef}
-            type="search"
+            type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Songs, albums, artists…"
-            className="flex-1 bg-transparent text-sm text-white placeholder:text-white/30 focus:outline-none min-w-0"
+            placeholder="Songs, artists, movies…"
+            autoComplete="off"
+            className="flex-1 bg-transparent text-sm text-white placeholder:text-white/30 focus:outline-none"
           />
-          {query ? (
-            <button onClick={handleClear} className="flex-shrink-0 p-1">
-              <X className="w-4 h-4" style={{ color: "rgba(255,255,255,0.4)" }} />
+          {query && (
+            <button
+              onClick={() => {
+                setQuery("");
+                inputRef.current?.focus();
+              }}
+              className="text-white/40 hover:text-white transition-colors"
+            >
+              <X className="w-4 h-4" />
             </button>
-          ) : null}
+          )}
+          {loading && <Loader2 className="w-4 h-4 animate-spin text-white/40 flex-shrink-0" />}
         </div>
       </div>
 
-      {/* Browse categories (no active search) */}
-      {!searched && (
+      {/* ── Browse categories (shown when not searching) ── */}
+      {!searched && !query && (
         <div className="px-4 pt-4">
-          <p className="text-base font-bold text-white mb-3">Browse all</p>
-          <div className="grid grid-cols-2 gap-2">
-            {BROWSE_CATEGORIES.map((cat) => {
-              const Icon = cat.icon;
-              return (
-                <button
-                  key={cat.label}
-                  onClick={() => handleBrowseClick(cat)}
-                  className="relative h-16 rounded-xl overflow-hidden flex items-center px-4 active:scale-95 transition-transform"
-                  style={{ background: `linear-gradient(135deg,${cat.color1},${cat.color2})` }}
-                >
-                  <span className="text-sm font-bold text-white z-10">{cat.label}</span>
-                  <Icon className="absolute right-3 bottom-2 w-8 h-8 opacity-30" style={{ color: "#fff" }} />
-                </button>
-              );
-            })}
+          <p className="text-base font-bold text-white mb-4">Browse Categories</p>
+          <div className="grid grid-cols-2 gap-3">
+            {BROWSE_CATEGORIES.map(({ label, icon: Icon, color1, color2 }) => (
+              <button
+                key={label}
+                onClick={() => handleCategoryClick(label)}
+                className="relative rounded-xl overflow-hidden h-16 flex items-end p-3 active:scale-95 transition-transform"
+                style={{ background: `linear-gradient(135deg, ${color1}, ${color2})` }}
+              >
+                <Icon
+                  className="absolute right-2 top-2 w-8 h-8 opacity-30 rotate-12"
+                  style={{ color: "white" }}
+                />
+                <span className="text-sm font-bold text-white leading-tight">{label}</span>
+              </button>
+            ))}
           </div>
         </div>
       )}
 
-      {/* Loading spinner */}
-      {loading && (
-        <div className="flex justify-center py-16">
-          <Loader2 className="w-7 h-7 animate-spin" style={{ color: "#1DB954" }} />
-        </div>
-      )}
-
-      {/* Search results */}
-      {searched && !loading && (
+      {/* ── Search results ── */}
+      {searched && (
         <div className="px-4 pt-4">
-          {songs.length === 0 ? (
-            <div className="flex flex-col items-center py-20 gap-3">
-              <Disc3 className="w-10 h-10" style={{ color: "rgba(255,255,255,0.15)" }} />
-              <p className="text-sm font-semibold" style={{ color: "rgba(255,255,255,0.5)" }}>
-                No results for "{query}"
+          {loading ? (
+            <div className="flex flex-col items-center gap-3 py-16">
+              <Loader2 className="w-7 h-7 animate-spin" style={{ color: "#1DB954" }} />
+              <p className="text-sm" style={{ color: "rgba(255,255,255,0.4)" }}>
+                Searching…
               </p>
+            </div>
+          ) : songs.length === 0 ? (
+            <div className="flex flex-col items-center gap-3 py-16 text-center">
+              <Music2 className="w-10 h-10" style={{ color: "rgba(255,255,255,0.12)" }} />
+              <p className="font-semibold text-white/60">No results for "{query}"</p>
+              <p className="text-sm text-white/35">Try a different search term</p>
             </div>
           ) : (
             <>
-              {/* Top Result */}
-              {songs.length > 0 && (
+              {/* Top result */}
+              {songs[0] && (
                 <div className="mb-6">
                   <p className="text-base font-bold text-white mb-3">Top Result</p>
                   <button
-                    className="group relative w-full rounded-2xl p-4 text-left active:scale-95 transition-transform overflow-hidden"
+                    className="group relative w-full rounded-2xl p-4 text-left active:scale-[0.98] transition-transform overflow-hidden"
                     style={{ background: "rgba(255,255,255,0.07)" }}
                     onClick={() => playSong(songs[0], songs)}
                   >
@@ -299,41 +315,63 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                           src={songs[0].albumArt}
                           alt={songs[0].title}
                           className="w-full h-full object-cover"
-                          onError={(e) => { (e.target as HTMLImageElement).src = "https://via.placeholder.com/100x100?text=🎵"; }}
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src =
+                              "https://via.placeholder.com/100x100?text=🎵";
+                          }}
                         />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center" style={{ background: "linear-gradient(135deg,#1DB954,#1ed760)" }}>
+                        <div
+                          className="w-full h-full flex items-center justify-center"
+                          style={{ background: "linear-gradient(135deg,#1DB954,#1ed760)" }}
+                        >
                           <Music2 className="w-7 h-7 text-black" />
                         </div>
                       )}
                     </div>
-                    <p className="text-lg font-bold text-white leading-tight truncate">{songs[0].title}</p>
-                    <p className="text-sm mt-0.5 truncate" style={{ color: "rgba(255,255,255,0.5)" }}>
+                    <p className="text-lg font-bold text-white leading-tight truncate">
+                      {songs[0].title}
+                    </p>
+                    <p
+                      className="text-sm mt-0.5 truncate"
+                      style={{ color: "rgba(255,255,255,0.5)" }}
+                    >
                       Song · {songs[0].artist}
                     </p>
-                    <div className="absolute bottom-4 right-4 w-10 h-10 rounded-full flex items-center justify-center shadow-xl" style={{ background: "#1DB954" }}>
+                    <div
+                      className="absolute bottom-4 right-4 w-10 h-10 rounded-full flex items-center justify-center shadow-xl"
+                      style={{ background: "#1DB954" }}
+                    >
                       <Play className="w-4 h-4 text-black fill-black ml-0.5" />
                     </div>
                   </button>
                 </div>
               )}
 
-              {/* Songs section */}
+              {/* Songs */}
               <div className="mb-6">
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-base font-bold text-white">Songs</p>
-                  <span className="text-xs font-semibold" style={{ color: "rgba(255,255,255,0.35)" }}>
+                  <span
+                    className="text-xs font-semibold"
+                    style={{ color: "rgba(255,255,255,0.35)" }}
+                  >
                     {songs.length} results
                   </span>
                 </div>
                 <div className="space-y-0.5">
                   {songs.map((song) => (
-                    <SongRow key={song.id} song={song} queue={songs} onRequireAuth={handleRequireAuth} />
+                    <SongRow
+                      key={song.id}
+                      song={song}
+                      queue={songs}
+                      onRequireAuth={handleRequireAuth}
+                    />
                   ))}
                 </div>
               </div>
 
-              {/* Albums & Movies section */}
+              {/* Albums & Movies */}
               {albums.length > 0 && (
                 <div className="mb-6">
                   <p className="text-base font-bold text-white mb-3">Albums & Movies</p>
@@ -341,35 +379,88 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                     {albums.map((album) => {
                       const expanded = expandedAlbums.has(album.name);
                       return (
-                        <div key={album.name} className="rounded-xl overflow-hidden" style={{ background: "rgba(255,255,255,0.05)" }}>
-                          <button className="w-full flex items-center gap-3 p-3" onClick={() => toggleAlbum(album.name)}>
+                        <div
+                          key={album.name}
+                          className="rounded-xl overflow-hidden"
+                          style={{ background: "rgba(255,255,255,0.05)" }}
+                        >
+                          <button
+                            className="w-full flex items-center gap-3 p-3"
+                            onClick={() => toggleAlbum(album.name)}
+                          >
                             <div className="w-12 h-12 rounded-lg overflow-hidden flex-shrink-0 shadow-lg">
                               {album.coverArt ? (
-                                <img src={album.coverArt} alt={album.name} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).src = "https://via.placeholder.com/100x100?text=🎵"; }} />
+                                <img
+                                  src={album.coverArt}
+                                  alt={album.name}
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    (e.target as HTMLImageElement).src =
+                                      "https://via.placeholder.com/100x100?text=🎵";
+                                  }}
+                                />
                               ) : (
-                                <div className="w-full h-full flex items-center justify-center" style={{ background: "#333" }}>
-                                  <Disc3 className="w-5 h-5" style={{ color: "rgba(255,255,255,0.3)" }} />
+                                <div
+                                  className="w-full h-full flex items-center justify-center"
+                                  style={{ background: "#333" }}
+                                >
+                                  <Disc3
+                                    className="w-5 h-5"
+                                    style={{ color: "rgba(255,255,255,0.3)" }}
+                                  />
                                 </div>
                               )}
                             </div>
                             <div className="flex-1 text-left min-w-0">
-                              <p className="text-sm font-semibold text-white truncate">{album.name}</p>
-                              <p className="text-xs mt-0.5 truncate" style={{ color: "rgba(255,255,255,0.4)" }}>
-                                {album.songs.length === 1 ? "Single" : `Album · ${album.songs.length} songs`}
+                              <p className="text-sm font-semibold text-white truncate">
+                                {album.name}
+                              </p>
+                              <p
+                                className="text-xs mt-0.5 truncate"
+                                style={{ color: "rgba(255,255,255,0.4)" }}
+                              >
+                                {album.songs.length === 1
+                                  ? "Single"
+                                  : `Album · ${album.songs.length} songs`}
                                 {album.year ? ` · ${album.year}` : ""}
                               </p>
                             </div>
                             <div className="flex items-center gap-2 flex-shrink-0">
-                              <button onClick={(e) => { e.stopPropagation(); playSong(album.songs[0], album.songs); }} className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: "#1DB954" }}>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  playSong(album.songs[0], album.songs);
+                                }}
+                                className="w-8 h-8 rounded-full flex items-center justify-center"
+                                style={{ background: "#1DB954" }}
+                              >
                                 <Play className="w-3.5 h-3.5 text-black fill-black ml-0.5" />
                               </button>
-                              {expanded ? <ChevronUp className="w-4 h-4 flex-shrink-0" style={{ color: "rgba(255,255,255,0.4)" }} /> : <ChevronDown className="w-4 h-4 flex-shrink-0" style={{ color: "rgba(255,255,255,0.4)" }} />}
+                              {expanded ? (
+                                <ChevronUp
+                                  className="w-4 h-4"
+                                  style={{ color: "rgba(255,255,255,0.4)" }}
+                                />
+                              ) : (
+                                <ChevronDown
+                                  className="w-4 h-4"
+                                  style={{ color: "rgba(255,255,255,0.4)" }}
+                                />
+                              )}
                             </div>
                           </button>
                           {expanded && (
-                            <div className="border-t" style={{ borderColor: "rgba(255,255,255,0.08)" }}>
+                            <div
+                              className="border-t"
+                              style={{ borderColor: "rgba(255,255,255,0.08)" }}
+                            >
                               {album.songs.map((song) => (
-                                <SongRow key={song.id} song={song} queue={album.songs} onRequireAuth={handleRequireAuth} />
+                                <SongRow
+                                  key={song.id}
+                                  song={song}
+                                  queue={album.songs}
+                                  onRequireAuth={handleRequireAuth}
+                                />
                               ))}
                             </div>
                           )}
@@ -380,13 +471,17 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                 </div>
               )}
 
-              {/* Artists section */}
+              {/* Artists */}
               {artists.length > 0 && (
                 <div className="mb-6">
                   <div className="flex items-center justify-between mb-3">
                     <p className="text-base font-bold text-white">Artists</p>
                     {artists.length > 8 && (
-                      <button onClick={() => setShowAllArtists((v) => !v)} className="text-xs font-semibold" style={{ color: "rgba(255,255,255,0.5)" }}>
+                      <button
+                        onClick={() => setShowAllArtists((v) => !v)}
+                        className="text-xs font-semibold"
+                        style={{ color: "rgba(255,255,255,0.5)" }}
+                      >
                         {showAllArtists ? "Show less" : `See all ${artists.length}`}
                       </button>
                     )}
@@ -395,34 +490,86 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                     {visibleArtists.map((artist) => {
                       const expanded = expandedArtists.has(artist.name);
                       return (
-                        <div key={artist.name} className="rounded-xl overflow-hidden" style={{ background: "rgba(255,255,255,0.05)" }}>
-                          <button className="w-full flex items-center gap-3 p-3" onClick={() => toggleArtist(artist.name)}>
+                        <div
+                          key={artist.name}
+                          className="rounded-xl overflow-hidden"
+                          style={{ background: "rgba(255,255,255,0.05)" }}
+                        >
+                          <button
+                            className="w-full flex items-center gap-3 p-3"
+                            onClick={() => toggleArtist(artist.name)}
+                          >
                             <div className="w-12 h-12 rounded-full overflow-hidden flex-shrink-0 shadow-lg">
                               {artist.coverArt ? (
-                                <img src={artist.coverArt} alt={artist.name} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).src = "https://via.placeholder.com/100x100?text=🎵"; }} />
+                                <img
+                                  src={artist.coverArt}
+                                  alt={artist.name}
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    (e.target as HTMLImageElement).src =
+                                      "https://via.placeholder.com/100x100?text=🎵";
+                                  }}
+                                />
                               ) : (
-                                <div className="w-full h-full flex items-center justify-center" style={{ background: "#333" }}>
-                                  <User2 className="w-5 h-5" style={{ color: "rgba(255,255,255,0.3)" }} />
+                                <div
+                                  className="w-full h-full flex items-center justify-center"
+                                  style={{ background: "#333" }}
+                                >
+                                  <User2
+                                    className="w-5 h-5"
+                                    style={{ color: "rgba(255,255,255,0.3)" }}
+                                  />
                                 </div>
                               )}
                             </div>
                             <div className="flex-1 text-left min-w-0">
-                              <p className="text-sm font-semibold text-white truncate">{artist.name}</p>
-                              <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>
-                                Artist · {artist.songCount} {artist.songCount === 1 ? "song" : "songs"}
+                              <p className="text-sm font-semibold text-white truncate">
+                                {artist.name}
+                              </p>
+                              <p
+                                className="text-xs mt-0.5"
+                                style={{ color: "rgba(255,255,255,0.4)" }}
+                              >
+                                Artist · {artist.songCount}{" "}
+                                {artist.songCount === 1 ? "song" : "songs"}
                               </p>
                             </div>
                             <div className="flex items-center gap-2 flex-shrink-0">
-                              <button onClick={(e) => { e.stopPropagation(); playSong(artist.songs[0], artist.songs); }} className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: "#1DB954" }}>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  playSong(artist.songs[0], artist.songs);
+                                }}
+                                className="w-8 h-8 rounded-full flex items-center justify-center"
+                                style={{ background: "#1DB954" }}
+                              >
                                 <Play className="w-3.5 h-3.5 text-black fill-black ml-0.5" />
                               </button>
-                              {expanded ? <ChevronUp className="w-4 h-4 flex-shrink-0" style={{ color: "rgba(255,255,255,0.4)" }} /> : <ChevronDown className="w-4 h-4 flex-shrink-0" style={{ color: "rgba(255,255,255,0.4)" }} />}
+                              {expanded ? (
+                                <ChevronUp
+                                  className="w-4 h-4"
+                                  style={{ color: "rgba(255,255,255,0.4)" }}
+                                />
+                              ) : (
+                                <ChevronDown
+                                  className="w-4 h-4"
+                                  style={{ color: "rgba(255,255,255,0.4)" }}
+                                />
+                              )}
                             </div>
                           </button>
                           {expanded && (
-                            <div className="border-t" style={{ borderColor: "rgba(255,255,255,0.08)" }}>
+                            <div
+                              className="border-t"
+                              style={{ borderColor: "rgba(255,255,255,0.08)" }}
+                            >
                               {artist.songs.map((song) => (
-                                <SongRow key={song.id} song={song} queue={artist.songs} onRequireAuth={handleRequireAuth} />
+                                <SongRow
+                                  key={song.id}
+                                  song={song}
+                                  queue={artist.songs}
+                                  onRequireAuth={handleRequireAuth}
+                                />
                               ))}
                             </div>
                           )}
@@ -437,9 +584,16 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
               {hasMore && (
                 <div className="flex justify-center py-4">
                   {loadingMore ? (
-                    <Loader2 className="w-6 h-6 animate-spin" style={{ color: "#1DB954" }} />
+                    <Loader2
+                      className="w-6 h-6 animate-spin"
+                      style={{ color: "#1DB954" }}
+                    />
                   ) : (
-                    <button onClick={loadMore} className="px-8 py-3 rounded-full text-sm font-bold text-black transition-all active:scale-95" style={{ background: "#1DB954" }}>
+                    <button
+                      onClick={loadMore}
+                      className="px-8 py-3 rounded-full text-sm font-bold text-black transition-all active:scale-95"
+                      style={{ background: "#1DB954" }}
+                    >
                       Load more results
                     </button>
                   )}

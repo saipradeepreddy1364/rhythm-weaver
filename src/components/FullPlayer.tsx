@@ -2,8 +2,14 @@ import { usePlayer } from "@/context/PlayerContext";
 import { formatDuration } from "@/data/songs";
 import { LikeButton } from "@/components/LikeButton";
 import {
-  Play, Pause, SkipBack, SkipForward,
-  ChevronDown, Shuffle, Repeat, ListMusic, Heart,
+  Play,
+  Pause,
+  SkipBack,
+  SkipForward,
+  ChevronDown,
+  Shuffle,
+  Repeat,
+  Music2,
 } from "lucide-react";
 
 interface FullPlayerProps {
@@ -28,33 +34,43 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
 
   if (!currentSong || !showPlayer) return null;
 
-  const totalDuration = duration || currentSong.duration || 1;
+  const totalDuration = (duration && isFinite(duration) && duration > 0)
+    ? duration
+    : (currentSong.duration || 1);
   const pct = Math.min(100, (progress / totalDuration) * 100);
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col animate-fade-in"
+      className="fixed inset-0 z-[60] flex flex-col animate-fade-in"
       style={{ background: "#0a0a0a" }}
     >
       {/* Blurred album art background */}
       {currentSong.albumArt && (
         <div
-          className="absolute inset-0 opacity-20"
+          className="absolute inset-0 opacity-25"
           style={{
             backgroundImage: `url(${currentSong.albumArt})`,
             backgroundSize: "cover",
             backgroundPosition: "center",
-            filter: "blur(40px) saturate(2)",
+            filter: "blur(60px) saturate(2.5)",
+            transform: "scale(1.2)",
           }}
         />
       )}
 
-      {/* Dark overlay */}
-      <div className="absolute inset-0" style={{ background: "linear-gradient(to bottom, rgba(10,10,10,0.6) 0%, rgba(10,10,10,0.95) 100%)" }} />
+      {/* Dark gradient overlay */}
+      <div
+        className="absolute inset-0"
+        style={{
+          background:
+            "linear-gradient(to bottom, rgba(10,10,10,0.55) 0%, rgba(10,10,10,0.92) 60%, rgba(10,10,10,0.98) 100%)",
+        }}
+      />
 
-      {/* Content */}
-      <div className="relative flex flex-col flex-1 px-6">
-        {/* Header */}
+      {/* Scrollable content wrapper */}
+      <div className="relative flex flex-col flex-1 overflow-y-auto px-6">
+
+        {/* ── Header ── */}
         <div className="flex items-center justify-between pt-12 pb-4">
           <button
             onClick={() => setShowPlayer(false)}
@@ -69,14 +85,14 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           <div className="w-10" />
         </div>
 
-        {/* Album Art */}
-        <div className="flex-1 flex items-center justify-center py-6">
+        {/* ── Album Art ── */}
+        <div className="flex items-center justify-center py-4">
           <div
             className="rounded-3xl overflow-hidden shadow-2xl"
             style={{
-              width: "min(72vw, 300px)",
-              height: "min(72vw, 300px)",
-              boxShadow: "0 30px 80px -20px rgba(0,0,0,0.8)",
+              width: "min(76vw, 320px)",
+              height: "min(76vw, 320px)",
+              boxShadow: "0 32px 80px -16px rgba(0,0,0,0.85)",
             }}
           >
             {currentSong.albumArt ? (
@@ -85,24 +101,25 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
                 alt={currentSong.title}
                 className="w-full h-full object-cover"
                 onError={(e) => {
-                  (e.target as HTMLImageElement).src = "https://via.placeholder.com/400x400?text=🎵";
+                  (e.target as HTMLImageElement).src =
+                    "https://via.placeholder.com/400x400?text=🎵";
                 }}
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-green-500 to-emerald-600">
-                <span className="text-black text-6xl">🎵</span>
+                <Music2 className="w-20 h-20 text-black/50" />
               </div>
             )}
           </div>
         </div>
 
-        {/* Song Info + Like */}
-        <div className="flex items-center gap-3 mb-5">
+        {/* ── Song Info + Like ── */}
+        <div className="flex items-center gap-3 mt-4 mb-5">
           <div className="flex-1 min-w-0">
             <h2 className="text-xl font-bold text-white truncate leading-tight">
               {currentSong.title}
             </h2>
-            <p className="text-sm text-white/40 mt-1 truncate">{currentSong.artist}</p>
+            <p className="text-sm text-white/50 mt-1 truncate">{currentSong.artist}</p>
             {currentSong.movie && (
               <p className="text-xs text-white/30 mt-0.5 truncate">{currentSong.movie}</p>
             )}
@@ -111,18 +128,21 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             song={currentSong}
             onRequireAuth={onRequireAuth}
             size="lg"
-            className="text-white/40 hover:text-white p-2"
+            className="text-white/40 hover:text-white p-2 flex-shrink-0"
           />
         </div>
 
-        {/* Seek bar */}
-        <div className="mb-5">
+        {/* ── Seek Bar ── */}
+        <div className="mb-6">
           <div
-            className="relative h-1 rounded-full cursor-pointer overflow-hidden"
-            style={{ background: "rgba(255,255,255,0.12)" }}
+            className="relative h-1.5 rounded-full cursor-pointer group"
+            style={{ background: "rgba(255,255,255,0.15)" }}
             onClick={(e) => {
               const rect = e.currentTarget.getBoundingClientRect();
-              const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+              const ratio = Math.max(
+                0,
+                Math.min(1, (e.clientX - rect.left) / rect.width)
+              );
               setProgress(Math.floor(ratio * totalDuration));
             }}
           >
@@ -133,16 +153,21 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
                 background: "linear-gradient(90deg, #1DB954, #1ed760)",
               }}
             />
+            {/* Thumb */}
+            <div
+              className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white shadow-md opacity-0 group-hover:opacity-100 transition-opacity"
+              style={{ left: `calc(${pct}% - 7px)` }}
+            />
           </div>
-          <div className="flex justify-between text-xs text-white/30 mt-1.5">
-            <span>{formatDuration(progress)}</span>
-            <span>{formatDuration(totalDuration)}</span>
+          <div className="flex justify-between text-xs text-white/30 mt-2">
+            <span>{formatDuration(Math.floor(progress))}</span>
+            <span>{formatDuration(Math.floor(totalDuration))}</span>
           </div>
         </div>
 
-        {/* Controls */}
-        <div className="flex items-center justify-between mb-10">
-          <button className="p-3 text-white/30 hover:text-white transition-colors">
+        {/* ── Controls ── */}
+        <div className="flex items-center justify-between mb-8">
+          <button className="p-3 text-white/30 hover:text-white/70 transition-colors active:scale-90">
             <Shuffle className="w-5 h-5" />
           </button>
 
@@ -172,19 +197,17 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             <SkipForward className="w-7 h-7 fill-current" />
           </button>
 
-          <button className="p-3 text-white/30 hover:text-white transition-colors">
+          <button className="p-3 text-white/30 hover:text-white/70 transition-colors active:scale-90">
             <Repeat className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Queue info */}
-        <div className="text-center text-xs text-white/30 pb-6">
-          {queue.length > 0 && (
-            <p>
-              {queueIndex + 1} of {queue.length} • {queue.length} songs in queue
-            </p>
-          )}
-        </div>
+        {/* ── Queue Info ── */}
+        {queue.length > 0 && (
+          <div className="text-center text-xs text-white/25 pb-8">
+            {queueIndex + 1} of {queue.length} songs
+          </div>
+        )}
       </div>
     </div>
   );

@@ -21,9 +21,9 @@ function AppContent() {
   const { currentSong } = usePlayer();
   const { user, checkAuth } = useAuth();
   const [showAuthModal, setShowAuthModal] = useState(false);
-  
+
   const currentPath = location.pathname;
-  const currentPage: Page = 
+  const currentPage: Page =
     currentPath === "/" ? "home" :
     currentPath === "/search" ? "search" :
     currentPath === "/library" ? "library" : "home";
@@ -35,17 +35,16 @@ function AppContent() {
   };
 
   const handleRequireAuth = () => {
-    if (!user) {
-      setShowAuthModal(true);
-    }
+    if (!user) setShowAuthModal(true);
   };
 
-  // Check auth on mount and periodically
+  // Check auth once on mount — session persists via localStorage
   useEffect(() => {
     checkAuth();
-    const interval = setInterval(checkAuth, 5 * 60 * 1000); // Check every 5 minutes
+    // Periodic silent check every 10 minutes (won't logout on network failure)
+    const interval = setInterval(checkAuth, 10 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [checkAuth]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="relative min-h-screen" style={{ background: "#121212" }}>
@@ -55,17 +54,17 @@ function AppContent() {
         <Route path="/library" element={<LibraryPage onRequireAuth={handleRequireAuth} />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
-      
-      {/* Bottom Navigation - always visible */}
+
+      {/* Bottom nav — always visible */}
       <BottomNav page={currentPage} onNavigate={handleNavigate} />
-      
-      {/* Mini Player - floats above bottom nav when a song is playing */}
+
+      {/* Mini player — floats above bottom nav */}
       {currentSong && <MiniPlayer onRequireAuth={handleRequireAuth} />}
-      
-      {/* Full Player - full screen when opened */}
+
+      {/* Full player — full screen overlay */}
       <FullPlayer onRequireAuth={handleRequireAuth} />
-      
-      {/* Auth Modal */}
+
+      {/* Auth modal */}
       <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} />
     </div>
   );

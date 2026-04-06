@@ -30,12 +30,13 @@ export function SongRow({ song, queue, onRequireAuth }: SongRowProps) {
       {/* Album art */}
       <div className="relative w-11 h-11 rounded-xl overflow-hidden flex-shrink-0 shadow-md">
         {song.albumArt ? (
-          <img 
-            src={song.albumArt} 
-            alt={song.title} 
+          <img
+            src={song.albumArt}
+            alt={song.title}
             className="w-full h-full object-cover"
             onError={(e) => {
-              (e.target as HTMLImageElement).src = "https://via.placeholder.com/100x100?text=🎵";
+              (e.target as HTMLImageElement).src =
+                "https://via.placeholder.com/100x100?text=🎵";
             }}
           />
         ) : (
@@ -43,6 +44,7 @@ export function SongRow({ song, queue, onRequireAuth }: SongRowProps) {
             <span className="text-white text-sm">🎵</span>
           </div>
         )}
+
         {/* Playing wave overlay */}
         {isActive && isPlaying && (
           <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
@@ -61,10 +63,11 @@ export function SongRow({ song, queue, onRequireAuth }: SongRowProps) {
             </div>
           </div>
         )}
-        {/* Play icon on inactive hover */}
+
+        {/* Hover play icon on inactive */}
         {!isActive && (
-          <div className="absolute inset-0 bg-black/0 hover:bg-black/40 flex items-center justify-center transition-all">
-            <Play className="w-4 h-4 text-white opacity-0 hover:opacity-100 fill-white" />
+          <div className="absolute inset-0 bg-black/0 hover:bg-black/40 flex items-center justify-center transition-all group">
+            <Play className="w-4 h-4 text-white opacity-0 group-hover:opacity-100 fill-white transition-opacity" />
           </div>
         )}
       </div>
@@ -84,9 +87,17 @@ export function SongRow({ song, queue, onRequireAuth }: SongRowProps) {
         </p>
       </div>
 
-      {/* Actions */}
-      <div className="flex items-center gap-0.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-        <LikeButton song={song} onRequireAuth={onRequireAuth} size="sm" className="p-2 text-white/40 hover:text-white" />
+      {/* Action buttons */}
+      <div
+        className="flex items-center gap-0.5 flex-shrink-0"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <LikeButton
+          song={song}
+          onRequireAuth={onRequireAuth}
+          size="sm"
+          className="p-2 text-white/40 hover:text-white"
+        />
         <AddToPlaylistMenu song={song} onRequireAuth={onRequireAuth} />
       </div>
     </div>

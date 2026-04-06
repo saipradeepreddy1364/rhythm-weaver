@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
 import { api } from "@/services/api";
 
 interface User {
@@ -25,35 +25,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const checkAuth = async () => {
+  const checkAuth = useCallback(async () => {
     try {
       const token = localStorage.getItem(SESSION_KEY);
       const savedUser = localStorage.getItem(USER_KEY);
-      
-      if (token && savedUser) {
-        // Verify token is still valid
+
+      if (!token || !savedUser) {
+        setUser(null);
+        setLoading(false);
+        return;
+      }
+
+      // Restore user from storage immediately (fast path)
+      setUser(JSON.parse(savedUser));
+      setLoading(false);
+
+      // Verify token in background — only clear session if server says INVALID
+      try {
         const isValid = await api.verifyToken(token);
-        if (isValid) {
-          setUser(JSON.parse(savedUser));
-        } else {
+        if (isValid === false) {
+          // Explicit server rejection
           localStorage.removeItem(SESSION_KEY);
           localStorage.removeItem(USER_KEY);
           setUser(null);
         }
-      } else {
-        setUser(null);
+        // If network error / timeout → keep user logged in (isValid throws)
+      } catch {
+        // Network failure — keep existing session intact
       }
     } catch (err) {
       console.error("Auth check failed:", err);
-      setUser(null);
-    } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     checkAuth();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const login = async (email: string, password: string): Promise<string | null> => {
     try {
@@ -64,29 +72,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(response.user);
         return null;
       }
-      return response.message || "Login failed";
+      return response.message || "Login failed. Please check your credentials.";
     } catch (err: any) {
-      return err.message || "Login failed";
+      return err.message || "Login failed. Please try again.";
     }
   };
 
-  const register = async (email: string, password: string, username: string): Promise<string | null> => {
+  const register = async (
+    email: string,
+    password: string,
+    username: string
+  ): Promise<string | null> => {
     try {
       const response = await api.register(email, password, username);
       if (response.success) {
         return null;
       }
-      return response.message || "Registration failed";
+      return response.message || "Registration failed.";
     } catch (err: any) {
-      return err.message || "Registration failed";
+      return err.message || "Registration failed. Please try again.";
     }
   };
 
   const logout = async () => {
     try {
       await api.logout();
-    } catch (err) {
-      console.error("Logout error:", err);
+    } catch {
+      // Ignore errors on logout
     } finally {
       localStorage.removeItem(SESSION_KEY);
       localStorage.removeItem(USER_KEY);
@@ -103,8 +115,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 export function useAuth() {
   const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error("useAuth must be used within an AuthProvider");
-  }
+  if (!context) throw new Error("useAuth must be used within AuthProvider");
   return context;
 }

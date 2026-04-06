@@ -1,6 +1,6 @@
 import { usePlayer } from "@/context/PlayerContext";
 import { formatDuration } from "@/data/songs";
-import { Play, Pause, SkipForward, ChevronUp, X } from "lucide-react";
+import { Play, Pause, SkipForward, Music2 } from "lucide-react";
 import { LikeButton } from "@/components/LikeButton";
 
 interface MiniPlayerProps {
@@ -21,26 +21,33 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
 
   if (!currentSong) return null;
 
-  const totalDuration = duration || currentSong.duration || 1;
+  const totalDuration =
+    duration && isFinite(duration) && duration > 0
+      ? duration
+      : currentSong.duration || 1;
   const pct = Math.min(100, (progress / totalDuration) * 100);
 
   return (
-    <div className="fixed bottom-14 left-0 right-0 z-50 px-3 pb-2">
+    /* Sits just above the bottom nav bar (h-14 = 56px) */
+    <div className="fixed bottom-14 left-0 right-0 z-50 px-3 pb-2 pointer-events-none">
       <div
-        className="rounded-2xl overflow-hidden shadow-2xl"
+        className="rounded-2xl overflow-hidden shadow-2xl pointer-events-auto"
         style={{
-          background: "rgba(28, 28, 30, 0.98)",
+          background: "rgba(28,28,30,0.98)",
           backdropFilter: "blur(24px)",
-          border: "1px solid rgba(255,255,255,0.08)",
+          border: "1px solid rgba(255,255,255,0.09)",
         }}
       >
-        {/* Progress bar */}
+        {/* Progress strip */}
         <div
           className="h-1 w-full cursor-pointer relative"
           style={{ background: "rgba(255,255,255,0.08)" }}
           onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
-            const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+            const ratio = Math.max(
+              0,
+              Math.min(1, (e.clientX - rect.left) / rect.width)
+            );
             setProgress(Math.floor(ratio * totalDuration));
           }}
         >
@@ -54,7 +61,7 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
         </div>
 
         <div className="flex items-center gap-3 px-3 py-2">
-          {/* Album art */}
+          {/* Album art — tapping opens full player */}
           <button
             onClick={() => setShowPlayer(true)}
             className="w-10 h-10 rounded-xl flex-shrink-0 overflow-hidden shadow-lg"
@@ -65,17 +72,18 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
                 alt={currentSong.title}
                 className="w-full h-full object-cover"
                 onError={(e) => {
-                  (e.target as HTMLImageElement).src = "https://via.placeholder.com/100x100?text=🎵";
+                  (e.target as HTMLImageElement).src =
+                    "https://via.placeholder.com/100x100?text=🎵";
                 }}
               />
             ) : (
               <div className="w-full h-full bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center">
-                <span className="text-black text-lg">🎵</span>
+                <Music2 className="w-5 h-5 text-black" />
               </div>
             )}
           </button>
 
-          {/* Song info */}
+          {/* Song info — tapping opens full player */}
           <button
             className="flex-1 min-w-0 text-left"
             onClick={() => setShowPlayer(true)}
@@ -89,7 +97,10 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
           </button>
 
           {/* Controls */}
-          <div className="flex items-center gap-1 flex-shrink-0">
+          <div
+            className="flex items-center gap-1 flex-shrink-0"
+            onClick={(e) => e.stopPropagation()}
+          >
             <LikeButton
               song={currentSong}
               onRequireAuth={onRequireAuth}

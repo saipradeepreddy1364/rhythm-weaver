@@ -1,42 +1,27 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { supabase } from "@/lib/supabase/client";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  ReactNode,
+} from "react";
+import { api } from "@/services/api";
 import type { Song } from "@/data/songs";
 import { useAuth } from "./AuthContext";
 
-// ADD THIS LINE - It extends the Supabase client type to fix the error
-const typedSupabase = supabase as any;
+// ─── Types ─────────────────────────────────────────────────────────────────────
 
-interface Playlist {
+export interface Playlist {
   id: string;
   name: string;
-  user_id: string;
-  description: string | null;
-  cover_art: string | null;
-  is_public: boolean;
-  created_at: string;
-  updated_at: string;
+  cover_art?: string;
   song_count?: number;
-}
-
-interface DBSongRow {
-  song_id: string;
-  song_title: string;
-  song_artist: string;
-  song_album_art: string | null;
-  song_audio_url: string;
-  song_duration: number | null;
-  song_album: string | null;
-}
-
-interface DBPlaylistRow {
-  id: string;
-  name: string;
-  user_id: string;
-  description: string | null;
-  cover_art: string | null;
-  is_public: boolean;
   created_at: string;
-  updated_at: string;
+}
+
+interface StoredPlaylist extends Playlist {
+  songs: Song[];
 }
 
 interface LibraryContextType {
@@ -45,350 +30,227 @@ interface LibraryContextType {
   playlists: Playlist[];
   toggleLike: (song: Song) => Promise<void>;
   isLiked: (songId: string) => boolean;
-  addToRecentlyPlayed: (song: Song) => Promise<void>;
+  addToRecentlyPlayed: (song: Song) => void;
   createNewPlaylist: (name: string) => Promise<Playlist | null>;
   removePlaylist: (playlistId: string) => Promise<void>;
   updatePlaylistName: (playlistId: string, newName: string) => Promise<void>;
   addToPlaylist: (playlistId: string, song: Song) => Promise<void>;
   removeFromPlaylist: (playlistId: string, songId: string) => Promise<void>;
   getPlaylist: (playlistId: string) => Promise<Song[]>;
+  loadLikedSongs: () => void;
+  loadPlaylists: () => void;
 }
 
-const LibraryContext = createContext<LibraryContextType | undefined>(undefined);
+// ─── Storage keys ──────────────────────────────────────────────────────────────
 
-const mapToSong = (item: DBSongRow): Song => ({
-  id: item.song_id,
-  title: item.song_title,
-  artist: item.song_artist,
-  albumArt: item.song_album_art || "",
-  audioUrl: item.song_audio_url,
-  duration: item.song_duration || 0,
-  album: item.song_album || undefined,
-});
+const LIKED_KEY = "rw_liked_songs_v2";
+const PLAYLISTS_KEY = "rw_playlists_v2";
+const RECENTLY_PLAYED_KEY = "rw_recently_played";
+const RECENTLY_PLAYED_TS_KEY = "rw_recent_ts";
+
+// ─── Helpers ───────────────────────────────────────────────────────────────────
+
+function loadLikedFromStorage(): Song[] {
+  try {
+    const raw = localStorage.getItem(LIKED_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLikedToStorage(songs: Song[]) {
+  localStorage.setItem(LIKED_KEY, JSON.stringify(songs));
+}
+
+function loadPlaylistsFromStorage(): StoredPlaylist[] {
+  try {
+    const raw = localStorage.getItem(PLAYLISTS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function savePlaylistsToStorage(playlists: StoredPlaylist[]) {
+  localStorage.setItem(PLAYLISTS_KEY, JSON.stringify(playlists));
+}
+
+function generateId(): string {
+  return `local_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+// ─── Context ───────────────────────────────────────────────────────────────────
+
+const LibraryContext = createContext<LibraryContextType | undefined>(undefined);
 
 export function LibraryProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [likedSongs, setLikedSongs] = useState<Song[]>([]);
   const [recentlyPlayed, setRecentlyPlayed] = useState<Song[]>([]);
-  const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [storedPlaylists, setStoredPlaylists] = useState<StoredPlaylist[]>([]);
+
+  // ── Boot: load from localStorage ────────────────────────────────────────────
 
   useEffect(() => {
-    if (user) {
-      loadLikedSongs();
-      loadPlaylists();
-      loadRecentlyPlayedFromDB();
-    }
-  }, [user]);
+    setLikedSongs(loadLikedFromStorage());
+    setStoredPlaylists(loadPlaylistsFromStorage());
 
-  // Load from localStorage as fallback
-  useEffect(() => {
-    const stored = localStorage.getItem("rw_recently_played");
-    if (stored) {
-      try {
-        setRecentlyPlayed(JSON.parse(stored));
-      } catch (e) {
-        console.error(e);
-      }
+    const rpRaw = localStorage.getItem(RECENTLY_PLAYED_KEY);
+    if (rpRaw) {
+      try { setRecentlyPlayed(JSON.parse(rpRaw)); } catch { /* ignore */ }
     }
   }, []);
 
-  const loadRecentlyPlayedFromDB = async () => {
-    if (!user) return;
+  // ── Keep storage in sync whenever state changes ──────────────────────────────
 
-    const { data, error } = await typedSupabase
-      .from("recently_played")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("played_at", { ascending: false })
-      .limit(50);
+  useEffect(() => {
+    saveLikedToStorage(likedSongs);
+  }, [likedSongs]);
 
-    if (error) {
-      console.error("Error loading recently played:", error);
-      return;
-    }
+  useEffect(() => {
+    savePlaylistsToStorage(storedPlaylists);
+  }, [storedPlaylists]);
 
-    if (data && data.length > 0) {
-      const songs: Song[] = (data as unknown as DBSongRow[]).map(mapToSong);
-      setRecentlyPlayed(songs);
-    }
-  };
+  // ── Public reload helpers (used by LibraryPage) ──────────────────────────────
 
-  const loadLikedSongs = async () => {
-    if (!user) return;
+  const loadLikedSongs = useCallback(() => {
+    setLikedSongs(loadLikedFromStorage());
+  }, []);
 
-    const { data, error } = await typedSupabase
-      .from("liked_songs")
-      .select("*")
-      .eq("user_id", user.id);
+  const loadPlaylists = useCallback(() => {
+    setStoredPlaylists(loadPlaylistsFromStorage());
+  }, []);
 
-    if (error) {
-      console.error("Error loading liked songs:", error);
-      return;
-    }
+  // ── Derived playlists (without song arrays) for context consumers ─────────────
 
-    if (data) {
-      const songs: Song[] = (data as unknown as DBSongRow[]).map(mapToSong);
-      setLikedSongs(songs);
-    }
-  };
+  const playlists: Playlist[] = storedPlaylists.map(({ songs, ...rest }) => ({
+    ...rest,
+    song_count: songs.length,
+  }));
 
-  const loadPlaylists = async () => {
-    if (!user) return;
+  // ── Recently played ──────────────────────────────────────────────────────────
 
-    const { data, error } = await typedSupabase
-      .from("playlists")
-      .select("*")
-      .eq("user_id", user.id);
-
-    if (error) {
-      console.error("Error loading playlists:", error);
-      return;
-    }
-
-    if (data) {
-      const playlistsWithCounts: Playlist[] = [];
-
-      for (const playlist of data as unknown as DBPlaylistRow[]) {
-        const { count, error: countError } = await typedSupabase
-          .from("playlist_songs")
-          .select("*", { count: "exact", head: true })
-          .eq("playlist_id", playlist.id);
-
-        if (!countError) {
-          playlistsWithCounts.push({ ...playlist, song_count: count || 0 });
-        } else {
-          playlistsWithCounts.push({ ...playlist, song_count: 0 });
-        }
-      }
-      setPlaylists(playlistsWithCounts);
-    }
-  };
-
-  const toggleLike = async (song: Song) => {
-    if (!user) return;
-
-    const isAlreadyLiked = likedSongs.some((s) => s.id === song.id);
-
-    if (isAlreadyLiked) {
-      const { error } = await typedSupabase
-        .from("liked_songs")
-        .delete()
-        .eq("user_id", user.id)
-        .eq("song_id", song.id);
-
-      if (!error) {
-        setLikedSongs((prev) => prev.filter((s) => s.id !== song.id));
-      } else {
-        console.error("Error unliking song:", error);
-      }
-    } else {
-      const { error } = await typedSupabase
-        .from("liked_songs")
-        .insert({
-          user_id: user.id,
-          song_id: song.id,
-          song_title: song.title,
-          song_artist: song.artist,
-          song_album: song.album || null,
-          song_album_art: song.albumArt || null,
-          song_audio_url: song.audioUrl,
-          song_duration: song.duration || null,
-          liked_at: new Date().toISOString()
-        });
-
-      if (!error) {
-        setLikedSongs((prev) => [...prev, song]);
-      } else {
-        console.error("Error liking song:", error);
-      }
-    }
-  };
-
-  const isLiked = (songId: string) => {
-    return likedSongs.some((s) => s.id === songId);
-  };
-
-  const addToRecentlyPlayed = async (song: Song) => {
+  const addToRecentlyPlayed = useCallback((song: Song) => {
     setRecentlyPlayed((prev) => {
       const filtered = prev.filter((s) => s.id !== song.id);
       const updated = [song, ...filtered].slice(0, 50);
-      localStorage.setItem("rw_recently_played", JSON.stringify(updated));
-
-      const timestamps = JSON.parse(localStorage.getItem("rw_recent_ts") || "{}");
-      timestamps[song.id] = Date.now();
-      localStorage.setItem("rw_recent_ts", JSON.stringify(timestamps));
-
+      localStorage.setItem(RECENTLY_PLAYED_KEY, JSON.stringify(updated));
+      const ts: Record<string, number> = JSON.parse(
+        localStorage.getItem(RECENTLY_PLAYED_TS_KEY) || "{}"
+      );
+      ts[song.id] = Date.now();
+      localStorage.setItem(RECENTLY_PLAYED_TS_KEY, JSON.stringify(ts));
       return updated;
     });
+  }, []);
 
-    if (user) {
-      const { error } = await typedSupabase
-        .from("recently_played")
-        .insert({
-          user_id: user.id,
-          song_id: song.id,
-          song_title: song.title,
-          song_artist: song.artist,
-          song_album: song.album || null,
-          song_album_art: song.albumArt || null,
-          song_audio_url: song.audioUrl,
-          song_duration: song.duration || null,
-          played_at: new Date().toISOString()
-        });
+  // ── Like / Unlike ────────────────────────────────────────────────────────────
 
-      if (error) {
-        console.error("Error saving to recently played:", error);
+  const isLiked = useCallback(
+    (songId: string) => likedSongs.some((s) => s.id === songId),
+    [likedSongs]
+  );
+
+  const toggleLike = useCallback(
+    async (song: Song) => {
+      const liked = likedSongs.some((s) => s.id === song.id);
+      if (liked) {
+        setLikedSongs((prev) => prev.filter((s) => s.id !== song.id));
+        if (user) {
+          api.unlikeSong(song.id).catch(console.error);
+        }
+      } else {
+        setLikedSongs((prev) => [song, ...prev]);
+        if (user) {
+          api.likeSong(song.id).catch(console.error);
+        }
       }
-    }
-  };
+    },
+    [likedSongs, user]
+  );
 
-  const createNewPlaylist = async (name: string): Promise<Playlist | null> => {
-    if (!user) return null;
+  // ── Playlist CRUD ────────────────────────────────────────────────────────────
 
-    const { data, error } = await typedSupabase
-      .from("playlists")
-      .insert({
-        user_id: user.id,
-        name: name,
-        is_public: false,
+  const createNewPlaylist = useCallback(
+    async (name: string): Promise<Playlist | null> => {
+      const newPlaylist: StoredPlaylist = {
+        id: generateId(),
+        name,
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      })
-      .select()
-      .single();
+        songs: [],
+      };
+      setStoredPlaylists((prev) => [...prev, newPlaylist]);
 
-    if (error) {
-      console.error("Error creating playlist:", error);
-      return null;
-    }
+      if (user) {
+        api.createPlaylist(name).catch(console.error);
+      }
 
-    if (data) {
-      const newPlaylist: Playlist = { ...(data as unknown as DBPlaylistRow), song_count: 0 };
-      setPlaylists((prev) => [...prev, newPlaylist]);
-      return newPlaylist;
-    }
-    return null;
-  };
+      return { id: newPlaylist.id, name, created_at: newPlaylist.created_at, song_count: 0 };
+    },
+    [user]
+  );
 
-  const removePlaylist = async (playlistId: string) => {
-    if (!user) return;
+  const removePlaylist = useCallback(
+    async (playlistId: string) => {
+      setStoredPlaylists((prev) => prev.filter((p) => p.id !== playlistId));
+      if (user) {
+        api.deletePlaylist(playlistId).catch(console.error);
+      }
+    },
+    [user]
+  );
 
-    const { error } = await typedSupabase
-      .from("playlists")
-      .delete()
-      .eq("id", playlistId);
+  const updatePlaylistName = useCallback(
+    async (playlistId: string, newName: string) => {
+      setStoredPlaylists((prev) =>
+        prev.map((p) => (p.id === playlistId ? { ...p, name: newName } : p))
+      );
+      if (user) {
+        api.updatePlaylist(playlistId, newName).catch(console.error);
+      }
+    },
+    [user]
+  );
 
-    if (!error) {
-      setPlaylists((prev) => prev.filter((p) => p.id !== playlistId));
-    } else {
-      console.error("Error removing playlist:", error);
-    }
-  };
-
-  const updatePlaylistName = async (playlistId: string, newName: string) => {
-    if (!user) return;
-
-    const { error } = await typedSupabase
-      .from("playlists")
-      .update({ name: newName, updated_at: new Date().toISOString() })
-      .eq("id", playlistId);
-
-    if (!error) {
-      setPlaylists((prev) =>
+  const addToPlaylist = useCallback(
+    async (playlistId: string, song: Song) => {
+      setStoredPlaylists((prev) =>
         prev.map((p) => {
-          if (p.id === playlistId) {
-            return { ...p, name: newName };
-          }
-          return p;
+          if (p.id !== playlistId) return p;
+          // Don't add duplicates
+          if (p.songs.some((s) => s.id === song.id)) return p;
+          return { ...p, songs: [...p.songs, song] };
         })
       );
-    } else {
-      console.error("Error updating playlist name:", error);
-    }
-  };
+      if (user) {
+        api.addToPlaylist(playlistId, song.id).catch(console.error);
+      }
+    },
+    [user]
+  );
 
-  const addToPlaylist = async (playlistId: string, song: Song) => {
-    if (!user) return;
-
-    const { data: existingSongs } = await typedSupabase
-      .from("playlist_songs")
-      .select("position")
-      .eq("playlist_id", playlistId)
-      .order("position", { ascending: false })
-      .limit(1);
-
-    const rows = existingSongs as { position: number }[] | null;
-    const nextPosition = rows && rows.length > 0 ? rows[0].position + 1 : 0;
-
-    const { error } = await typedSupabase
-      .from("playlist_songs")
-      .insert({
-        playlist_id: playlistId,
-        song_id: song.id,
-        song_title: song.title,
-        song_artist: song.artist,
-        song_album: song.album || null,
-        song_album_art: song.albumArt || null,
-        song_audio_url: song.audioUrl,
-        song_duration: song.duration || null,
-        position: nextPosition,
-        added_at: new Date().toISOString()
-      });
-
-    if (!error) {
-      setPlaylists((prev) =>
-        prev.map((p) => {
-          if (p.id === playlistId) {
-            return { ...p, song_count: (p.song_count || 0) + 1 };
-          }
-          return p;
-        })
+  const removeFromPlaylist = useCallback(
+    async (playlistId: string, songId: string) => {
+      setStoredPlaylists((prev) =>
+        prev.map((p) =>
+          p.id === playlistId ? { ...p, songs: p.songs.filter((s) => s.id !== songId) } : p
+        )
       );
-    } else {
-      console.error("Error adding to playlist:", error);
-    }
-  };
+      if (user) {
+        api.removeFromPlaylist(playlistId, songId).catch(console.error);
+      }
+    },
+    [user]
+  );
 
-  const removeFromPlaylist = async (playlistId: string, songId: string) => {
-    if (!user) return;
-
-    const { error } = await typedSupabase
-      .from("playlist_songs")
-      .delete()
-      .eq("playlist_id", playlistId)
-      .eq("song_id", songId);
-
-    if (!error) {
-      setPlaylists((prev) =>
-        prev.map((p) => {
-          if (p.id === playlistId) {
-            return { ...p, song_count: Math.max(0, (p.song_count || 0) - 1) };
-          }
-          return p;
-        })
-      );
-    } else {
-      console.error("Error removing from playlist:", error);
-    }
-  };
-
-  const getPlaylist = async (playlistId: string): Promise<Song[]> => {
-    const { data, error } = await typedSupabase
-      .from("playlist_songs")
-      .select("*")
-      .eq("playlist_id", playlistId)
-      .order("position", { ascending: true });
-
-    if (error) {
-      console.error("Error getting playlist:", error);
-      return [];
-    }
-
-    if (!data) return [];
-
-    const songs: Song[] = (data as unknown as DBSongRow[]).map(mapToSong);
-    return songs;
-  };
+  const getPlaylist = useCallback(
+    async (playlistId: string): Promise<Song[]> => {
+      const playlist = storedPlaylists.find((p) => p.id === playlistId);
+      return playlist ? playlist.songs : [];
+    },
+    [storedPlaylists]
+  );
 
   return (
     <LibraryContext.Provider
@@ -405,6 +267,8 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         addToPlaylist,
         removeFromPlaylist,
         getPlaylist,
+        loadLikedSongs,
+        loadPlaylists,
       }}
     >
       {children}
