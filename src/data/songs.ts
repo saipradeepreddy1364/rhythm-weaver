@@ -7,6 +7,7 @@ export interface Song {
   audioUrl: string;
   language?: string;
   year?: number;
+  genre?: string;
 }
 
 export function formatDuration(seconds: number): string {
@@ -16,15 +17,34 @@ export function formatDuration(seconds: number): string {
 }
 
 export function mapApiSong(item: any): Song {
+  const imageUrl =
+    item.image?.[2]?.url ||
+    item.image?.[1]?.url ||
+    item.image?.[0]?.url ||
+    "";
+
+  const audioUrl =
+    item.downloadUrl?.[4]?.url ||
+    item.downloadUrl?.[3]?.url ||
+    item.downloadUrl?.[2]?.url ||
+    item.downloadUrl?.[1]?.url ||
+    item.downloadUrl?.[0]?.url ||
+    "";
+
+  const artists = Array.isArray(item.artists?.primary)
+    ? item.artists.primary.map((a: any) => a.name).join(", ")
+    : item.primaryArtists || "Unknown";
+
   return {
     id: item.id,
-    title: item.name,
-    artist: item.artists?.primary?.map((a: any) => a.name).join(", ") || "Unknown",
+    title: item.name || item.title || "Unknown",
+    artist: artists,
     duration: Number(item.duration) || 0,
-    albumArt: item.image?.[2]?.url || item.image?.[1]?.url || item.image?.[0]?.url || "",
-    audioUrl: item.downloadUrl?.[4]?.url || item.downloadUrl?.[3]?.url || item.downloadUrl?.[2]?.url || "",
-    language: item.language || "",
-    year: Number(item.year) || undefined,
+    albumArt: imageUrl,
+    audioUrl: audioUrl,
+    language: item.language,
+    year: item.year ? Number(item.year) : undefined,
+    genre: item.genre,
   };
 }
 
