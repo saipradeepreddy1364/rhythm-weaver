@@ -1,27 +1,15 @@
-/**
- * SearchPage — Full Spotify-like search
- * Features:
- *  - Sticky search bar
- *  - Browse categories grid when no search active
- *  - When a single letter / word is searched:
- *      • Songs matching the query (unlimited)
- *      • Movie / Album playlists (grouped by album/movie field, even single-song ones)
- *      • Artist playlists (grouped by artist, even single-song ones)
- *  - Each album/artist card is expandable to show all its songs
- *  - "Load More" for infinite pagination
- *  - Fully mobile-responsive (max-width 480px, no overflow)
- */
-
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { Song, mapApiSong } from "@/data/songs";
 import { api, extractResults } from "@/services/api";
 import { SongRow } from "@/components/SongRow";
+import { useAuth } from "@/context/AuthContext";
 import {
   Search, X, Loader2, Disc3, ChevronDown, ChevronUp,
   Play, User2, Music2, Mic2, Headphones, Globe2,
   Heart, Flame, Zap, Radio, Star, TrendingUp, Sparkles,
 } from "lucide-react";
 import { usePlayer } from "@/context/PlayerContext";
+import { AuthModal } from "@/components/AuthModal";
 
 interface SearchPageProps {
   onRequireAuth?: () => void;
@@ -42,23 +30,20 @@ interface Artist {
 }
 
 const BROWSE_CATEGORIES = [
-  { label: "Trending",     icon: TrendingUp, color1: "#f97316", color2: "#ef4444" },
-  { label: "New Releases", icon: Sparkles,   color1: "#8b5cf6", color2: "#ec4899" },
-  { label: "Hindi",        icon: Mic2,       color1: "#f59e0b", color2: "#f97316" },
-  { label: "Telugu",       icon: Music2,     color1: "#ec4899", color2: "#f43f5e" },
-  { label: "Tamil",        icon: Headphones, color1: "#6366f1", color2: "#8b5cf6" },
-  { label: "Romantic",     icon: Heart,      color1: "#e11d48", color2: "#f43f5e" },
-  { label: "Punjabi",      icon: Zap,        color1: "#d97706", color2: "#f59e0b" },
-  { label: "Devotional",   icon: Star,       color1: "#0891b2", color2: "#06b6d4" },
-  { label: "Malayalam",    icon: Globe2,     color1: "#059669", color2: "#10b981" },
-  { label: "Lofi/Chill",  icon: Radio,      color1: "#4f46e5", color2: "#6366f1" },
-  { label: "Retro",        icon: Flame,      color1: "#7c3aed", color2: "#8b5cf6" },
-  { label: "Kannada",      icon: Music2,     color1: "#dc2626", color2: "#ef4444" },
+  { label: "Trending", icon: TrendingUp, color1: "#f97316", color2: "#ef4444" },
+  { label: "New Releases", icon: Sparkles, color1: "#8b5cf6", color2: "#ec4899" },
+  { label: "Hindi", icon: Mic2, color1: "#f59e0b", color2: "#f97316" },
+  { label: "Telugu", icon: Music2, color1: "#ec4899", color2: "#f43f5e" },
+  { label: "Tamil", icon: Headphones, color1: "#6366f1", color2: "#8b5cf6" },
+  { label: "Romantic", icon: Heart, color1: "#e11d48", color2: "#f43f5e" },
+  { label: "Punjabi", icon: Zap, color1: "#d97706", color2: "#f59e0b" },
+  { label: "Devotional", icon: Star, color1: "#0891b2", color2: "#06b6d4" },
+  { label: "Malayalam", icon: Globe2, color1: "#059669", color2: "#10b981" },
+  { label: "Lofi/Chill", icon: Radio, color1: "#4f46e5", color2: "#6366f1" },
+  { label: "Retro", icon: Flame, color1: "#7c3aed", color2: "#8b5cf6" },
+  { label: "Kannada", icon: Music2, color1: "#dc2626", color2: "#ef4444" },
 ];
 
-// ── helpers ────────────────────────────────────────────────────────────────
-
-/** Group songs into album/movie playlists. Includes single-song albums. */
 function groupIntoAlbums(songs: Song[]): Album[] {
   const map = new Map<string, Album>();
   songs.forEach((song) => {
@@ -69,11 +54,9 @@ function groupIntoAlbums(songs: Song[]): Album[] {
     }
     map.get(key)!.songs.push(song);
   });
-  // include ALL albums (even single-song ones)
   return Array.from(map.values());
 }
 
-/** Group songs into artist playlists. Includes single-song artists. */
 function groupIntoArtists(songs: Song[]): Artist[] {
   const map = new Map<string, Artist>();
   songs.forEach((song) => {
@@ -89,35 +72,42 @@ function groupIntoArtists(songs: Song[]): Artist[] {
   return Array.from(map.values()).sort((a, b) => b.songCount - a.songCount);
 }
 
-// ── component ──────────────────────────────────────────────────────────────
-
 export default function SearchPage({ onRequireAuth }: SearchPageProps) {
   const { playSong } = usePlayer();
+  const { user } = useAuth();
+  const [showAuthModal, setShowAuthModal] = useState(false);
 
-  const [query, setQuery]             = useState("");
-  const [songs, setSongs]             = useState<Song[]>([]);
-  const [albums, setAlbums]           = useState<Album[]>([]);
-  const [artists, setArtists]         = useState<Artist[]>([]);
-  const [loading, setLoading]         = useState(false);
+  const [query, setQuery] = useState("");
+  const [songs, setSongs] = useState<Song[]>([]);
+  const [albums, setAlbums] = useState<Album[]>([]);
+  const [artists, setArtists] = useState<Artist[]>([]);
+  const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [searched, setSearched]       = useState(false);
-  const [page, setPage]               = useState(1);
-  const [hasMore, setHasMore]         = useState(false);
-
-  const [expandedAlbums, setExpandedAlbums]   = useState<Set<string>>(new Set());
+  const [searched, setSearched] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [expandedAlbums, setExpandedAlbums] = useState<Set<string>>(new Set());
   const [expandedArtists, setExpandedArtists] = useState<Set<string>>(new Set());
-  const [showAllArtists, setShowAllArtists]   = useState(false);
+  const [showAllArtists, setShowAllArtists] = useState(false);
 
-  const inputRef     = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
   const lastQueryRef = useRef("");
 
-  const PAGE_SIZE = 100;
+  const PAGE_SIZE = 50;
 
-  // ── search logic ──────────────────────────────────────────────────────────
-
-  const doSearch = useCallback((q: string, pg = 1) => {
+  const doSearch = useCallback((q: string, pg = 1, isDebounced = false) => {
     const trimmed = q.trim();
-    if (!trimmed) return;
+    if (!trimmed) {
+      if (pg === 1) {
+        setSearched(false);
+        setSongs([]);
+        setAlbums([]);
+        setArtists([]);
+      }
+      return;
+    }
+    
     lastQueryRef.current = trimmed;
 
     if (pg === 1) {
@@ -130,8 +120,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
       setLoadingMore(true);
     }
 
-    api
-      .searchSongs(trimmed, pg, PAGE_SIZE)
+    api.searchSongs(trimmed, pg, PAGE_SIZE)
       .then((res) => {
         const results = extractResults(res).map(mapApiSong);
         if (pg === 1) {
@@ -159,6 +148,30 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
       });
   }, []);
 
+  // Debounced search as user types
+  useEffect(() => {
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current);
+    }
+    
+    if (query.trim()) {
+      debounceTimer.current = setTimeout(() => {
+        doSearch(query, 1);
+      }, 500);
+    } else {
+      setSearched(false);
+      setSongs([]);
+      setAlbums([]);
+      setArtists([]);
+    }
+    
+    return () => {
+      if (debounceTimer.current) {
+        clearTimeout(debounceTimer.current);
+      }
+    };
+  }, [query, doSearch]);
+
   const loadMore = () => {
     const nextPage = page + 1;
     setPage(nextPage);
@@ -175,9 +188,9 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
     inputRef.current?.focus();
   };
 
-  const handleBrowseClick = (cat: (typeof BROWSE_CATEGORIES)[0]) => {
+  const handleBrowseClick = (cat: typeof BROWSE_CATEGORIES[0]) => {
     setQuery(cat.label);
-    doSearch(cat.label + " songs");
+    doSearch(cat.label + " songs", 1);
   };
 
   const toggleAlbum = (name: string) =>
@@ -196,12 +209,14 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
 
   const visibleArtists = showAllArtists ? artists : artists.slice(0, 8);
 
-  // ── render ────────────────────────────────────────────────────────────────
+  const handleRequireAuth = () => {
+    if (onRequireAuth) onRequireAuth();
+    setShowAuthModal(true);
+  };
 
   return (
     <div className="w-full" style={{ background: "#121212", paddingBottom: "9rem" }}>
-
-      {/* ── Sticky search bar ── */}
+      {/* Sticky search bar */}
       <div
         className="sticky top-0 z-20 px-4 pt-12 pb-3"
         style={{ background: "rgba(18,18,18,0.97)", backdropFilter: "blur(20px)" }}
@@ -216,7 +231,6 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") doSearch(query); }}
             placeholder="Songs, albums, artists…"
             className="flex-1 bg-transparent text-sm text-white placeholder:text-white/30 focus:outline-none min-w-0"
           />
@@ -225,17 +239,10 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
               <X className="w-4 h-4" style={{ color: "rgba(255,255,255,0.4)" }} />
             </button>
           ) : null}
-          <button
-            onClick={() => doSearch(query)}
-            className="flex-shrink-0 px-3 py-1 rounded-lg text-xs font-bold text-black"
-            style={{ background: "#1DB954" }}
-          >
-            Go
-          </button>
         </div>
       </div>
 
-      {/* ── Browse categories (no active search) ── */}
+      {/* Browse categories (no active search) */}
       {!searched && (
         <div className="px-4 pt-4">
           <p className="text-base font-bold text-white mb-3">Browse all</p>
@@ -250,10 +257,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                   style={{ background: `linear-gradient(135deg,${cat.color1},${cat.color2})` }}
                 >
                   <span className="text-sm font-bold text-white z-10">{cat.label}</span>
-                  <Icon
-                    className="absolute right-3 bottom-2 w-8 h-8 opacity-30"
-                    style={{ color: "#fff" }}
-                  />
+                  <Icon className="absolute right-3 bottom-2 w-8 h-8 opacity-30" style={{ color: "#fff" }} />
                 </button>
               );
             })}
@@ -261,17 +265,16 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
         </div>
       )}
 
-      {/* ── Loading spinner ── */}
+      {/* Loading spinner */}
       {loading && (
         <div className="flex justify-center py-16">
           <Loader2 className="w-7 h-7 animate-spin" style={{ color: "#1DB954" }} />
         </div>
       )}
 
-      {/* ── Search results ── */}
+      {/* Search results */}
       {searched && !loading && (
         <div className="px-4 pt-4">
-
           {songs.length === 0 ? (
             <div className="flex flex-col items-center py-20 gap-3">
               <Disc3 className="w-10 h-10" style={{ color: "rgba(255,255,255,0.15)" }} />
@@ -281,7 +284,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
             </div>
           ) : (
             <>
-              {/* ── Top Result ── */}
+              {/* Top Result */}
               {songs.length > 0 && (
                 <div className="mb-6">
                   <p className="text-base font-bold text-white mb-3">Top Result</p>
@@ -296,13 +299,10 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                           src={songs[0].albumArt}
                           alt={songs[0].title}
                           className="w-full h-full object-cover"
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                          onError={(e) => { (e.target as HTMLImageElement).src = "https://via.placeholder.com/100x100?text=🎵"; }}
                         />
                       ) : (
-                        <div
-                          className="w-full h-full flex items-center justify-center"
-                          style={{ background: "linear-gradient(135deg,#1DB954,#1ed760)" }}
-                        >
+                        <div className="w-full h-full flex items-center justify-center" style={{ background: "linear-gradient(135deg,#1DB954,#1ed760)" }}>
                           <Music2 className="w-7 h-7 text-black" />
                         </div>
                       )}
@@ -311,17 +311,14 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                     <p className="text-sm mt-0.5 truncate" style={{ color: "rgba(255,255,255,0.5)" }}>
                       Song · {songs[0].artist}
                     </p>
-                    <div
-                      className="absolute bottom-4 right-4 w-10 h-10 rounded-full flex items-center justify-center shadow-xl"
-                      style={{ background: "#1DB954" }}
-                    >
+                    <div className="absolute bottom-4 right-4 w-10 h-10 rounded-full flex items-center justify-center shadow-xl" style={{ background: "#1DB954" }}>
                       <Play className="w-4 h-4 text-black fill-black ml-0.5" />
                     </div>
                   </button>
                 </div>
               )}
 
-              {/* ── Songs section ── */}
+              {/* Songs section */}
               <div className="mb-6">
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-base font-bold text-white">Songs</p>
@@ -331,17 +328,12 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                 </div>
                 <div className="space-y-0.5">
                   {songs.map((song) => (
-                    <SongRow
-                      key={song.id}
-                      song={song}
-                      queue={songs}
-                      onRequireAuth={onRequireAuth}
-                    />
+                    <SongRow key={song.id} song={song} queue={songs} onRequireAuth={handleRequireAuth} />
                   ))}
                 </div>
               </div>
 
-              {/* ── Albums & Movies section ── */}
+              {/* Albums & Movies section */}
               {albums.length > 0 && (
                 <div className="mb-6">
                   <p className="text-base font-bold text-white mb-3">Albums & Movies</p>
@@ -349,29 +341,13 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                     {albums.map((album) => {
                       const expanded = expandedAlbums.has(album.name);
                       return (
-                        <div
-                          key={album.name}
-                          className="rounded-xl overflow-hidden"
-                          style={{ background: "rgba(255,255,255,0.05)" }}
-                        >
-                          {/* Album header */}
-                          <button
-                            className="w-full flex items-center gap-3 p-3"
-                            onClick={() => toggleAlbum(album.name)}
-                          >
+                        <div key={album.name} className="rounded-xl overflow-hidden" style={{ background: "rgba(255,255,255,0.05)" }}>
+                          <button className="w-full flex items-center gap-3 p-3" onClick={() => toggleAlbum(album.name)}>
                             <div className="w-12 h-12 rounded-lg overflow-hidden flex-shrink-0 shadow-lg">
                               {album.coverArt ? (
-                                <img
-                                  src={album.coverArt}
-                                  alt={album.name}
-                                  className="w-full h-full object-cover"
-                                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                                />
+                                <img src={album.coverArt} alt={album.name} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).src = "https://via.placeholder.com/100x100?text=🎵"; }} />
                               ) : (
-                                <div
-                                  className="w-full h-full flex items-center justify-center"
-                                  style={{ background: "#333" }}
-                                >
+                                <div className="w-full h-full flex items-center justify-center" style={{ background: "#333" }}>
                                   <Disc3 className="w-5 h-5" style={{ color: "rgba(255,255,255,0.3)" }} />
                                 </div>
                               )}
@@ -384,36 +360,16 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                               </p>
                             </div>
                             <div className="flex items-center gap-2 flex-shrink-0">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  playSong(album.songs[0], album.songs);
-                                }}
-                                className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
-                                style={{ background: "#1DB954" }}
-                              >
+                              <button onClick={(e) => { e.stopPropagation(); playSong(album.songs[0], album.songs); }} className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: "#1DB954" }}>
                                 <Play className="w-3.5 h-3.5 text-black fill-black ml-0.5" />
                               </button>
-                              {expanded
-                                ? <ChevronUp className="w-4 h-4 flex-shrink-0" style={{ color: "rgba(255,255,255,0.4)" }} />
-                                : <ChevronDown className="w-4 h-4 flex-shrink-0" style={{ color: "rgba(255,255,255,0.4)" }} />
-                              }
+                              {expanded ? <ChevronUp className="w-4 h-4 flex-shrink-0" style={{ color: "rgba(255,255,255,0.4)" }} /> : <ChevronDown className="w-4 h-4 flex-shrink-0" style={{ color: "rgba(255,255,255,0.4)" }} />}
                             </div>
                           </button>
-
-                          {/* Expanded song list */}
                           {expanded && (
-                            <div
-                              className="border-t"
-                              style={{ borderColor: "rgba(255,255,255,0.08)" }}
-                            >
+                            <div className="border-t" style={{ borderColor: "rgba(255,255,255,0.08)" }}>
                               {album.songs.map((song) => (
-                                <SongRow
-                                  key={song.id}
-                                  song={song}
-                                  queue={album.songs}
-                                  onRequireAuth={onRequireAuth}
-                                />
+                                <SongRow key={song.id} song={song} queue={album.songs} onRequireAuth={handleRequireAuth} />
                               ))}
                             </div>
                           )}
@@ -424,17 +380,13 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                 </div>
               )}
 
-              {/* ── Artists section ── */}
+              {/* Artists section */}
               {artists.length > 0 && (
                 <div className="mb-6">
                   <div className="flex items-center justify-between mb-3">
                     <p className="text-base font-bold text-white">Artists</p>
                     {artists.length > 8 && (
-                      <button
-                        onClick={() => setShowAllArtists((v) => !v)}
-                        className="text-xs font-semibold"
-                        style={{ color: "rgba(255,255,255,0.5)" }}
-                      >
+                      <button onClick={() => setShowAllArtists((v) => !v)} className="text-xs font-semibold" style={{ color: "rgba(255,255,255,0.5)" }}>
                         {showAllArtists ? "Show less" : `See all ${artists.length}`}
                       </button>
                     )}
@@ -443,29 +395,13 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                     {visibleArtists.map((artist) => {
                       const expanded = expandedArtists.has(artist.name);
                       return (
-                        <div
-                          key={artist.name}
-                          className="rounded-xl overflow-hidden"
-                          style={{ background: "rgba(255,255,255,0.05)" }}
-                        >
-                          {/* Artist header */}
-                          <button
-                            className="w-full flex items-center gap-3 p-3"
-                            onClick={() => toggleArtist(artist.name)}
-                          >
+                        <div key={artist.name} className="rounded-xl overflow-hidden" style={{ background: "rgba(255,255,255,0.05)" }}>
+                          <button className="w-full flex items-center gap-3 p-3" onClick={() => toggleArtist(artist.name)}>
                             <div className="w-12 h-12 rounded-full overflow-hidden flex-shrink-0 shadow-lg">
                               {artist.coverArt ? (
-                                <img
-                                  src={artist.coverArt}
-                                  alt={artist.name}
-                                  className="w-full h-full object-cover"
-                                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                                />
+                                <img src={artist.coverArt} alt={artist.name} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).src = "https://via.placeholder.com/100x100?text=🎵"; }} />
                               ) : (
-                                <div
-                                  className="w-full h-full flex items-center justify-center"
-                                  style={{ background: "#333" }}
-                                >
+                                <div className="w-full h-full flex items-center justify-center" style={{ background: "#333" }}>
                                   <User2 className="w-5 h-5" style={{ color: "rgba(255,255,255,0.3)" }} />
                                 </div>
                               )}
@@ -477,36 +413,16 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                               </p>
                             </div>
                             <div className="flex items-center gap-2 flex-shrink-0">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  playSong(artist.songs[0], artist.songs);
-                                }}
-                                className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
-                                style={{ background: "#1DB954" }}
-                              >
+                              <button onClick={(e) => { e.stopPropagation(); playSong(artist.songs[0], artist.songs); }} className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: "#1DB954" }}>
                                 <Play className="w-3.5 h-3.5 text-black fill-black ml-0.5" />
                               </button>
-                              {expanded
-                                ? <ChevronUp className="w-4 h-4 flex-shrink-0" style={{ color: "rgba(255,255,255,0.4)" }} />
-                                : <ChevronDown className="w-4 h-4 flex-shrink-0" style={{ color: "rgba(255,255,255,0.4)" }} />
-                              }
+                              {expanded ? <ChevronUp className="w-4 h-4 flex-shrink-0" style={{ color: "rgba(255,255,255,0.4)" }} /> : <ChevronDown className="w-4 h-4 flex-shrink-0" style={{ color: "rgba(255,255,255,0.4)" }} />}
                             </div>
                           </button>
-
-                          {/* Expanded artist song list */}
                           {expanded && (
-                            <div
-                              className="border-t"
-                              style={{ borderColor: "rgba(255,255,255,0.08)" }}
-                            >
+                            <div className="border-t" style={{ borderColor: "rgba(255,255,255,0.08)" }}>
                               {artist.songs.map((song) => (
-                                <SongRow
-                                  key={song.id}
-                                  song={song}
-                                  queue={artist.songs}
-                                  onRequireAuth={onRequireAuth}
-                                />
+                                <SongRow key={song.id} song={song} queue={artist.songs} onRequireAuth={handleRequireAuth} />
                               ))}
                             </div>
                           )}
@@ -517,17 +433,13 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                 </div>
               )}
 
-              {/* ── Load More ── */}
+              {/* Load More */}
               {hasMore && (
                 <div className="flex justify-center py-4">
                   {loadingMore ? (
                     <Loader2 className="w-6 h-6 animate-spin" style={{ color: "#1DB954" }} />
                   ) : (
-                    <button
-                      onClick={loadMore}
-                      className="px-8 py-3 rounded-full text-sm font-bold text-black transition-all active:scale-95"
-                      style={{ background: "#1DB954" }}
-                    >
+                    <button onClick={loadMore} className="px-8 py-3 rounded-full text-sm font-bold text-black transition-all active:scale-95" style={{ background: "#1DB954" }}>
                       Load more results
                     </button>
                   )}
@@ -537,6 +449,8 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
           )}
         </div>
       )}
+
+      <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} />
     </div>
   );
 }

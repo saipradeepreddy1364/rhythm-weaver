@@ -8,15 +8,15 @@ interface BottomNavProps {
 }
 
 const tabs: { key: Page; label: string; Icon: typeof Home }[] = [
-  { key: "home",    label: "Home",    Icon: Home    },
-  { key: "search",  label: "Search",  Icon: Search  },
+  { key: "home", label: "Home", Icon: Home },
+  { key: "search", label: "Search", Icon: Search },
   { key: "library", label: "Library", Icon: Library },
 ];
 
 export function BottomNav({ page, onNavigate }: BottomNavProps) {
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-50 h-14 flex items-center"
+      className="fixed bottom-0 left-0 right-0 z-40 h-14 flex items-center"
       style={{
         background: "rgba(10,10,10,0.97)",
         backdropFilter: "blur(20px)",

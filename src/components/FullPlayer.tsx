@@ -3,7 +3,7 @@ import { formatDuration } from "@/data/songs";
 import { LikeButton } from "@/components/LikeButton";
 import {
   Play, Pause, SkipBack, SkipForward,
-  ChevronDown, Shuffle, Repeat, ListMusic,
+  ChevronDown, Shuffle, Repeat, ListMusic, Heart,
 } from "lucide-react";
 
 interface FullPlayerProps {
@@ -22,6 +22,8 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
     setProgress,
     showPlayer,
     setShowPlayer,
+    queue,
+    queueIndex,
   } = usePlayer();
 
   if (!currentSong || !showPlayer) return null;
@@ -64,12 +66,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           <p className="text-xs text-white/40 uppercase tracking-widest font-semibold">
             Now Playing
           </p>
-          <button
-            className="w-10 h-10 rounded-full flex items-center justify-center"
-            style={{ background: "rgba(255,255,255,0.08)" }}
-          >
-            <ListMusic className="w-4 h-4 text-white/60" />
-          </button>
+          <div className="w-10" />
         </div>
 
         {/* Album Art */}
@@ -88,11 +85,13 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
                 alt={currentSong.title}
                 className="w-full h-full object-cover"
                 onError={(e) => {
-                  (e.target as HTMLImageElement).src = "https://via.placeholder.com/400x400?text=No+Image";
+                  (e.target as HTMLImageElement).src = "https://via.placeholder.com/400x400?text=🎵";
                 }}
               />
             ) : (
-              <div className="w-full h-full" style={{ background: "linear-gradient(135deg,#1DB954,#1ed760)" }} />
+              <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-green-500 to-emerald-600">
+                <span className="text-black text-6xl">🎵</span>
+              </div>
             )}
           </div>
         </div>
@@ -104,6 +103,9 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
               {currentSong.title}
             </h2>
             <p className="text-sm text-white/40 mt-1 truncate">{currentSong.artist}</p>
+            {currentSong.movie && (
+              <p className="text-xs text-white/30 mt-0.5 truncate">{currentSong.movie}</p>
+            )}
           </div>
           <LikeButton
             song={currentSong}
@@ -120,15 +122,15 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             style={{ background: "rgba(255,255,255,0.12)" }}
             onClick={(e) => {
               const rect = e.currentTarget.getBoundingClientRect();
-              const ratio = (e.clientX - rect.left) / rect.width;
+              const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
               setProgress(Math.floor(ratio * totalDuration));
             }}
           >
             <div
-              className="absolute top-0 left-0 h-full rounded-full transition-all duration-1000 ease-linear"
+              className="absolute top-0 left-0 h-full rounded-full transition-all duration-100"
               style={{
                 width: `${pct}%`,
-                background: "linear-gradient(90deg,#1DB954,#1ed760)",
+                background: "linear-gradient(90deg, #1DB954, #1ed760)",
               }}
             />
           </div>
@@ -154,7 +156,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           <button
             onClick={togglePlay}
             className="w-16 h-16 rounded-full flex items-center justify-center shadow-2xl transition-transform active:scale-90"
-            style={{ background: "linear-gradient(135deg,#1DB954,#1ed760)" }}
+            style={{ background: "linear-gradient(135deg, #1DB954, #1ed760)" }}
           >
             {isPlaying ? (
               <Pause className="w-7 h-7 text-black fill-black" />
@@ -173,6 +175,15 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           <button className="p-3 text-white/30 hover:text-white transition-colors">
             <Repeat className="w-5 h-5" />
           </button>
+        </div>
+
+        {/* Queue info */}
+        <div className="text-center text-xs text-white/30 pb-6">
+          {queue.length > 0 && (
+            <p>
+              {queueIndex + 1} of {queue.length} • {queue.length} songs in queue
+            </p>
+          )}
         </div>
       </div>
     </div>

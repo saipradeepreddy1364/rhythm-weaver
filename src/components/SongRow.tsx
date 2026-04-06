@@ -35,11 +35,13 @@ export function SongRow({ song, queue, onRequireAuth }: SongRowProps) {
             alt={song.title} 
             className="w-full h-full object-cover"
             onError={(e) => {
-              (e.target as HTMLImageElement).src = "https://via.placeholder.com/400x400?text=No+Image";
+              (e.target as HTMLImageElement).src = "https://via.placeholder.com/100x100?text=🎵";
             }}
           />
         ) : (
-          <div className="w-full h-full bg-gradient-to-br from-orange-500 to-pink-600" />
+          <div className="w-full h-full bg-gradient-to-br from-orange-500 to-pink-600 flex items-center justify-center">
+            <span className="text-white text-sm">🎵</span>
+          </div>
         )}
         {/* Playing wave overlay */}
         {isActive && isPlaying && (
@@ -77,6 +79,7 @@ export function SongRow({ song, queue, onRequireAuth }: SongRowProps) {
         </p>
         <p className="text-xs text-white/40 truncate mt-0.5 leading-tight">
           {song.artist}
+          {song.movie ? ` • ${song.movie}` : ""}
           {song.duration ? ` · ${formatDuration(song.duration)}` : ""}
         </p>
       </div>

@@ -1,131 +1,174 @@
-const BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ||
-  "https://musicbackend-g2sp.onrender.com/api";
-
-// Add timeout to fetch requests
-const fetchWithTimeout = (url: string, timeout = 30000) => {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), timeout);
-  return fetch(url, { signal: controller.signal })
-    .finally(() => clearTimeout(id));
-};
+const BASE_URL = (import.meta as any).env?.VITE_API_BACKEND_URL || "https://musicbackend-g2sp.onrender.com/api";
 
 export const api = {
-  searchSongs: (query: string, page = 1, limit = 20) =>
-    fetchWithTimeout(`${BASE_URL}/search/songs?query=${encodeURIComponent(query)}&page=${page}&limit=${limit}`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .catch((err) => {
-        console.error("Search error:", err);
-        return { data: { data: { results: [] } } };
-      }),
-
-  searchArtists: (query: string, page = 1, limit = 10) =>
-    fetchWithTimeout(`${BASE_URL}/search/artists?query=${encodeURIComponent(query)}&page=${page}&limit=${limit}`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .catch((err) => {
-        console.error("Artist search error:", err);
-        return { data: { data: { results: [] } } };
-      }),
-
-  searchAlbums: (query: string, page = 1, limit = 10) =>
-    fetchWithTimeout(`${BASE_URL}/search/albums?query=${encodeURIComponent(query)}&page=${page}&limit=${limit}`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .catch((err) => {
-        console.error("Album search error:", err);
-        return { data: { data: { results: [] } } };
-      }),
-
-  getSong: (id: string) =>
-    fetchWithTimeout(`${BASE_URL}/songs/${id}`, 10000)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .catch((err) => {
-        console.error("Get song error:", err);
-        return null;
-      }),
-
-  getSuggestions: (id: string, limit = 10) =>
-    fetchWithTimeout(`${BASE_URL}/songs/${id}/suggestions?limit=${limit}`, 10000)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .catch((err) => {
-        console.error("Suggestions error:", err);
-        return { data: { data: { results: [] } } };
-      }),
-
-  getPlaylist: (id: string, page = 1, limit = 100) =>
-    fetchWithTimeout(`${BASE_URL}/playlists?id=${id}`, 15000)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .catch((err) => {
-        console.error("Get playlist error:", err);
-        return { data: { data: { songs: [] } } };
-      }),
-
-  getCharts: () =>
-    fetchWithTimeout(`${BASE_URL}/search/songs?query=top+hindi+hits+2025&page=1&limit=50`, 15000)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .catch((err) => {
-        console.error("Charts error:", err);
-        return { data: { data: { results: [] } } };
-      }),
-
-  getAlbum: (id: string) =>
-    fetchWithTimeout(`${BASE_URL}/albums?id=${id}`, 10000)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .catch((err) => {
-        console.error("Get album error:", err);
-        return { data: { data: { songs: [] } } };
-      }),
-
-  getArtistSongs: (id: string, page = 1) =>
-    fetchWithTimeout(`${BASE_URL}/artists/${id}/songs?page=${page}&sortBy=popularity&sortOrder=desc`, 10000)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .catch((err) => {
-        console.error("Artist songs error:", err);
-        return { data: { data: { results: [] } } };
-      }),
+  // Auth endpoints
+  login: async (email: string, password: string) => {
+    const response = await fetch(`${BASE_URL}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    return response.json();
+  },
+  
+  register: async (email: string, password: string, username: string) => {
+    const response = await fetch(`${BASE_URL}/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password, username }),
+    });
+    return response.json();
+  },
+  
+  logout: async () => {
+    const token = localStorage.getItem("rw_session_token");
+    const response = await fetch(`${BASE_URL}/auth/logout`, {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        "Authorization": token ? `Bearer ${token}` : "",
+      },
+    });
+    return response.json();
+  },
+  
+  verifyToken: async (token: string) => {
+    try {
+      const response = await fetch(`${BASE_URL}/auth/verify`, {
+        headers: { "Authorization": `Bearer ${token}` },
+      });
+      const data = await response.json();
+      return data.valid === true;
+    } catch {
+      return false;
+    }
+  },
+  
+  // Search endpoint
+  searchSongs: async (query: string, page: number = 1, limit: number = 50) => {
+    const encoded = encodeURIComponent(query);
+    const response = await fetch(`${BASE_URL}/search/songs?query=${encoded}&page=${page}&limit=${limit}`);
+    return response.json();
+  },
+  
+  // Playlist endpoints
+  getPlaylist: async (playlistId: string) => {
+    const response = await fetch(`${BASE_URL}/playlists/${playlistId}`);
+    return response.json();
+  },
+  
+  // User library endpoints
+  getLikedSongs: async () => {
+    const token = localStorage.getItem("rw_session_token");
+    const response = await fetch(`${BASE_URL}/user/liked`, {
+      headers: { "Authorization": token ? `Bearer ${token}` : "" },
+    });
+    return response.json();
+  },
+  
+  likeSong: async (songId: string) => {
+    const token = localStorage.getItem("rw_session_token");
+    const response = await fetch(`${BASE_URL}/user/like`, {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        "Authorization": token ? `Bearer ${token}` : "",
+      },
+      body: JSON.stringify({ songId }),
+    });
+    return response.json();
+  },
+  
+  unlikeSong: async (songId: string) => {
+    const token = localStorage.getItem("rw_session_token");
+    const response = await fetch(`${BASE_URL}/user/unlike`, {
+      method: "DELETE",
+      headers: { 
+        "Content-Type": "application/json",
+        "Authorization": token ? `Bearer ${token}` : "",
+      },
+      body: JSON.stringify({ songId }),
+    });
+    return response.json();
+  },
+  
+  getPlaylists: async () => {
+    const token = localStorage.getItem("rw_session_token");
+    const response = await fetch(`${BASE_URL}/user/playlists`, {
+      headers: { "Authorization": token ? `Bearer ${token}` : "" },
+    });
+    return response.json();
+  },
+  
+  createPlaylist: async (name: string) => {
+    const token = localStorage.getItem("rw_session_token");
+    const response = await fetch(`${BASE_URL}/user/playlists`, {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        "Authorization": token ? `Bearer ${token}` : "",
+      },
+      body: JSON.stringify({ name }),
+    });
+    return response.json();
+  },
+  
+  updatePlaylist: async (playlistId: string, name: string) => {
+    const token = localStorage.getItem("rw_session_token");
+    const response = await fetch(`${BASE_URL}/user/playlists/${playlistId}`, {
+      method: "PUT",
+      headers: { 
+        "Content-Type": "application/json",
+        "Authorization": token ? `Bearer ${token}` : "",
+      },
+      body: JSON.stringify({ name }),
+    });
+    return response.json();
+  },
+  
+  deletePlaylist: async (playlistId: string) => {
+    const token = localStorage.getItem("rw_session_token");
+    const response = await fetch(`${BASE_URL}/user/playlists/${playlistId}`, {
+      method: "DELETE",
+      headers: { "Authorization": token ? `Bearer ${token}` : "" },
+    });
+    return response.json();
+  },
+  
+  addToPlaylist: async (playlistId: string, songId: string) => {
+    const token = localStorage.getItem("rw_session_token");
+    const response = await fetch(`${BASE_URL}/user/playlists/${playlistId}/songs`, {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        "Authorization": token ? `Bearer ${token}` : "",
+      },
+      body: JSON.stringify({ songId }),
+    });
+    return response.json();
+  },
+  
+  removeFromPlaylist: async (playlistId: string, songId: string) => {
+    const token = localStorage.getItem("rw_session_token");
+    const response = await fetch(`${BASE_URL}/user/playlists/${playlistId}/songs/${songId}`, {
+      method: "DELETE",
+      headers: { "Authorization": token ? `Bearer ${token}` : "" },
+    });
+    return response.json();
+  },
+  
+  getPlaylistSongs: async (playlistId: string) => {
+    const token = localStorage.getItem("rw_session_token");
+    const response = await fetch(`${BASE_URL}/user/playlists/${playlistId}/songs`, {
+      headers: { "Authorization": token ? `Bearer ${token}` : "" },
+    });
+    return response.json();
+  },
 };
 
-/**
- * Extract results from nested API response structure
- */
-export function extractResults(res: any): any[] {
-  return (
-    res?.data?.data?.results ||
-    res?.data?.data?.songs ||
-    res?.data?.data?.list ||
-    res?.data?.results ||
-    res?.data?.songs ||
-    res?.data?.list ||
-    (Array.isArray(res?.data) ? res.data : [])
-  );
-}
-
-export function extractSongs(res: any): any[] {
-  return extractResults(res);
+export function extractResults(data: any): any[] {
+  if (data && data.results) return data.results;
+  if (data && data.data) return data.data;
+  if (Array.isArray(data)) return data;
+  return [];
 }

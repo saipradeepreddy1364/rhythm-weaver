@@ -1,12 +1,13 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Heart, Clock, ListMusic, Plus, Trash2, Edit3,
-  Check, X, Play, Loader2, ChevronRight,
+  Check, X, Play, Loader2, ChevronRight, LogOut, User,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useLibrary } from "@/context/LibraryContext";
 import { usePlayer } from "@/context/PlayerContext";
 import { SongRow } from "@/components/SongRow";
+import { AuthModal } from "@/components/AuthModal";
 import type { Song } from "@/data/songs";
 
 interface Playlist {
@@ -39,7 +40,7 @@ function filterRecent(songs: Song[]): Song[] {
 }
 
 export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const {
     likedSongs,
     recentlyPlayed,
@@ -48,18 +49,40 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
     removePlaylist,
     updatePlaylistName,
     getPlaylist,
+    loadLikedSongs,
+    loadPlaylists,
   } = useLibrary();
   const { playSong } = usePlayer();
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
 
-  const [tab, setTab]                         = useState<Tab>("liked");
-  const [playlistSongs, setPlaylistSongs]     = useState<Song[]>([]);
+  const [tab, setTab] = useState<Tab>("liked");
+  const [playlistSongs, setPlaylistSongs] = useState<Song[]>([]);
   const [loadingPlaylist, setLoadingPlaylist] = useState(false);
-  const [editingId, setEditingId]             = useState<string | null>(null);
-  const [editName, setEditName]               = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
   const [creatingPlaylist, setCreatingPlaylist] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState("");
 
+  // Load data when user is logged in
+  useEffect(() => {
+    if (user) {
+      loadLikedSongs();
+      loadPlaylists();
+    }
+  }, [user, loadLikedSongs, loadPlaylists]);
+
   const recentFiltered = filterRecent(recentlyPlayed);
+
+  const handleRequireAuth = () => {
+    onRequireAuth();
+    setShowAuthModal(true);
+  };
+
+  const handleLogout = async () => {
+    await logout();
+    setShowUserMenu(false);
+  };
 
   if (!user) {
     return (
@@ -80,12 +103,13 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
           </p>
         </div>
         <button
-          onClick={onRequireAuth}
+          onClick={handleRequireAuth}
           className="text-sm font-bold text-black px-8 py-3 rounded-full transition-all active:scale-95"
           style={{ background: "#1DB954" }}
         >
           Sign In
         </button>
+        <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} />
       </div>
     );
   }
@@ -116,7 +140,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
       ? playlists.find((p) => p.id === tab.id)
       : null;
 
-  // ── Playlist detail view ──────────────────────────────────────────────────
+  // Playlist detail view
   if (currentPlaylist) {
     return (
       <div className="w-full" style={{ background: "#121212", paddingBottom: "9rem" }}>
@@ -135,10 +159,13 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
               style={{ background: "linear-gradient(135deg,#1DB954,#1ed760)" }}
             >
               {currentPlaylist.cover_art ? (
-                <img
-                  src={currentPlaylist.cover_art}
-                  alt={currentPlaylist.name}
-                  className="w-full h-full object-cover"
+                <img 
+                  src={currentPlaylist.cover_art} 
+                  alt={currentPlaylist.name} 
+                  className="w-full h-full object-cover" 
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = "https://via.placeholder.com/200x200?text=🎵";
+                  }}
                 />
               ) : (
                 <ListMusic className="w-14 h-14 text-black/60" />
@@ -164,19 +191,19 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
               <Loader2 className="w-6 h-6 animate-spin" style={{ color: "#1DB954" }} />
             </div>
           ) : playlistSongs.length === 0 ? (
-            <LibraryEmpty
-              icon={<ListMusic className="w-9 h-9" />}
-              title="This playlist is empty"
-              subtitle="Add songs from the home or search screen."
+            <LibraryEmpty 
+              icon={<ListMusic className="w-9 h-9" />} 
+              title="This playlist is empty" 
+              subtitle="Add songs from the home or search screen." 
             />
           ) : (
             <div className="space-y-0.5">
               {playlistSongs.map((song) => (
-                <SongRow
-                  key={song.id}
-                  song={song}
-                  queue={playlistSongs}
-                  onRequireAuth={onRequireAuth}
+                <SongRow 
+                  key={song.id} 
+                  song={song} 
+                  queue={playlistSongs} 
+                  onRequireAuth={handleRequireAuth} 
                 />
               ))}
             </div>
@@ -186,25 +213,28 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
     );
   }
 
-  // ── Main library view ─────────────────────────────────────────────────────
   const TABS: { key: Tab; label: string }[] = [
-    { key: "liked",     label: "Liked" },
-    { key: "recent",    label: "Recent" },
+    { key: "liked", label: "Liked" },
+    { key: "recent", label: "Recent" },
     { key: "playlists", label: "Playlists" },
   ];
 
   return (
     <div className="w-full" style={{ background: "#121212", paddingBottom: "9rem" }}>
-      {/* Header */}
-      <div className="px-4 pt-12 pb-2">
+      {/* Header with User Menu */}
+      <div 
+        className="sticky top-0 z-20 px-4 pt-12 pb-2" 
+        style={{ background: "rgba(18,18,18,0.97)", backdropFilter: "blur(20px)" }}
+      >
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <div
-              className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-black"
+            <button
+              onClick={() => setShowUserMenu(!showUserMenu)}
+              className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-black transition-all active:scale-95"
               style={{ background: "#1DB954" }}
             >
-              {user.email?.charAt(0).toUpperCase() ?? "U"}
-            </div>
+              {user.username?.charAt(0).toUpperCase() || user.email?.charAt(0).toUpperCase() ?? "U"}
+            </button>
             <h1 className="text-xl font-bold text-white">Your Library</h1>
           </div>
           <button
@@ -215,6 +245,26 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
             <Plus className="w-5 h-5 text-white" />
           </button>
         </div>
+
+        {/* User Menu Dropdown */}
+        {showUserMenu && (
+          <div 
+            className="absolute left-4 right-4 top-24 mt-1 rounded-xl shadow-2xl overflow-hidden z-30" 
+            style={{ background: "#1a1a1a", border: "1px solid rgba(255,255,255,0.08)" }}
+          >
+            <div className="px-4 py-3 border-b" style={{ borderColor: "rgba(255,255,255,0.08)" }}>
+              <p className="text-sm font-semibold text-white">{user.username || user.email}</p>
+              <p className="text-xs text-white/40 mt-0.5">{user.email}</p>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center gap-3 px-4 py-3 text-sm text-white/80 hover:bg-white/5 transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+              Sign Out
+            </button>
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: "none" }}>
@@ -241,8 +291,8 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
       <div className="px-4">
         {/* Create playlist inline input */}
         {creatingPlaylist && (
-          <div
-            className="flex gap-2 mb-4 mt-3 rounded-xl px-3 py-3"
+          <div 
+            className="flex gap-2 mb-4 mt-3 rounded-xl px-3 py-3" 
             style={{ background: "rgba(255,255,255,0.05)" }}
           >
             <input
@@ -252,7 +302,10 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
               onChange={(e) => setNewPlaylistName(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") handleCreatePlaylist();
-                if (e.key === "Escape") { setCreatingPlaylist(false); setNewPlaylistName(""); }
+                if (e.key === "Escape") { 
+                  setCreatingPlaylist(false); 
+                  setNewPlaylistName(""); 
+                }
               }}
               placeholder="Playlist name…"
               className="flex-1 bg-transparent text-sm text-white placeholder:text-white/25 focus:outline-none min-w-0"
@@ -260,8 +313,11 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
             <button onClick={handleCreatePlaylist} style={{ color: "#1DB954" }}>
               <Check className="w-4 h-4" />
             </button>
-            <button
-              onClick={() => { setCreatingPlaylist(false); setNewPlaylistName(""); }}
+            <button 
+              onClick={() => { 
+                setCreatingPlaylist(false); 
+                setNewPlaylistName(""); 
+              }} 
               style={{ color: "rgba(255,255,255,0.3)" }}
             >
               <X className="w-4 h-4" />
@@ -269,23 +325,23 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
           </div>
         )}
 
-        {/* ── Liked Songs Tab ── */}
+        {/* Liked Songs Tab */}
         {tab === "liked" && (
           <>
             {likedSongs.length === 0 ? (
-              <LibraryEmpty
-                icon={<Heart className="w-9 h-9" />}
-                title="No liked songs yet"
-                subtitle="Tap the heart on any song to save it here."
+              <LibraryEmpty 
+                icon={<Heart className="w-9 h-9" />} 
+                title="No liked songs yet" 
+                subtitle="Tap the heart on any song to save it here." 
               />
             ) : (
               <div className="space-y-0.5 mt-1">
                 {likedSongs.map((song) => (
-                  <SongRow
-                    key={song.id}
-                    song={song}
-                    queue={likedSongs}
-                    onRequireAuth={onRequireAuth}
+                  <SongRow 
+                    key={song.id} 
+                    song={song} 
+                    queue={likedSongs} 
+                    onRequireAuth={handleRequireAuth} 
                   />
                 ))}
               </div>
@@ -293,14 +349,14 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
           </>
         )}
 
-        {/* ── Recent Tab ── */}
+        {/* Recent Tab */}
         {tab === "recent" && (
           <>
             {recentFiltered.length === 0 ? (
-              <LibraryEmpty
-                icon={<Clock className="w-9 h-9" />}
-                title="Nothing recent"
-                subtitle="Songs you play appear here for 3 days."
+              <LibraryEmpty 
+                icon={<Clock className="w-9 h-9" />} 
+                title="Nothing recent" 
+                subtitle="Songs you play appear here for 3 days." 
               />
             ) : (
               <>
@@ -309,11 +365,11 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                 </p>
                 <div className="space-y-0.5">
                   {recentFiltered.map((song) => (
-                    <SongRow
-                      key={song.id}
-                      song={song}
-                      queue={recentFiltered}
-                      onRequireAuth={onRequireAuth}
+                    <SongRow 
+                      key={song.id} 
+                      song={song} 
+                      queue={recentFiltered} 
+                      onRequireAuth={handleRequireAuth} 
                     />
                   ))}
                 </div>
@@ -322,17 +378,17 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
           </>
         )}
 
-        {/* ── Playlists Tab ── */}
+        {/* Playlists Tab */}
         {tab === "playlists" && (
           <>
             {/* Liked Songs shortcut */}
             {likedSongs.length > 0 && (
-              <button
-                onClick={() => playSong(likedSongs[0], likedSongs)}
+              <button 
+                onClick={() => playSong(likedSongs[0], likedSongs)} 
                 className="w-full flex items-center gap-3 py-2 mb-1 active:scale-95 transition-transform"
               >
-                <div
-                  className="w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg"
+                <div 
+                  className="w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg" 
                   style={{ background: "linear-gradient(135deg,#4c1d95,#7c3aed)" }}
                 >
                   <Heart className="w-6 h-6 fill-white text-white" />
@@ -348,28 +404,38 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
             )}
 
             {playlists.length === 0 && !creatingPlaylist ? (
-              <LibraryEmpty
-                icon={<ListMusic className="w-9 h-9" />}
-                title="Create your first playlist"
-                subtitle="Tap the + button above to get started."
+              <LibraryEmpty 
+                icon={<ListMusic className="w-9 h-9" />} 
+                title="Create your first playlist" 
+                subtitle="Tap the + button above to get started." 
               />
             ) : (
               <div className="space-y-0.5 mt-1">
                 {playlists.map((p) => (
                   <div key={p.id} className="flex items-center gap-3 py-2">
-                    <button
-                      onClick={() => openPlaylist(p)}
-                      className="w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 flex items-center justify-center shadow-lg"
+                    <button 
+                      onClick={() => openPlaylist(p)} 
+                      className="w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 flex items-center justify-center shadow-lg" 
                       style={{ background: "linear-gradient(135deg,#1DB954,#1ed760)" }}
                     >
                       {p.cover_art ? (
-                        <img src={p.cover_art} alt={p.name} className="w-full h-full object-cover" />
+                        <img 
+                          src={p.cover_art} 
+                          alt={p.name} 
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = "https://via.placeholder.com/100x100?text=🎵";
+                          }}
+                        />
                       ) : (
                         <ListMusic className="w-5 h-5 text-black/60" />
                       )}
                     </button>
 
-                    <button onClick={() => openPlaylist(p)} className="flex-1 text-left min-w-0">
+                    <button 
+                      onClick={() => openPlaylist(p)} 
+                      className="flex-1 text-left min-w-0"
+                    >
                       {editingId === p.id ? (
                         <input
                           autoFocus
@@ -393,23 +459,23 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                     </button>
 
                     <div className="flex items-center gap-1 flex-shrink-0">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditingId(p.id);
-                          setEditName(p.name);
-                        }}
-                        className="p-2 rounded-lg"
+                      <button 
+                        onClick={(e) => { 
+                          e.stopPropagation(); 
+                          setEditingId(p.id); 
+                          setEditName(p.name); 
+                        }} 
+                        className="p-2 rounded-lg" 
                         style={{ color: "rgba(255,255,255,0.25)" }}
                       >
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (confirm(`Delete "${p.name}"?`)) removePlaylist(p.id);
-                        }}
-                        className="p-2 rounded-lg"
+                      <button 
+                        onClick={(e) => { 
+                          e.stopPropagation(); 
+                          if (confirm(`Delete "${p.name}"?`)) removePlaylist(p.id); 
+                        }} 
+                        className="p-2 rounded-lg" 
                         style={{ color: "rgba(255,255,255,0.25)" }}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -422,17 +488,20 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
           </>
         )}
       </div>
+      
+      {/* Auth Modal */}
+      <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} />
     </div>
   );
 }
 
-function LibraryEmpty({
-  icon,
-  title,
-  subtitle,
-}: {
-  icon: React.ReactNode;
-  title: string;
+function LibraryEmpty({ 
+  icon, 
+  title, 
+  subtitle 
+}: { 
+  icon: React.ReactNode; 
+  title: string; 
   subtitle: string;
 }) {
   return (
