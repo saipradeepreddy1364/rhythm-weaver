@@ -1,477 +1,338 @@
-/**
- * HomePage — Spotify-like mobile home screen
- * Features:
- *  - 2×N quick-access grid (like Spotify "Good evening")
- *  - Horizontal album/movie carousels
- *  - Individual movie album cards with cover art
- *  - Category chips (language) → loads vertically below
- *  - Both vertical list rows and horizontal card scrolls
- *  - No minimum song count enforced
- */
-
-import { useState, useEffect, useCallback } from "react";
-import { api, extractResults } from "@/services/api";
+import { useEffect, useState } from "react";
 import { Song, mapApiSong } from "@/data/songs";
+import { api, extractResults } from "@/services/api";
 import { SongRow } from "@/components/SongRow";
+import { SongCard } from "@/components/SongCard";
 import { usePlayer } from "@/context/PlayerContext";
-import { useLibrary } from "@/context/LibraryContext";
-import { useAuth } from "@/context/AuthContext";
-import {
-  Play, Pause, ChevronRight, Disc3, Flame,
-  Sparkles, TrendingUp, Heart, Mic2,
-  Music2, Headphones, Star, Globe2, Loader2,
-  Radio, Zap, Clock,
-} from "lucide-react";
+import { Loader2 } from "lucide-react";
+
+const BASE_URL =
+  (import.meta as any).env?.VITE_API_BASE_URL ||
+  "https://musicbackend-g2sp.onrender.com/api";
+
+const PLAYLISTS = {
+  trendingHindi: "1134543272",
+  trendingTelugu: "1134543280",
+  bollywood2025:  "1134543279",
+  romantic:       "91369254",
+  party:          "1134543281",
+  retro:          "1134543277",
+};
+
+function mapPlaylistSongs(res: any): Song[] {
+  const songs = extractResults(res);
+  return songs.map(mapApiSong).filter((s: Song) => s.audioUrl);
+}
+
+function mapSearchSongs(res: any): Song[] {
+  const songs = extractResults(res);
+  return songs.map(mapApiSong).filter((s: Song) => s.audioUrl);
+}
+
+async function wakeServer(): Promise<void> {
+  try {
+    await fetch(`${BASE_URL}/search/songs?query=hindi&page=1&limit=1`);
+  } catch {
+    // ignore — just waking the free Render instance
+  }
+}
 
 interface HomePageProps {
-  onRequireAuth: () => void;
+  onRequireAuth?: () => void;
 }
-
-interface Album {
-  id: string;
-  name: string;
-  artist: string;
-  coverArt: string;
-  songs: Song[];
-  year?: number;
-}
-
-interface Section {
-  id: string;
-  title: string;
-  subtitle?: string;
-  icon?: React.ReactNode;
-  songs: Song[];
-  albums?: Album[];
-  showSongRows?: boolean;
-}
-
-function groupIntoAlbums(songs: Song[]): Album[] {
-  const map = new Map<string, Album>();
-  songs.forEach((s) => {
-    const key = s.album || s.movie || "";
-    if (!key) return;
-    if (!map.has(key)) {
-      map.set(key, { 
-        id: key, 
-        name: key, 
-        artist: s.artist, 
-        coverArt: s.albumArt || "", 
-        songs: [], 
-        year: s.year 
-      });
-    }
-    map.get(key)!.songs.push(s);
-  });
-  return Array.from(map.values()).filter((a) => a.songs.length >= 1);
-}
-
-function greeting() {
-  const h = new Date().getHours();
-  if (h < 12) return "morning";
-  if (h < 17) return "afternoon";
-  return "evening";
-}
-
-const QUICK_ACCESS = [
-  { label: "Liked Songs",    gradient: "from-indigo-600 to-blue-500",   icon: <Heart className="w-4 h-4 fill-white" /> },
-  { label: "Latest Telugu",  gradient: "from-orange-500 to-red-500",    icon: <Zap className="w-4 h-4" /> },
-  { label: "Hindi Hits",     gradient: "from-pink-500 to-rose-500",     icon: <Mic2 className="w-4 h-4" /> },
-  { label: "Tamil Fresh",    gradient: "from-purple-500 to-violet-500", icon: <Headphones className="w-4 h-4" /> },
-  { label: "Punjabi Beats",  gradient: "from-yellow-500 to-amber-500",  icon: <Music2 className="w-4 h-4" /> },
-  { label: "Chill Vibes",    gradient: "from-teal-500 to-cyan-500",     icon: <Radio className="w-4 h-4" /> },
-];
-
-const LANGUAGES = [
-  { label: "Hindi",     query: "hindi songs 2025",      color: "#f97316" },
-  { label: "Telugu",    query: "telugu songs 2025",     color: "#ec4899" },
-  { label: "Tamil",     query: "tamil songs 2025",      color: "#8b5cf6" },
-  { label: "Kannada",   query: "kannada songs 2025",    color: "#06b6d4" },
-  { label: "Malayalam", query: "malayalam songs 2025",  color: "#10b981" },
-  { label: "Punjabi",   query: "punjabi songs 2025",    color: "#f59e0b" },
-  { label: "Bengali",   query: "bengali songs 2025",    color: "#e11d48" },
-  { label: "Marathi",   query: "marathi songs 2025",    color: "#6366f1" },
-  { label: "English",   query: "english pop hits 2025", color: "#64748b" },
-];
 
 export default function HomePage({ onRequireAuth }: HomePageProps) {
-  const { playSong } = usePlayer();
-  const { recentlyPlayed } = useLibrary();
-  const { user } = useAuth();
+  const { recentlyPlayed } = usePlayer();
+  const [trendingHindi,  setTrendingHindi]  = useState<Song[]>([]);
+  const [trendingTelugu, setTrendingTelugu] = useState<Song[]>([]);
+  const [bollywood,      setBollywood]      = useState<Song[]>([]);
+  const [romantic,       setRomantic]       = useState<Song[]>([]);
+  const [party,          setParty]          = useState<Song[]>([]);
+  const [retro,          setRetro]          = useState<Song[]>([]);
+  const [loading,        setLoading]        = useState(true);
+  const [waking,         setWaking]         = useState(true);
 
-  const [sections, setSections] = useState<Section[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [activeLang, setActiveLang] = useState<string | null>(null);
-  const [langSongs, setLangSongs] = useState<Song[]>([]);
-  const [langAlbums, setLangAlbums] = useState<Album[]>([]);
-  const [langLoading, setLangLoading] = useState(false);
+  useEffect(() => {
+    const load = async () => {
+      setWaking(true);
+      await wakeServer();
+      setWaking(false);
 
-  const loadHome = useCallback(async () => {
-    setLoading(true);
-    try {
-      const queries = [
-        { id: "trending",  title: "Trending Now",          subtitle: "Top hits this week",        icon: <TrendingUp className="w-4 h-4" />, query: "trending india 2025",           showSongRows: false },
-        { id: "telugu25",  title: "Telugu Blockbusters",   subtitle: "Latest Tollywood fire",     icon: <Flame className="w-4 h-4" />,      query: "telugu hits 2025",              showSongRows: true  },
-        { id: "hindi25",   title: "Bollywood Now",         subtitle: "Fresh from Bollywood",      icon: <Sparkles className="w-4 h-4" />,   query: "bollywood 2025",                showSongRows: true  },
-        { id: "tamil25",   title: "Kollywood Vibes",       subtitle: "Tamil chart-toppers",       icon: <Music2 className="w-4 h-4" />,     query: "tamil hits 2025",               showSongRows: true  },
-        { id: "punjabi",   title: "Punjabi Bangers",       subtitle: "Dance & party anthems",     icon: <Zap className="w-4 h-4" />,        query: "punjabi songs 2025",            showSongRows: false },
-        { id: "kannada",   title: "Sandalwood Hits",       subtitle: "Latest Kannada music",      icon: <Globe2 className="w-4 h-4" />,     query: "kannada songs 2025",            showSongRows: true  },
-        { id: "malayalam", title: "Mollywood Melodies",    subtitle: "Kerala's finest",           icon: <Headphones className="w-4 h-4" />, query: "malayalam hits 2025",           showSongRows: true  },
-        { id: "retro",     title: "Evergreen Classics",    subtitle: "All-time favourites",       icon: <Star className="w-4 h-4" />,       query: "old hindi classic songs 90s",   showSongRows: true  },
-        { id: "romantic",  title: "Love Songs",            subtitle: "For every mood",            icon: <Heart className="w-4 h-4" />,      query: "romantic hindi songs",          showSongRows: true  },
-        { id: "lofi",      title: "Late Night Lofi",       subtitle: "Chill & focus",             icon: <Radio className="w-4 h-4" />,      query: "lofi chill hindi",              showSongRows: false },
-        { id: "anirudh",   title: "Anirudh Universe",      subtitle: "The maestro's world",       icon: <Mic2 className="w-4 h-4" />,       query: "anirudh ravichander hits",      showSongRows: true  },
-        { id: "arrahman",  title: "A.R. Rahman Classics",  subtitle: "Timeless masterpieces",     icon: <Star className="w-4 h-4" />,       query: "a r rahman hits",               showSongRows: true  },
-        { id: "devotional",title: "Devotional & Bhakti",   subtitle: "Spiritual classics",        icon: <Sparkles className="w-4 h-4" />,   query: "devotional bhakti songs hindi", showSongRows: false },
-        { id: "english",   title: "Global Hits",           subtitle: "English pop & more",        icon: <Globe2 className="w-4 h-4" />,     query: "english pop hits 2025",         showSongRows: false },
-      ];
+      try {
+        const [hindi, telugu, bolly, rom, par, ret] = await Promise.all([
+          api.getPlaylist(PLAYLISTS.trendingHindi),
+          api.getPlaylist(PLAYLISTS.trendingTelugu),
+          api.getPlaylist(PLAYLISTS.bollywood2025),
+          api.getPlaylist(PLAYLISTS.romantic),
+          api.getPlaylist(PLAYLISTS.party),
+          api.getPlaylist(PLAYLISTS.retro),
+        ]);
 
-      const results = await Promise.all(
-        queries.map(({ query }) =>
-          api.searchSongs(query, 1, 50)
-            .then((res) => extractResults(res).map(mapApiSong))
-            .catch(() => [] as Song[])
-        )
-      );
+        const h  = mapPlaylistSongs(hindi);
+        const t  = mapPlaylistSongs(telugu);
+        const b  = mapPlaylistSongs(bolly);
+        const r  = mapPlaylistSongs(rom);
+        const p  = mapPlaylistSongs(par);
+        const re = mapPlaylistSongs(ret);
 
-      const built: Section[] = queries.map(({ id, title, subtitle, icon, showSongRows }, i) => {
-        const songs = results[i];
-        const albums = groupIntoAlbums(songs);
-        return { id, title, subtitle, icon, songs, albums, showSongRows };
-      });
+        const fallbacks: Promise<void>[] = [];
 
-      setSections(built);
-    } finally {
-      setLoading(false);
-    }
+        if (h.length === 0)
+          fallbacks.push(api.searchSongs("top hindi hits 2025", 1, 20).then((res) => setTrendingHindi(mapSearchSongs(res))));
+        else setTrendingHindi(h);
+
+        if (t.length === 0)
+          fallbacks.push(api.searchSongs("top telugu hits 2025", 1, 20).then((res) => setTrendingTelugu(mapSearchSongs(res))));
+        else setTrendingTelugu(t);
+
+        if (b.length === 0)
+          fallbacks.push(api.searchSongs("latest bollywood 2025", 1, 20).then((res) => setBollywood(mapSearchSongs(res))));
+        else setBollywood(b);
+
+        if (r.length === 0)
+          fallbacks.push(api.searchSongs("hindi romantic songs", 1, 20).then((res) => setRomantic(mapSearchSongs(res))));
+        else setRomantic(r);
+
+        if (p.length === 0)
+          fallbacks.push(api.searchSongs("party hits hindi", 1, 20).then((res) => setParty(mapSearchSongs(res))));
+        else setParty(p);
+
+        if (re.length === 0)
+          fallbacks.push(api.searchSongs("old hindi classic songs", 1, 20).then((res) => setRetro(mapSearchSongs(res))));
+        else setRetro(re);
+
+        await Promise.all(fallbacks);
+      } catch (err) {
+        console.error("Failed to load playlists, using search fallback:", err);
+        try {
+          const [h, t, b] = await Promise.all([
+            api.searchSongs("top hindi hits 2025",   1, 20),
+            api.searchSongs("top telugu hits 2025",  1, 20),
+            api.searchSongs("latest bollywood 2025", 1, 20),
+          ]);
+          setTrendingHindi(mapSearchSongs(h));
+          setTrendingTelugu(mapSearchSongs(t));
+          setBollywood(mapSearchSongs(b));
+        } catch { /* nothing we can do */ }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    load();
   }, []);
 
-  useEffect(() => { loadHome(); }, [loadHome]);
+  if (waking || loading) {
+    return (
+      <div
+        className="flex flex-col items-center justify-center min-h-screen gap-3"
+        style={{ background: "#121212" }}
+      >
+        <Loader2 className="w-8 h-8 animate-spin" style={{ color: "#1DB954" }} />
+        <p className="text-sm" style={{ color: "rgba(255,255,255,0.5)" }}>
+          {waking ? "Starting music server..." : "Loading songs..."}
+        </p>
+        {waking && (
+          <p className="text-xs" style={{ color: "rgba(255,255,255,0.3)" }}>
+            Free server wakes up in ~15 seconds
+          </p>
+        )}
+      </div>
+    );
+  }
 
-  const handleLangClick = async (lang: typeof LANGUAGES[0]) => {
-    if (activeLang === lang.label) {
-      setActiveLang(null);
-      setLangSongs([]);
-      setLangAlbums([]);
-      return;
-    }
-    setActiveLang(lang.label);
-    setLangLoading(true);
-    try {
-      const res = await api.searchSongs(lang.query, 1, 60);
-      const songs = extractResults(res).map(mapApiSong);
-      setLangSongs(songs);
-      setLangAlbums(groupIntoAlbums(songs));
-    } catch {
-      setLangSongs([]);
-      setLangAlbums([]);
-    } finally {
-      setLangLoading(false);
-      setTimeout(() => {
-        document.getElementById("lang-results")?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 100);
-    }
-  };
-
-  const recentSongs = recentlyPlayed.slice(0, 6);
+  const allFetched = [
+    ...trendingHindi,
+    ...trendingTelugu,
+    ...bollywood,
+    ...romantic,
+    ...party,
+    ...retro,
+  ].filter((song, index, self) => index === self.findIndex((s) => s.id === song.id));
 
   return (
-    <div className="pb-4 overflow-y-auto" style={{ background: "#0a0a0a" }}>
+    <div className="w-full" style={{ background: "#121212", paddingBottom: "9rem" }}>
+      <div className="px-4 pt-6">
+        <h1 className="text-2xl font-bold text-white mb-0.5">Good Evening</h1>
+        <p className="text-sm mb-5" style={{ color: "rgba(255,255,255,0.4)" }}>
+          What do you want to listen to?
+        </p>
 
-      {/* ── Greeting ── */}
-      <div className="px-4 pt-5 pb-4">
-        <h1 className="text-2xl font-bold text-white tracking-tight">
-          Good {greeting()}
-          {user && <span className="text-white/50">, {user.email?.split("@")[0]}</span>}
-        </h1>
-      </div>
-
-      {/* ── Quick Access 2-col Grid (Spotify style) ── */}
-      <div className="px-4 mb-6">
-        <div className="grid grid-cols-2 gap-2">
-          {QUICK_ACCESS.map((item) => (
-            <button
-              key={item.label}
-              className="flex items-center gap-3 rounded-lg overflow-hidden text-left active:scale-95 transition-transform"
-              style={{ background: "rgba(255,255,255,0.08)", height: "52px" }}
-            >
-              <div
-                className={`w-14 h-full flex-shrink-0 flex items-center justify-center bg-gradient-to-br ${item.gradient}`}
-              >
-                <span className="text-white">{item.icon}</span>
-              </div>
-              <span className="text-sm font-semibold text-white pr-2 leading-tight">
-                {item.label}
-              </span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Recently Played ── */}
-      {recentSongs.length > 0 && (
-        <div className="mb-6">
-          <SectionHeader title="Recently Played" icon={<Clock className="w-4 h-4" />} />
-          <HorizontalScroll>
-            {recentSongs.map((song) => (
-              <SongCard key={song.id} song={song} queue={recentSongs} />
+        {/* Quick picks grid — 2 cols, full width, mobile-safe */}
+        {trendingHindi.length > 0 && (
+          <div className="grid grid-cols-2 gap-2 mb-7 w-full">
+            {trendingHindi.slice(0, 6).map((song) => (
+              <QuickPick key={song.id} song={song} queue={trendingHindi} />
             ))}
-          </HorizontalScroll>
-        </div>
-      )}
-
-      {/* ── Language Filter Chips ── */}
-      <div className="mb-6">
-        <SectionHeader title="Browse by Language" />
-        <div
-          className="flex gap-2 overflow-x-auto px-4 pb-1"
-          style={{ scrollbarWidth: "none" }}
-        >
-          {LANGUAGES.map((lang) => {
-            const active = activeLang === lang.label;
-            return (
-              <button
-                key={lang.label}
-                onClick={() => handleLangClick(lang)}
-                className="flex-shrink-0 px-4 py-2 rounded-full text-sm font-semibold transition-all active:scale-95"
-                style={{
-                  background: active ? lang.color : "rgba(255,255,255,0.08)",
-                  color: active ? "#fff" : "rgba(255,255,255,0.6)",
-                  border: `1px solid ${active ? lang.color : "transparent"}`,
-                }}
-              >
-                {lang.label}
-              </button>
-            );
-          })}
-        </div>
+          </div>
+        )}
       </div>
 
-      {/* ── Language Results ── */}
-      {activeLang && (
-        <div id="lang-results" className="mb-6">
-          {langLoading ? (
-            <div className="flex justify-center py-10">
-              <Loader2 className="w-6 h-6 animate-spin text-orange-500" />
-            </div>
-          ) : (
-            <>
-              {langAlbums.length > 0 && (
-                <div className="mb-4">
-                  <SectionHeader title={`${activeLang} Albums`} subtitle="Movie & album collections" />
-                  <HorizontalScroll>
-                    {langAlbums.map((album) => (
-                      <AlbumCard key={album.id} album={album} />
-                    ))}
-                  </HorizontalScroll>
-                </div>
-              )}
-              {langSongs.length > 0 && (
-                <div className="mb-4">
-                  <SectionHeader title={`${activeLang} Songs`} />
-                  <div className="px-2 space-y-0.5">
-                    {langSongs.map((song) => (
-                      <SongRow key={song.id} song={song} queue={langSongs} onRequireAuth={onRequireAuth} />
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
-
-      {/* ── Loading skeleton ── */}
-      {loading && (
-        <div className="flex justify-center py-16">
-          <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
-        </div>
-      )}
-
-      {/* ── Dynamic Sections ── */}
-      {!loading && sections.map((section) => {
-        const albumNames = new Set((section.albums || []).map((a) => a.name));
-        const soloSongs = section.songs.filter(
-          (s) => !albumNames.has(s.album || "") && !albumNames.has(s.movie || "")
-        );
-
-        const hasAlbums = section.albums && section.albums.length > 0;
-        const hasSoloSongs = soloSongs.length > 0;
-
-        if (!hasAlbums && !hasSoloSongs) return null;
-
-        return (
-          <div key={section.id} className="mb-8">
-            <SectionHeader
-              title={section.title}
-              subtitle={section.subtitle}
-              icon={section.icon}
+      {recentlyPlayed.length > 0 && (
+        <Section title="Recently Played">
+          {recentlyPlayed.map((song) => (
+            <SongRow
+              key={song.id}
+              song={song}
+              queue={recentlyPlayed}
+              onRequireAuth={onRequireAuth}
             />
+          ))}
+        </Section>
+      )}
 
-            {/* Movie/Album cards — horizontal scroll */}
-            {hasAlbums && (
-              <HorizontalScroll>
-                {section.albums!.map((album) => (
-                  <AlbumCard key={album.id} album={album} />
-                ))}
-              </HorizontalScroll>
-            )}
+      {trendingHindi.length > 0 && (
+        <Section title="Trending Hindi">
+          {trendingHindi.map((song) => (
+            <SongRow
+              key={song.id}
+              song={song}
+              queue={trendingHindi}
+              onRequireAuth={onRequireAuth}
+            />
+          ))}
+        </Section>
+      )}
 
-            {/* Solo song cards — horizontal scroll */}
-            {hasSoloSongs && !section.showSongRows && (
-              <HorizontalScroll>
-                {soloSongs.slice(0, 10).map((song) => (
-                  <SongCard key={song.id} song={song} queue={soloSongs} />
-                ))}
-              </HorizontalScroll>
-            )}
+      {trendingTelugu.length > 0 && (
+        <Section title="Trending Telugu">
+          {trendingTelugu.map((song) => (
+            <SongRow
+              key={song.id}
+              song={song}
+              queue={trendingTelugu}
+              onRequireAuth={onRequireAuth}
+            />
+          ))}
+        </Section>
+      )}
 
-            {/* Solo song rows — vertical list */}
-            {hasSoloSongs && section.showSongRows && (
-              <div className="px-2 space-y-0.5">
-                {soloSongs.slice(0, 8).map((song) => (
-                  <SongRow key={song.id} song={song} queue={section.songs} onRequireAuth={onRequireAuth} />
-                ))}
-              </div>
-            )}
+      {bollywood.length > 0 && (
+        <Section title="Latest Bollywood">
+          {bollywood.map((song) => (
+            <SongRow
+              key={song.id}
+              song={song}
+              queue={bollywood}
+              onRequireAuth={onRequireAuth}
+            />
+          ))}
+        </Section>
+      )}
+
+      {romantic.length > 0 && (
+        <Section title="Romantic Vibes">
+          {romantic.map((song) => (
+            <SongRow
+              key={song.id}
+              song={song}
+              queue={romantic}
+              onRequireAuth={onRequireAuth}
+            />
+          ))}
+        </Section>
+      )}
+
+      {party.length > 0 && (
+        <Section title="Party Hits">
+          {party.map((song) => (
+            <SongRow
+              key={song.id}
+              song={song}
+              queue={party}
+              onRequireAuth={onRequireAuth}
+            />
+          ))}
+        </Section>
+      )}
+
+      {retro.length > 0 && (
+        <Section title="Old is Gold">
+          {retro.map((song) => (
+            <SongRow
+              key={song.id}
+              song={song}
+              queue={retro}
+              onRequireAuth={onRequireAuth}
+            />
+          ))}
+        </Section>
+      )}
+
+      {allFetched.length > 0 && (
+        <div className="px-4 mt-4">
+          <h2 className="text-base font-bold text-white mb-3">All Songs</h2>
+          <div className="space-y-0.5">
+            {allFetched.map((song, i) => (
+              <SongCard key={song.id} song={song} queue={allFetched} index={i} />
+            ))}
           </div>
-        );
-      })}
+        </div>
+      )}
 
-      <div className="h-4" />
+      {allFetched.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-20">
+          <p className="text-sm" style={{ color: "rgba(255,255,255,0.4)" }}>
+            No songs loaded
+          </p>
+          <p className="text-xs mt-1" style={{ color: "rgba(255,255,255,0.25)" }}>
+            Try refreshing the page
+          </p>
+        </div>
+      )}
     </div>
   );
 }
 
-// ── Sub-components ─────────────────────────────────────────────────────────────
-
-function SectionHeader({
+function Section({
   title,
-  subtitle,
-  icon,
-  onMore,
+  children,
 }: {
   title: string;
-  subtitle?: string;
-  icon?: React.ReactNode;
-  onMore?: () => void;
+  children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-end justify-between px-4 mb-3">
-      <div className="flex-1">
-        <div className="flex items-center gap-2">
-          {icon && <span className="text-orange-400">{icon}</span>}
-          <h2 className="font-bold text-[17px] text-white tracking-tight leading-tight">{title}</h2>
-        </div>
-        {subtitle && <p className="text-xs text-white/30 mt-0.5">{subtitle}</p>}
+    <div className="mb-5">
+      <h2 className="text-base font-bold text-white mb-2 px-4">{title}</h2>
+      <div
+        className="flex gap-3 overflow-x-auto px-4 pb-1"
+        style={{ scrollbarWidth: "none" }}
+      >
+        {children}
       </div>
-      {onMore && (
-        <button onClick={onMore} className="flex items-center gap-0.5 text-xs text-white/30 hover:text-white/60">
-          See all <ChevronRight className="w-3.5 h-3.5" />
-        </button>
-      )}
     </div>
   );
 }
 
-function HorizontalScroll({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      className="flex gap-3 overflow-x-auto px-4 pb-2"
-      style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" } as React.CSSProperties}
-    >
-      {children}
-    </div>
-  );
-}
-
-function AlbumCard({ album }: { album: Album }) {
+function QuickPick({ song, queue }: { song: Song; queue: Song[] }) {
   const { playSong } = usePlayer();
   return (
     <button
-      onClick={() => album.songs[0] && playSong(album.songs[0], album.songs)}
-      className="flex-shrink-0 w-36 text-left group active:scale-95 transition-transform"
+      onClick={() => playSong(song, queue)}
+      className="flex items-center gap-2 rounded-lg overflow-hidden transition-all active:scale-95 text-left w-full"
+      style={{ background: "rgba(255,255,255,0.08)", minWidth: 0 }}
     >
-      <div className="relative w-36 h-36 rounded-xl overflow-hidden mb-2 shadow-lg">
-        {album.coverArt ? (
-          <img
-            src={album.coverArt}
-            alt={album.name}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-          />
-        ) : (
-          <div className="w-full h-full bg-gradient-to-br from-orange-500 to-pink-500 flex items-center justify-center">
-            <Disc3 className="w-8 h-8 text-white/60" />
-          </div>
-        )}
-        {/* Play overlay on active */}
-        <div className="absolute inset-0 bg-black/0 group-active:bg-black/40 transition-all flex items-center justify-center">
-          <div
-            className="w-10 h-10 rounded-full flex items-center justify-center shadow-lg opacity-0 group-active:opacity-100 transition-all"
-            style={{ background: "linear-gradient(135deg,#f97316,#ec4899)" }}
-          >
-            <Play className="w-4 h-4 text-white fill-white ml-0.5" />
-          </div>
-        </div>
-        {/* Song count badge */}
-        {album.songs.length > 1 && (
-          <div
-            className="absolute bottom-2 left-2 text-[10px] font-semibold text-white/80 px-1.5 py-0.5 rounded-full"
-            style={{ background: "rgba(0,0,0,0.6)" }}
-          >
-            {album.songs.length} songs
-          </div>
-        )}
-      </div>
-      <p className="text-sm font-semibold text-white truncate leading-tight">{album.name}</p>
-      <p className="text-xs text-white/40 truncate mt-0.5">{album.artist}</p>
-    </button>
-  );
-}
-
-function SongCard({ song, queue }: { song: Song; queue: Song[] }) {
-  const { playSong, currentSong, isPlaying, togglePlay } = usePlayer();
-  const isActive = currentSong?.id === song.id;
-
-  return (
-    <button
-      onClick={() => (isActive ? togglePlay() : playSong(song, queue))}
-      className="flex-shrink-0 w-32 text-left group active:scale-95 transition-transform"
-    >
-      <div className="relative w-32 h-32 rounded-xl overflow-hidden mb-2 shadow-lg">
-        {song.albumArt ? (
-          <img src={song.albumArt} alt={song.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-        ) : (
-          <div className="w-full h-full bg-gradient-to-br from-orange-500 to-pink-500" />
-        )}
-        {/* Play overlay on hover/active */}
-        <div className="absolute inset-0 bg-black/0 group-active:bg-black/40 transition-all flex items-center justify-center">
-          <div
-            className="w-9 h-9 rounded-full flex items-center justify-center shadow-lg opacity-0 group-active:opacity-100 transition-all"
-            style={{ background: "linear-gradient(135deg,#f97316,#ec4899)" }}
-          >
-            {isActive && isPlaying ? (
-              <Pause className="w-4 h-4 text-white fill-white" />
-            ) : (
-              <Play className="w-4 h-4 text-white fill-white ml-0.5" />
-            )}
-          </div>
-        </div>
-        {/* Playing indicator */}
-        {isActive && isPlaying && (
-          <div className="absolute bottom-2 right-2 flex items-end gap-0.5">
-            {[0, 150, 300].map((d) => (
-              <div
-                key={d}
-                className="w-0.5 rounded-full animate-pulse"
-                style={{ background: "#f97316", height: d === 150 ? "12px" : "8px", animationDelay: `${d}ms` }}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-      <p className="text-xs font-semibold text-white truncate leading-tight">{song.title}</p>
-      <p className="text-[10px] text-white/40 truncate mt-0.5">{song.artist}</p>
+      {song.albumArt ? (
+        <img
+          src={song.albumArt}
+          alt={song.title}
+          className="w-12 h-12 object-cover flex-shrink-0"
+          onError={(e) => {
+            (e.target as HTMLImageElement).style.display = "none";
+          }}
+        />
+      ) : (
+        <div
+          className="w-12 h-12 flex-shrink-0"
+          style={{ background: "linear-gradient(135deg,#f43f5e,#7c3aed)" }}
+        />
+      )}
+      <span
+        className="text-xs font-semibold truncate pr-2"
+        style={{ color: "rgba(255,255,255,0.9)" }}
+      >
+        {song.title}
+      </span>
     </button>
   );
 }
