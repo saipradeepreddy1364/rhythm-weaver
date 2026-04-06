@@ -7,9 +7,11 @@ interface Playlist {
   id: string;
   name: string;
   user_id: string;
+  description: string | null;
+  cover_art: string | null;
+  is_public: boolean;
   created_at: string;
   updated_at: string;
-  cover_art?: string;
   song_count?: number;
 }
 
@@ -20,7 +22,7 @@ interface LibraryContextType {
   toggleLike: (song: Song) => Promise<void>;
   isLiked: (songId: string) => boolean;
   addToRecentlyPlayed: (song: Song) => void;
-  createNewPlaylist: (name: string) => Promise<void>;
+  createNewPlaylist: (name: string) => Promise<Playlist | null>;
   removePlaylist: (playlistId: string) => Promise<void>;
   updatePlaylistName: (playlistId: string, newName: string) => Promise<void>;
   addToPlaylist: (playlistId: string, song: Song) => Promise<void>;
@@ -40,6 +42,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     if (user) {
       loadLikedSongs();
       loadPlaylists();
+      loadRecentlyPlayedFromDB();
     }
   }, [user]);
 
@@ -54,34 +57,85 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const loadRecentlyPlayedFromDB = async () => {
+    if (!user) return;
+    const { data, error } = await supabase
+      .from("recently_played")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("played_at", { ascending: false })
+        .limit(50);
+    
+    if (error) {
+      console.error("Error loading recently played:", error);
+      return;
+    }
+    
+    if (data && data.length > 0) {
+      const songs: Song[] = data.map((item) => ({
+        id: item.song_id,
+        title: item.song_title,
+        artist: item.song_artist,
+        albumArt: item.song_album_art || "",
+        audioUrl: item.song_audio_url,
+        duration: item.song_duration || 0,
+        album: item.song_album || undefined,
+      }));
+      setRecentlyPlayed(songs);
+    }
+  };
+
   const loadLikedSongs = async () => {
     if (!user) return;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("liked_songs")
-      .select("song_data")
+      .select("*")
       .eq("user_id", user.id);
     
+    if (error) {
+      console.error("Error loading liked songs:", error);
+      return;
+    }
+    
     if (data) {
-      const songs = data.map((item: any) => item.song_data as Song);
+      const songs: Song[] = data.map((item) => ({
+        id: item.song_id,
+        title: item.song_title,
+        artist: item.song_artist,
+        albumArt: item.song_album_art || "",
+        audioUrl: item.song_audio_url,
+        duration: item.song_duration || 0,
+        album: item.song_album || undefined,
+      }));
       setLikedSongs(songs);
     }
   };
 
   const loadPlaylists = async () => {
     if (!user) return;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("playlists")
       .select("*")
       .eq("user_id", user.id);
     
+    if (error) {
+      console.error("Error loading playlists:", error);
+      return;
+    }
+    
     if (data) {
       const playlistsWithCounts: Playlist[] = [];
       for (const playlist of data) {
-        const { count } = await supabase
+        const { count, error: countError } = await supabase
           .from("playlist_songs")
           .select("*", { count: "exact", head: true })
           .eq("playlist_id", playlist.id);
-        playlistsWithCounts.push({ ...playlist, song_count: count || 0 });
+        
+        if (!countError) {
+          playlistsWithCounts.push({ ...playlist, song_count: count || 0 });
+        } else {
+          playlistsWithCounts.push({ ...playlist, song_count: 0 });
+        }
       }
       setPlaylists(playlistsWithCounts);
     }
@@ -93,20 +147,35 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     const isAlreadyLiked = likedSongs.some(s => s.id === song.id);
     
     if (isAlreadyLiked) {
-      await supabase
+      const { error } = await supabase
         .from("liked_songs")
         .delete()
         .eq("user_id", user.id)
         .eq("song_id", song.id);
       
-      setLikedSongs(prev => prev.filter(s => s.id !== song.id));
+      if (!error) {
+        setLikedSongs(prev => prev.filter(s => s.id !== song.id));
+      } else {
+        console.error("Error unliking song:", error);
+      }
     } else {
       const { error } = await supabase
         .from("liked_songs")
-        .insert({ user_id: user.id, song_id: song.id, song_data: song });
+        .insert({ 
+          user_id: user.id,
+          song_id: song.id,
+          song_title: song.title,
+          song_artist: song.artist,
+          song_album: song.album || null,
+          song_album_art: song.albumArt || null,
+          song_audio_url: song.audioUrl,
+          song_duration: song.duration || null
+        });
       
       if (!error) {
         setLikedSongs(prev => [...prev, song]);
+      } else {
+        console.error("Error liking song:", error);
       }
     }
   };
@@ -115,7 +184,8 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     return likedSongs.some(s => s.id === songId);
   };
 
-  const addToRecentlyPlayed = (song: Song) => {
+  const addToRecentlyPlayed = async (song: Song) => {
+    // Update local state
     setRecentlyPlayed(prev => {
       const filtered = prev.filter(s => s.id !== song.id);
       const updated = [song, ...filtered].slice(0, 50);
@@ -127,62 +197,165 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       
       return updated;
     });
+
+    // Save to database if user is logged in
+    if (user) {
+      const { error } = await supabase
+        .from("recently_played")
+        .insert({
+          user_id: user.id,
+          song_id: song.id,
+          song_title: song.title,
+          song_artist: song.artist,
+          song_album: song.album || null,
+          song_album_art: song.albumArt || null,
+          song_audio_url: song.audioUrl,
+          song_duration: song.duration || null
+        });
+      
+      if (error) {
+        console.error("Error saving to recently played:", error);
+      }
+    }
   };
 
-  const createNewPlaylist = async (name: string) => {
-    if (!user) return;
+  const createNewPlaylist = async (name: string): Promise<Playlist | null> => {
+    if (!user) return null;
     const { data, error } = await supabase
       .from("playlists")
-      .insert({ user_id: user.id, name })
+      .insert({ 
+        user_id: user.id, 
+        name: name,
+        is_public: false
+      })
       .select()
       .single();
     
-    if (data && !error) {
-      setPlaylists(prev => [...prev, { ...data, song_count: 0 }]);
+    if (error) {
+      console.error("Error creating playlist:", error);
+      return null;
     }
+    
+    if (data) {
+      const newPlaylist = { ...data, song_count: 0 };
+      setPlaylists(prev => [...prev, newPlaylist]);
+      return newPlaylist;
+    }
+    return null;
   };
 
   const removePlaylist = async (playlistId: string) => {
     if (!user) return;
-    await supabase.from("playlists").delete().eq("id", playlistId);
-    setPlaylists(prev => prev.filter(p => p.id !== playlistId));
+    const { error } = await supabase
+      .from("playlists")
+      .delete()
+      .eq("id", playlistId);
+    
+    if (!error) {
+      setPlaylists(prev => prev.filter(p => p.id !== playlistId));
+    } else {
+      console.error("Error removing playlist:", error);
+    }
   };
 
   const updatePlaylistName = async (playlistId: string, newName: string) => {
     if (!user) return;
-    await supabase
+    const { error } = await supabase
       .from("playlists")
       .update({ name: newName, updated_at: new Date().toISOString() })
       .eq("id", playlistId);
     
-    setPlaylists(prev =>
-      prev.map(p => (p.id === playlistId ? { ...p, name: newName } : p))
-    );
+    if (!error) {
+      setPlaylists(prev =>
+        prev.map(p => (p.id === playlistId ? { ...p, name: newName } : p))
+      );
+    } else {
+      console.error("Error updating playlist name:", error);
+    }
   };
 
   const addToPlaylist = async (playlistId: string, song: Song) => {
     if (!user) return;
-    await supabase
+    
+    // Get current max position
+    const { data: existingSongs } = await supabase
       .from("playlist_songs")
-      .insert({ playlist_id: playlistId, song_id: song.id, song_data: song });
+      .select("position")
+      .eq("playlist_id", playlistId)
+      .order("position", { ascending: false })
+      .limit(1);
+    
+    const nextPosition = existingSongs && existingSongs.length > 0 ? existingSongs[0].position + 1 : 0;
+    
+    const { error } = await supabase
+      .from("playlist_songs")
+      .insert({ 
+        playlist_id: playlistId,
+        song_id: song.id,
+        song_title: song.title,
+        song_artist: song.artist,
+        song_album: song.album || null,
+        song_album_art: song.albumArt || null,
+        song_audio_url: song.audioUrl,
+        song_duration: song.duration || null,
+        position: nextPosition
+      });
+    
+    if (!error) {
+      setPlaylists(prev =>
+        prev.map(p => 
+          p.id === playlistId 
+            ? { ...p, song_count: (p.song_count || 0) + 1 }
+            : p
+        )
+      );
+    } else {
+      console.error("Error adding to playlist:", error);
+    }
   };
 
   const removeFromPlaylist = async (playlistId: string, songId: string) => {
     if (!user) return;
-    await supabase
+    const { error } = await supabase
       .from("playlist_songs")
       .delete()
       .eq("playlist_id", playlistId)
       .eq("song_id", songId);
+    
+    if (!error) {
+      setPlaylists(prev =>
+        prev.map(p => 
+          p.id === playlistId 
+            ? { ...p, song_count: Math.max(0, (p.song_count || 0) - 1) }
+            : p
+        )
+      );
+    } else {
+      console.error("Error removing from playlist:", error);
+    }
   };
 
   const getPlaylist = async (playlistId: string): Promise<Song[]> => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("playlist_songs")
-      .select("song_data")
-      .eq("playlist_id", playlistId);
+      .select("*")
+      .eq("playlist_id", playlistId)
+      .order("position", { ascending: true });
     
-    return data?.map((item: any) => item.song_data as Song) || [];
+    if (error) {
+      console.error("Error getting playlist:", error);
+      return [];
+    }
+    
+    return data?.map((item) => ({
+      id: item.song_id,
+      title: item.song_title,
+      artist: item.song_artist,
+      albumArt: item.song_album_art || "",
+      audioUrl: item.song_audio_url,
+      duration: item.song_duration || 0,
+      album: item.song_album || undefined,
+    })) || [];
   };
 
   return (

@@ -63,7 +63,7 @@ export function AddToPlaylistMenu({
     if (!newName.trim()) return;
     setLoadingId("new");
     const playlist = await createNewPlaylist(newName.trim());
-    if (playlist) {
+    if (playlist && playlist.id) {
       await addToPlaylist(playlist.id, song);
       setAddedIds((prev) => new Set(prev).add(playlist.id));
     }

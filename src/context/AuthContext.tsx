@@ -74,7 +74,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     if (error) return error.message;
     if (data.user) {
-      await supabase.from("profiles").insert([{ id: data.user.id, username, avatar_url: null }]);
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .insert({ 
+          id: data.user.id, 
+          username: username
+        } as any);
+      if (profileError) {
+        console.error("Profile creation error:", profileError);
+        return profileError.message;
+      }
     }
     return null;
   };
