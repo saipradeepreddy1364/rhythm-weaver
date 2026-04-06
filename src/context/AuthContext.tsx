@@ -1,145 +1,72 @@
-// Auto-generated types for our Supabase schema.
-// Run `npx supabase gen types typescript` to regenerate after schema changes.
+import React, { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import type { User } from "@supabase/supabase-js";
+import { supabase } from "@/lib/supabase/client";
 
-export type Database = {
-  public: {
-    Tables: {
-      profiles: {
-        Row: {
-          id: string;
-          username: string;
-          avatar_url: string | null;
-          created_at: string;
-          updated_at: string;
-        };
-        Insert: {
-          id: string;
-          username: string;
-          avatar_url?: string | null;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Update: {
-          id?: string;
-          username?: string;
-          avatar_url?: string | null;
-          updated_at?: string;
-        };
-      };
-      playlists: {
-        Row: {
-          id: string;
-          user_id: string;
-          name: string;
-          description: string | null;
-          cover_art: string | null;
-          is_public: boolean;
-          created_at: string;
-          updated_at: string;
-        };
-        Insert: {
-          id?: string;
-          user_id: string;
-          name: string;
-          description?: string | null;
-          cover_art?: string | null;
-          is_public?: boolean;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Update: {
-          name?: string;
-          description?: string | null;
-          cover_art?: string | null;
-          is_public?: boolean;
-          updated_at?: string;
-        };
-      };
-      playlist_songs: {
-        Row: {
-          id: string;
-          playlist_id: string;
-          song_id: string;
-          song_title: string;
-          song_artist: string;
-          song_album: string | null;
-          song_album_art: string | null;
-          song_audio_url: string;
-          song_duration: number | null;
-          added_at: string;
-          position: number;
-        };
-        Insert: {
-          id?: string;
-          playlist_id: string;
-          song_id: string;
-          song_title: string;
-          song_artist: string;
-          song_album?: string | null;
-          song_album_art?: string | null;
-          song_audio_url: string;
-          song_duration?: number | null;
-          added_at?: string;
-          position?: number;
-        };
-        Update: {
-          position?: number;
-        };
-      };
-      liked_songs: {
-        Row: {
-          id: string;
-          user_id: string;
-          song_id: string;
-          song_title: string;
-          song_artist: string;
-          song_album: string | null;
-          song_album_art: string | null;
-          song_audio_url: string;
-          song_duration: number | null;
-          liked_at: string;
-        };
-        Insert: {
-          id?: string;
-          user_id: string;
-          song_id: string;
-          song_title: string;
-          song_artist: string;
-          song_album?: string | null;
-          song_album_art?: string | null;
-          song_audio_url: string;
-          song_duration?: number | null;
-          liked_at?: string;
-        };
-        Update: Record<string, never>;
-      };
-      recently_played: {
-        Row: {
-          id: string;
-          user_id: string;
-          song_id: string;
-          song_title: string;
-          song_artist: string;
-          song_album: string | null;
-          song_album_art: string | null;
-          song_audio_url: string;
-          song_duration: number | null;
-          played_at: string;
-        };
-        Insert: {
-          id?: string;
-          user_id: string;
-          song_id: string;
-          song_title: string;
-          song_artist: string;
-          song_album?: string | null;
-          song_album_art?: string | null;
-          song_audio_url: string;
-          song_duration?: number | null;
-          played_at?: string;
-        };
-        Update: Record<string, never>;
-      };
-    };
+interface Profile {
+  username: string | null;
+  avatar_url?: string | null;
+}
+
+interface AuthContextType {
+  user: User | null;
+  profile: Profile | null;
+  loading: boolean;
+  logout: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  profile: null,
+  loading: true,
+  logout: async () => {},
+});
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser]       = useState<User | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      if (session?.user) fetchProfile(session.user.id);
+      setLoading(false);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      if (session?.user) fetchProfile(session.user.id);
+      else setProfile(null);
+      setLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const fetchProfile = async (userId: string) => {
+    const { data } = await supabase
+      .from("profiles")
+      .select("username, avatar_url")
+      .eq("id", userId)
+      .single();
+    setProfile(data ?? null);
   };
-};
+
+  const logout = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    setProfile(null);
+  };
+
+  return (
+    <AuthContext.Provider value={{ user, profile, loading, logout }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  return useContext(AuthContext);
+}

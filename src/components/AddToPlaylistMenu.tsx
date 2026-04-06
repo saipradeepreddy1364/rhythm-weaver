@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { ListPlus, Plus, Check, Loader2, ChevronRight } from "lucide-react";
 import { useLibrary } from "@/context/LibraryContext";
 import { useAuth } from "@/context/AuthContext";
@@ -7,7 +7,7 @@ import type { Song } from "@/data/songs";
 interface AddToPlaylistMenuProps {
   song: Song;
   onRequireAuth?: () => void;
-  children?: React.ReactNode; // custom trigger
+  children?: React.ReactNode;
 }
 
 export function AddToPlaylistMenu({
@@ -18,14 +18,13 @@ export function AddToPlaylistMenu({
   const { user } = useAuth();
   const { playlists, addToPlaylist, createNewPlaylist } = useLibrary();
 
-  const [open, setOpen]               = useState(false);
-  const [creating, setCreating]       = useState(false);
-  const [newName, setNewName]         = useState("");
-  const [loadingId, setLoadingId]     = useState<string | null>(null);
-  const [addedIds, setAddedIds]       = useState<Set<string>>(new Set());
+  const [open, setOpen]           = useState(false);
+  const [creating, setCreating]   = useState(false);
+  const [newName, setNewName]     = useState("");
+  const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [addedIds, setAddedIds]   = useState<Set<string>>(new Set());
   const ref = useRef<HTMLDivElement>(null);
 
-  // Close on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) {
@@ -40,7 +39,10 @@ export function AddToPlaylistMenu({
 
   const handleOpen = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!user) { onRequireAuth?.(); return; }
+    if (!user) {
+      onRequireAuth?.();
+      return;
+    }
     setOpen((v) => !v);
   };
 
@@ -54,7 +56,9 @@ export function AddToPlaylistMenu({
     setTimeout(() => setOpen(false), 600);
   };
 
-  const handleCreate = async (e: React.MouseEvent) => {
+  const handleCreate = async (
+    e: React.MouseEvent<HTMLButtonElement> | React.KeyboardEvent<HTMLInputElement>
+  ) => {
     e.stopPropagation();
     if (!newName.trim()) return;
     setLoadingId("new");
@@ -107,7 +111,11 @@ export function AddToPlaylistMenu({
               >
                 <div className="w-7 h-7 rounded bg-muted flex items-center justify-center flex-shrink-0 overflow-hidden">
                   {p.cover_art ? (
-                    <img src={p.cover_art} alt="" className="w-full h-full object-cover" />
+                    <img
+                      src={p.cover_art}
+                      alt=""
+                      className="w-full h-full object-cover"
+                    />
                   ) : (
                     <ListPlus className="w-3.5 h-3.5 text-muted-foreground" />
                   )}
@@ -133,7 +141,10 @@ export function AddToPlaylistMenu({
           <div className="border-t border-border">
             {!creating ? (
               <button
-                onClick={(e) => { e.stopPropagation(); setCreating(true); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCreating(true);
+                }}
                 className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-primary hover:bg-accent transition-colors"
               >
                 <Plus className="w-4 h-4" />
@@ -147,15 +158,18 @@ export function AddToPlaylistMenu({
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter") handleCreate(e as any);
-                    if (e.key === "Escape") { setCreating(false); setNewName(""); }
+                    if (e.key === "Enter") handleCreate(e);
+                    if (e.key === "Escape") {
+                      setCreating(false);
+                      setNewName("");
+                    }
                   }}
                   placeholder="Playlist name..."
                   className="flex-1 bg-muted border border-border rounded-md px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
                   onClick={(e) => e.stopPropagation()}
                 />
                 <button
-                  onClick={handleCreate}
+                  onClick={(e) => handleCreate(e)}
                   disabled={!newName.trim() || loadingId === "new"}
                   className="bg-primary text-primary-foreground rounded-md px-2 py-1.5 text-xs font-medium disabled:opacity-50"
                 >
