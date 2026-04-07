@@ -1,8 +1,10 @@
 const BASE_URL =
   (import.meta as any).env?.VITE_API_BACKEND_URL ||
-  "https://musicbackend-g2sp.onrender.com/api";
+  "https://backend-u94c.onrender.com/api";
 
 export const api = {
+  // ── Auth ────────────────────────────────────────────────────────────────────
+
   login: async (email: string, password: string) => {
     const res = await fetch(`${BASE_URL}/auth/login`, {
       method: "POST",
@@ -34,13 +36,15 @@ export const api = {
   },
 
   verifyToken: async (token: string): Promise<boolean> => {
-    // Throw on network error so caller knows to keep the session alive
+    // Throws on network error → caller keeps session alive
     const res = await fetch(`${BASE_URL}/auth/verify`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     const data = await res.json();
     return data.valid === true;
   },
+
+  // ── Search ──────────────────────────────────────────────────────────────────
 
   searchSongs: async (query: string, page = 1, limit = 50) => {
     const res = await fetch(
@@ -50,11 +54,15 @@ export const api = {
     return res.json();
   },
 
+  // ── Public playlists ────────────────────────────────────────────────────────
+
   getPlaylist: async (playlistId: string) => {
     const res = await fetch(`${BASE_URL}/playlists/${playlistId}`);
     if (!res.ok) throw new Error(`Playlist ${playlistId} HTTP ${res.status}`);
     return res.json();
   },
+
+  // ── User library ────────────────────────────────────────────────────────────
 
   getLikedSongs: async () => {
     const token = localStorage.getItem("rw_session_token");
@@ -148,10 +156,13 @@ export const api = {
 
   removeFromPlaylist: async (playlistId: string, songId: string) => {
     const token = localStorage.getItem("rw_session_token");
-    const res = await fetch(`${BASE_URL}/user/playlists/${playlistId}/songs/${songId}`, {
-      method: "DELETE",
-      headers: { Authorization: token ? `Bearer ${token}` : "" },
-    });
+    const res = await fetch(
+      `${BASE_URL}/user/playlists/${playlistId}/songs/${songId}`,
+      {
+        method: "DELETE",
+        headers: { Authorization: token ? `Bearer ${token}` : "" },
+      }
+    );
     return res.json();
   },
 
@@ -164,32 +175,50 @@ export const api = {
   },
 };
 
+// ─── Deep recursive array finder ─────────────────────────────────────────────
 /**
- * Safely pull an array of items out of ANY API response shape.
- * Returns [] instead of throwing when the response is unexpected.
+ * Finds the first array in a nested object that looks like a list of songs.
+ * A "song-like" array has objects containing an `id` field.
+ * Falls back to the first array found anywhere in the response.
+ */
+function findSongArray(data: any, depth = 0): any[] | null {
+  if (depth > 5) return null;
+  if (Array.isArray(data)) {
+    // If array has objects with an id field → treat as song list
+    if (data.length > 0 && typeof data[0] === "object" && data[0] !== null) {
+      return data;
+    }
+    return data.length > 0 ? data : null;
+  }
+  if (data && typeof data === "object") {
+    // Priority key order — most common shapes first
+    const keys = ["results", "data", "songs", "tracks", "items", "list", "content"];
+    for (const key of keys) {
+      if (data[key] !== undefined) {
+        const found = findSongArray(data[key], depth + 1);
+        if (found && found.length > 0) return found;
+      }
+    }
+    // Fall back: check every key
+    for (const key of Object.keys(data)) {
+      if (keys.includes(key)) continue; // already checked
+      const found = findSongArray(data[key], depth + 1);
+      if (found && found.length > 0) return found;
+    }
+  }
+  return null;
+}
+
+/**
+ * Safely extract an array of raw song objects from ANY API response shape.
+ * Never throws, always returns a plain array (possibly empty).
  */
 export function extractResults(data: unknown): any[] {
   try {
     if (!data) return [];
-    if (Array.isArray(data)) return data;
-
-    const d = data as Record<string, any>;
-
-    // { results: [...] }
-    if (Array.isArray(d.results)) return d.results;
-    // { data: [...] }
-    if (Array.isArray(d.data)) return d.data;
-    // { data: { results: [...] } }
-    if (d.data && typeof d.data === "object") {
-      if (Array.isArray(d.data.results)) return d.data.results;
-      if (Array.isArray(d.data.songs))   return d.data.songs;
-    }
-    // { songs: [...] }
-    if (Array.isArray(d.songs)) return d.songs;
-    // { tracks: [...] }
-    if (Array.isArray(d.tracks)) return d.tracks;
+    const found = findSongArray(data);
+    return found ?? [];
   } catch {
-    /* ignore any parsing error */
+    return [];
   }
-  return [];
 }
