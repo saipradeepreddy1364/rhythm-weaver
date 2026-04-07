@@ -12,6 +12,8 @@ import {
   Repeat,
   Music2,
   Mic2,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 
 interface FullPlayerProps {
@@ -20,8 +22,6 @@ interface FullPlayerProps {
 
 // ── Lyrics fetcher ─────────────────────────────────────────────────────────────
 // Only calls YOUR backend — never calls saavn.dev directly from the browser.
-// saavn.dev must be proxied server-side (Spring Boot). Calling it from the
-// browser fails with ERR_NAME_NOT_RESOLVED in many networks/regions.
 const BACKEND_URL =
   (import.meta as any).env?.VITE_API_BACKEND_URL ||
   "https://musicbackend-g2sp.onrender.com/api";
@@ -29,20 +29,14 @@ const BACKEND_URL =
 async function fetchLyrics(songId: string): Promise<string | null> {
   try {
     const res = await fetch(`${BACKEND_URL}/songs/${songId}/lyrics`);
-
-    // 404 = song has no lyrics — backend returns 404, never 500
     if (res.status === 404 || !res.ok) return null;
-
     const data = await res.json();
-
-    // Handle all possible wrapper shapes the backend may return
     const text =
       (typeof data === "string" && data.trim().length > 5 && data.trim()) ||
       (typeof data?.lyrics === "string" && data.lyrics.trim().length > 5 && data.lyrics.trim()) ||
       (typeof data?.data?.lyrics === "string" && data.data.lyrics.trim().length > 5 && data.data.lyrics.trim()) ||
       (typeof data?.data === "string" && data.data.trim().length > 5 && data.data.trim()) ||
       null;
-
     return text;
   } catch {
     return null;
@@ -59,6 +53,8 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
     progress,
     duration,
     setProgress,
+    volume,
+    setVolume,
     showPlayer,
     setShowPlayer,
   } = usePlayer();
@@ -66,10 +62,9 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   const [showLyrics, setShowLyrics] = useState(false);
   const [lyrics, setLyrics] = useState<string | null>(null);
   const [lyricsLoading, setLyricsLoading] = useState(false);
+  const [prevVolume, setPrevVolume] = useState(0.7);
 
   // ── Reset tab to Cover every time the player is opened ──────────────────────
-  // When showPlayer goes from false → true, always land on the Cover tab.
-  // This ensures that going home and coming back always shows Cover, not Lyrics.
   useEffect(() => {
     if (showPlayer) {
       setShowLyrics(false);
@@ -85,7 +80,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   // ── Fetch lyrics only when lyrics tab is open and not yet fetched ────────────
   useEffect(() => {
     if (!currentSong || !showLyrics) return;
-    if (lyrics !== null) return; // already fetched for this song
+    if (lyrics !== null) return;
     setLyricsLoading(true);
     fetchLyrics(currentSong.id).then((l) => {
       setLyrics(l ?? "");
@@ -101,7 +96,19 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
       : currentSong.duration || 1;
   const pct = Math.min(100, (progress / totalDuration) * 100);
 
+  const isMuted = volume === 0;
+
+  const toggleMute = () => {
+    if (isMuted) {
+      setVolume(prevVolume || 0.7);
+    } else {
+      setPrevVolume(volume);
+      setVolume(0);
+    }
+  };
+
   return (
+    // z-[60] — AuthModal uses z-[70] so it renders on top of this
     <div
       className="fixed inset-0 z-[60] flex flex-col animate-fade-in"
       style={{ background: "#0a0a0a", overflow: "hidden" }}
@@ -129,12 +136,28 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         }}
       />
 
-      {/* ── Webkit scrollbar styles for lyrics panel (thin, dark-themed) ── */}
+      {/* ── Webkit scrollbar styles for lyrics panel ── */}
       <style>{`
         .lyrics-scroll::-webkit-scrollbar { width: 3px; }
         .lyrics-scroll::-webkit-scrollbar-track { background: transparent; }
         .lyrics-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 99px; }
         .lyrics-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.4); }
+        .volume-slider::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          width: 14px; height: 14px;
+          border-radius: 50%;
+          background: #fff;
+          cursor: pointer;
+          box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+        }
+        .volume-slider::-moz-range-thumb {
+          width: 14px; height: 14px;
+          border-radius: 50%;
+          background: #fff;
+          cursor: pointer;
+          border: none;
+          box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+        }
       `}</style>
 
       {/* ── Main layout — never scrolls ── */}
@@ -142,7 +165,6 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         className="relative flex flex-col w-full h-full px-6"
         style={{ overflow: "hidden" }}
       >
-
         {/* ── Header ── */}
         <div className="flex items-center justify-between pt-10 pb-2 flex-shrink-0">
           <button
@@ -159,7 +181,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         </div>
 
         {/* ── Tab switcher: Cover / Lyrics ── */}
-        <div className="flex items-center justify-center gap-1 mb-5 flex-shrink-0">
+        <div className="flex items-center justify-center gap-1 mb-4 flex-shrink-0">
           <button
             onClick={() => setShowLyrics(false)}
             className="px-5 py-1.5 rounded-full text-xs font-semibold transition-all"
@@ -183,17 +205,17 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           </button>
         </div>
 
-        {/* ── Cover tab: NO overflow, NO scrollbar whatsoever ── */}
+        {/* ── Cover tab: NO overflow, NO scrollbar ── */}
         {!showLyrics && (
           <div
             className="flex items-center justify-center flex-shrink-0"
-            style={{ height: 240, overflow: "hidden" }}
+            style={{ height: 230, overflow: "hidden" }}
           >
             <div
               className="rounded-2xl overflow-hidden"
               style={{
-                width: 220,
-                height: 220,
+                width: 210,
+                height: 210,
                 boxShadow: "0 24px 64px -12px rgba(0,0,0,0.9)",
               }}
             >
@@ -216,11 +238,11 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           </div>
         )}
 
-        {/* ── Lyrics tab: only this inner box scrolls, page never scrolls ── */}
+        {/* ── Lyrics tab: only this inner box scrolls ── */}
         {showLyrics && (
           <div
             className="flex-shrink-0"
-            style={{ height: 240, overflow: "hidden" }}
+            style={{ height: 230, overflow: "hidden" }}
           >
             <div
               className="lyrics-scroll w-full h-full rounded-2xl px-5 py-4"
@@ -271,7 +293,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         )}
 
         {/* ── Song Info + Like ── */}
-        <div className="flex items-center gap-3 mt-5 mb-3 flex-shrink-0">
+        <div className="flex items-center gap-3 mt-4 mb-2 flex-shrink-0">
           <div className="flex-1 min-w-0">
             <h2 className="text-xl font-bold text-white truncate leading-tight">
               {currentSong.title}
@@ -300,7 +322,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         </div>
 
         {/* ── Seek Bar ── */}
-        <div className="mb-5 flex-shrink-0">
+        <div className="mb-3 flex-shrink-0">
           <div
             className="relative h-1.5 rounded-full cursor-pointer"
             style={{ background: "rgba(255,255,255,0.15)" }}
@@ -326,7 +348,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             />
           </div>
           <div
-            className="flex justify-between text-xs mt-2"
+            className="flex justify-between text-xs mt-1.5"
             style={{ color: "rgba(255,255,255,0.4)" }}
           >
             <span>{formatDuration(Math.floor(progress))}</span>
@@ -335,7 +357,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         </div>
 
         {/* ── Playback Controls ── */}
-        <div className="flex items-center justify-between flex-shrink-0">
+        <div className="flex items-center justify-between mb-4 flex-shrink-0">
           <button
             className="p-3 active:scale-90 transition-transform"
             style={{ color: "rgba(255,255,255,0.5)" }}
@@ -377,6 +399,47 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           </button>
         </div>
 
+        {/* ── Volume Control ── */}
+        <div className="flex items-center gap-3 flex-shrink-0">
+          <button
+            onClick={toggleMute}
+            className="flex-shrink-0 active:scale-90 transition-transform"
+            style={{ color: isMuted ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.6)" }}
+          >
+            {isMuted ? (
+              <VolumeX className="w-5 h-5" />
+            ) : (
+              <Volume2 className="w-5 h-5" />
+            )}
+          </button>
+
+          <div className="relative flex-1 h-1.5 rounded-full" style={{ background: "rgba(255,255,255,0.15)" }}>
+            <div
+              className="absolute top-0 left-0 h-full rounded-full"
+              style={{
+                width: `${volume * 100}%`,
+                background: "linear-gradient(90deg, #1DB954, #1ed760)",
+              }}
+            />
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={volume}
+              onChange={(e) => setVolume(parseFloat(e.target.value))}
+              className="volume-slider absolute inset-0 w-full opacity-0 cursor-pointer"
+              style={{ height: "100%" }}
+            />
+          </div>
+
+          <span
+            className="text-xs font-medium flex-shrink-0 w-8 text-right"
+            style={{ color: "rgba(255,255,255,0.35)" }}
+          >
+            {Math.round(volume * 100)}
+          </span>
+        </div>
       </div>
     </div>
   );

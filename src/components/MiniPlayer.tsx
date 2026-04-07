@@ -1,6 +1,7 @@
 import { usePlayer } from "@/context/PlayerContext";
-import { Play, Pause, Music2 } from "lucide-react";
+import { Play, Pause, Music2, Volume2, VolumeX } from "lucide-react";
 import { LikeButton } from "@/components/LikeButton";
+import { useState } from "react";
 
 interface MiniPlayerProps {
   onRequireAuth?: () => void;
@@ -13,8 +14,13 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
     togglePlay,
     progress,
     duration,
+    volume,
+    setVolume,
     setShowPlayer,
   } = usePlayer();
+
+  const [showVolume, setShowVolume] = useState(false);
+  const [prevVolume, setPrevVolume] = useState(0.7);
 
   if (!currentSong) return null;
 
@@ -30,8 +36,79 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
   const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
   const strokeDashoffset = CIRCUMFERENCE - (pct / 100) * CIRCUMFERENCE;
 
+  const isMuted = volume === 0;
+
+  const toggleMute = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isMuted) {
+      setVolume(prevVolume || 0.7);
+    } else {
+      setPrevVolume(volume);
+      setVolume(0);
+    }
+  };
+
   return (
     <div className="fixed bottom-14 left-0 right-0 z-50 px-3 pb-2 pointer-events-none">
+      <style>{`
+        .mini-vol-slider::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          width: 12px; height: 12px;
+          border-radius: 50%;
+          background: #fff;
+          cursor: pointer;
+        }
+        .mini-vol-slider::-moz-range-thumb {
+          width: 12px; height: 12px;
+          border-radius: 50%;
+          background: #fff;
+          cursor: pointer;
+          border: none;
+        }
+      `}</style>
+
+      {/* ── Volume popup ── */}
+      {showVolume && (
+        <div
+          className="pointer-events-auto mb-2 mx-2 rounded-2xl px-4 py-3 flex items-center gap-3"
+          style={{
+            background: "rgba(28,18,22,0.97)",
+            backdropFilter: "blur(24px)",
+            border: "1px solid rgba(255,255,255,0.07)",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button onClick={toggleMute} style={{ color: isMuted ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.7)" }}>
+            {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+          </button>
+
+          <div className="relative flex-1 h-1.5 rounded-full" style={{ background: "rgba(255,255,255,0.15)" }}>
+            <div
+              className="absolute top-0 left-0 h-full rounded-full pointer-events-none"
+              style={{
+                width: `${volume * 100}%`,
+                background: "linear-gradient(90deg,#e8b4bc,#f4c4cb)",
+              }}
+            />
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={volume}
+              onChange={(e) => setVolume(parseFloat(e.target.value))}
+              className="mini-vol-slider absolute inset-0 w-full opacity-0 cursor-pointer"
+              style={{ height: "100%" }}
+            />
+          </div>
+
+          <span className="text-xs font-medium w-7 text-right" style={{ color: "rgba(255,255,255,0.4)" }}>
+            {Math.round(volume * 100)}
+          </span>
+        </div>
+      )}
+
+      {/* ── Main pill ── */}
       <div
         className="rounded-full overflow-hidden shadow-2xl pointer-events-auto flex items-center gap-3 px-3 py-2"
         style={{
@@ -50,7 +127,6 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
             className="absolute inset-0"
             style={{ transform: "rotate(-90deg)" }}
           >
-            {/* Track */}
             <circle
               cx="30"
               cy="30"
@@ -59,7 +135,6 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
               stroke="rgba(255,255,255,0.12)"
               strokeWidth="2.5"
             />
-            {/* Progress */}
             <circle
               cx="30"
               cy="30"
@@ -75,10 +150,7 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
           </svg>
 
           {/* Album art circle */}
-          <div
-            className="absolute rounded-full overflow-hidden"
-            style={{ inset: 5 }}
-          >
+          <div className="absolute rounded-full overflow-hidden" style={{ inset: 5 }}>
             {currentSong.albumArt ? (
               <img
                 src={currentSong.albumArt}
@@ -123,10 +195,22 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
           </p>
         </button>
 
+        {/* ── Volume button ── */}
+        <button
+          onClick={(e) => { e.stopPropagation(); setShowVolume((v) => !v); }}
+          className="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center transition-all active:scale-90"
+          style={{
+            background: showVolume ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.08)",
+            color: isMuted ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.7)",
+          }}
+        >
+          {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+        </button>
+
         {/* ── Like button ── */}
         <div className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
           <div
-            className="w-10 h-10 rounded-full flex items-center justify-center"
+            className="w-9 h-9 rounded-full flex items-center justify-center"
             style={{ background: "rgba(255,255,255,0.08)" }}
           >
             <LikeButton

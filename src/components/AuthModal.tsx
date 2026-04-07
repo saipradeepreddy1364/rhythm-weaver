@@ -78,8 +78,9 @@ export function AuthModal({ open, onClose, defaultTab = "login" }: AuthModalProp
   };
 
   return (
+    // z-[70] — sits above FullPlayer (z-[60]) so it always renders on top
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className="bg-[#1a1a1a] border border-white/10 rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden animate-fade-in">
@@ -87,7 +88,10 @@ export function AuthModal({ open, onClose, defaultTab = "login" }: AuthModalProp
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-6 pb-4">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "linear-gradient(135deg,#1DB954,#1ed760)" }}>
+            <div
+              className="w-8 h-8 rounded-lg flex items-center justify-center"
+              style={{ background: "linear-gradient(135deg,#1DB954,#1ed760)" }}
+            >
               <Music2 className="w-4 h-4 text-black" />
             </div>
             <span className="font-bold text-white text-lg">RhythmWeaver</span>
