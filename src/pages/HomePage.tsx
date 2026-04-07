@@ -7,36 +7,171 @@ import { useAuth } from "@/context/AuthContext";
 import { Loader2, Music2, User, LogOut, ChevronDown, ChevronUp } from "lucide-react";
 import { AuthModal } from "@/components/AuthModal";
 
+// ─── Daily seed: changes once per day ────────────────────────────────────────
+
+function todaysSeed(): number {
+  const d = new Date();
+  return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+}
+
+/** Pick today's query from a pool using a per-section seed offset. */
+function pickQuery(pool: string[], sectionOffset: number): string {
+  const idx = (todaysSeed() + sectionOffset) % pool.length;
+  return pool[idx];
+}
+
+// ─── Query pools (8 entries each = different query every day for a week+) ────
+
+const HINDI_QUERIES = [
+  "trending hindi songs 2025",
+  "top hindi hits 2025",
+  "best new hindi songs",
+  "viral hindi songs 2025",
+  "popular hindi songs april 2025",
+  "latest hindi film songs",
+  "hindi chartbusters 2025",
+  "super hit hindi songs 2025",
+];
+const TELUGU_QUERIES = [
+  "trending telugu songs 2025",
+  "top tollywood hits 2025",
+  "best telugu songs 2025",
+  "new telugu songs 2025",
+  "viral telugu songs 2025",
+  "popular telugu film songs",
+  "telugu chartbusters 2025",
+  "super hit telugu songs",
+];
+const TAMIL_QUERIES = [
+  "trending tamil songs 2025",
+  "top kollywood hits 2025",
+  "best tamil songs 2025",
+  "new tamil songs 2025",
+  "viral tamil songs 2025",
+  "popular tamil film songs",
+  "tamil chartbusters 2025",
+  "super hit tamil songs",
+];
+const BOLLYWOOD_QUERIES = [
+  "latest bollywood hits 2025",
+  "new bollywood songs 2025",
+  "bollywood blockbuster 2025",
+  "hit bollywood dance songs",
+  "bollywood romantic 2025",
+  "bollywood party songs 2025",
+  "bollywood new release 2025",
+  "top bollywood songs 2025",
+];
+const PUNJABI_QUERIES = [
+  "top punjabi songs 2025",
+  "trending punjabi 2025",
+  "new punjabi hits 2025",
+  "best punjabi songs 2025",
+  "viral punjabi songs 2025",
+  "popular punjabi 2025",
+  "punjabi chartbusters 2025",
+  "super hit punjabi songs",
+];
+const ROMANTIC_QUERIES = [
+  "hindi romantic songs 2025",
+  "love songs bollywood 2025",
+  "best romantic hindi songs",
+  "heart touching songs hindi",
+  "sad romantic songs hindi",
+  "romantic duets bollywood",
+  "romantic telugu songs 2025",
+  "best love songs indian",
+];
+const PARTY_QUERIES = [
+  "party songs hindi 2025",
+  "bollywood dance hits 2025",
+  "high energy hindi songs",
+  "dj remix bollywood 2025",
+  "club songs bollywood",
+  "dance floor hits india",
+  "party anthems hindi",
+  "bollywood bangers 2025",
+];
+const RETRO_QUERIES = [
+  "old hindi classic songs",
+  "90s bollywood hits",
+  "80s hindi songs superhit",
+  "retro bollywood classics",
+  "evergreen hindi songs",
+  "golden era bollywood",
+  "vintage hindi film songs",
+  "old is gold hindi songs",
+];
+const KANNADA_QUERIES = [
+  "trending kannada songs 2025",
+  "top sandalwood hits 2025",
+  "best kannada songs 2025",
+  "new kannada songs 2025",
+  "popular kannada film songs",
+];
+const MALAYALAM_QUERIES = [
+  "trending malayalam songs 2025",
+  "top mollywood hits 2025",
+  "best malayalam songs 2025",
+  "new malayalam songs 2025",
+  "popular malayalam film songs",
+];
+
+// ─── Section definitions ──────────────────────────────────────────────────────
+
+const SECTION_DEFS = [
+  { title: "Trending Hindi",     pool: HINDI_QUERIES,     seed: 1 },
+  { title: "Trending Telugu",    pool: TELUGU_QUERIES,    seed: 2 },
+  { title: "Trending Tamil",     pool: TAMIL_QUERIES,     seed: 3 },
+  { title: "Latest Bollywood",   pool: BOLLYWOOD_QUERIES, seed: 4 },
+  { title: "Top Punjabi",        pool: PUNJABI_QUERIES,   seed: 5 },
+  { title: "Romantic Vibes",     pool: ROMANTIC_QUERIES,  seed: 6 },
+  { title: "Party Hits",         pool: PARTY_QUERIES,     seed: 7 },
+  { title: "Old is Gold",        pool: RETRO_QUERIES,     seed: 8 },
+  { title: "Trending Kannada",   pool: KANNADA_QUERIES,   seed: 9 },
+  { title: "Trending Malayalam", pool: MALAYALAM_QUERIES, seed: 10 },
+];
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+async function fetchSection(query: string, limit = 25): Promise<Song[]> {
+  try {
+    const res = await api.searchSongs(query, 1, limit);
+    const items = extractResults(res); // always returns array
+    return items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
+  } catch {
+    return [];
+  }
+}
+
+/** Remove songs already in `seen`; mutates `seen` in-place. */
+function dedup(songs: Song[], seen: Set<string>): Song[] {
+  const out: Song[] = [];
+  for (const s of songs) {
+    if (!seen.has(s.id)) {
+      seen.add(s.id);
+      out.push(s);
+    }
+  }
+  return out;
+}
+
+interface SectionData {
+  title: string;
+  songs: Song[];
+}
+
 const BASE_URL =
   (import.meta as any).env?.VITE_API_BASE_URL ||
   "https://musicbackend-g2sp.onrender.com/api";
 
-const PLAYLISTS = {
-  trendingHindi: "1134543272",
-  trendingTelugu: "1134543280",
-  trendingTamil: "1134543278",
-  bollywood2025: "1134543279",
-  romantic: "91369254",
-  party: "1134543281",
-  retro: "1134543277",
-  punjabi: "1134543282",
-};
-
-function mapPlaylistSongs(res: any): Song[] {
-  return extractResults(res).map(mapApiSong).filter((s: Song) => s.audioUrl);
-}
-
-function mapSearchSongs(res: any): Song[] {
-  return extractResults(res).map(mapApiSong).filter((s: Song) => s.audioUrl);
-}
-
 async function wakeServer(): Promise<void> {
   try {
     await fetch(`${BASE_URL}/search/songs?query=hindi&page=1&limit=1`);
-  } catch {
-    /* ignore */
-  }
+  } catch { /* ignore */ }
 }
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 interface HomePageProps {
   onRequireAuth?: () => void;
@@ -47,15 +182,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
   const { recentlyPlayed } = usePlayer();
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
-
-  const [trendingHindi, setTrendingHindi] = useState<Song[]>([]);
-  const [trendingTelugu, setTrendingTelugu] = useState<Song[]>([]);
-  const [trendingTamil, setTrendingTamil] = useState<Song[]>([]);
-  const [bollywood, setBollywood] = useState<Song[]>([]);
-  const [romantic, setRomantic] = useState<Song[]>([]);
-  const [party, setParty] = useState<Song[]>([]);
-  const [retro, setRetro] = useState<Song[]>([]);
-  const [punjabi, setPunjabi] = useState<Song[]>([]);
+  const [sections, setSections] = useState<SectionData[]>([]);
   const [loading, setLoading] = useState(true);
   const [waking, setWaking] = useState(true);
 
@@ -74,118 +201,32 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
       setWaking(true);
       await wakeServer();
       setWaking(false);
+      setLoading(true);
 
-      try {
-        const [hindi, telugu, tamil, bolly, rom, par, ret, pun] = await Promise.all([
-          api.getPlaylist(PLAYLISTS.trendingHindi),
-          api.getPlaylist(PLAYLISTS.trendingTelugu),
-          api.getPlaylist(PLAYLISTS.trendingTamil),
-          api.getPlaylist(PLAYLISTS.bollywood2025),
-          api.getPlaylist(PLAYLISTS.romantic),
-          api.getPlaylist(PLAYLISTS.party),
-          api.getPlaylist(PLAYLISTS.retro),
-          api.getPlaylist(PLAYLISTS.punjabi),
-        ]);
+      // Fetch all sections in parallel using today's rotated queries
+      const results = await Promise.all(
+        SECTION_DEFS.map(({ pool, seed }) =>
+          fetchSection(pickQuery(pool, seed), 25)
+        )
+      );
 
-        const h = mapPlaylistSongs(hindi);
-        const t = mapPlaylistSongs(telugu);
-        const tm = mapPlaylistSongs(tamil);
-        const b = mapPlaylistSongs(bolly);
-        const r = mapPlaylistSongs(rom);
-        const p = mapPlaylistSongs(par);
-        const re = mapPlaylistSongs(ret);
-        const pu = mapPlaylistSongs(pun);
+      // Global dedup: each song appears in at most one section
+      const globalSeen = new Set<string>();
+      const built: SectionData[] = SECTION_DEFS
+        .map(({ title }, i) => ({
+          title,
+          songs: dedup(results[i], globalSeen),
+        }))
+        .filter(({ songs }) => songs.length > 0);
 
-        const fallbacks: Promise<void>[] = [];
-
-        if (h.length === 0)
-          fallbacks.push(
-            api.searchSongs("top hindi hits 2025", 1, 20).then((res) =>
-              setTrendingHindi(mapSearchSongs(res))
-            )
-          );
-        else setTrendingHindi(h);
-
-        if (t.length === 0)
-          fallbacks.push(
-            api.searchSongs("top telugu hits 2025", 1, 20).then((res) =>
-              setTrendingTelugu(mapSearchSongs(res))
-            )
-          );
-        else setTrendingTelugu(t);
-
-        if (tm.length === 0)
-          fallbacks.push(
-            api.searchSongs("top tamil hits 2025", 1, 20).then((res) =>
-              setTrendingTamil(mapSearchSongs(res))
-            )
-          );
-        else setTrendingTamil(tm);
-
-        if (b.length === 0)
-          fallbacks.push(
-            api.searchSongs("latest bollywood 2025", 1, 20).then((res) =>
-              setBollywood(mapSearchSongs(res))
-            )
-          );
-        else setBollywood(b);
-
-        if (r.length === 0)
-          fallbacks.push(
-            api.searchSongs("hindi romantic songs", 1, 20).then((res) =>
-              setRomantic(mapSearchSongs(res))
-            )
-          );
-        else setRomantic(r);
-
-        if (p.length === 0)
-          fallbacks.push(
-            api.searchSongs("party hits hindi", 1, 20).then((res) =>
-              setParty(mapSearchSongs(res))
-            )
-          );
-        else setParty(p);
-
-        if (re.length === 0)
-          fallbacks.push(
-            api.searchSongs("old hindi classic songs", 1, 20).then((res) =>
-              setRetro(mapSearchSongs(res))
-            )
-          );
-        else setRetro(re);
-
-        if (pu.length === 0)
-          fallbacks.push(
-            api.searchSongs("top punjabi songs 2025", 1, 20).then((res) =>
-              setPunjabi(mapSearchSongs(res))
-            )
-          );
-        else setPunjabi(pu);
-
-        await Promise.all(fallbacks);
-      } catch (err) {
-        console.error("Playlist load failed, using search fallback:", err);
-        try {
-          const [h, t, tm, b] = await Promise.all([
-            api.searchSongs("top hindi hits 2025", 1, 20),
-            api.searchSongs("top telugu hits 2025", 1, 20),
-            api.searchSongs("top tamil hits 2025", 1, 20),
-            api.searchSongs("latest bollywood 2025", 1, 20),
-          ]);
-          setTrendingHindi(mapSearchSongs(h));
-          setTrendingTelugu(mapSearchSongs(t));
-          setTrendingTamil(mapSearchSongs(tm));
-          setBollywood(mapSearchSongs(b));
-        } catch {
-          /* nothing we can do */
-        }
-      } finally {
-        setLoading(false);
-      }
+      setSections(built);
+      setLoading(false);
     };
 
     load();
   }, []);
+
+  // ── Loading state ────────────────────────────────────────────────────────────
 
   if (waking || loading) {
     return (
@@ -206,7 +247,8 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
     );
   }
 
-  const quickPickSongs = [...trendingHindi, ...trendingTelugu, ...trendingTamil].slice(0, 6);
+  // Quick picks = first 6 unique songs from the first loaded section
+  const quickPickSongs = sections[0]?.songs.slice(0, 6) ?? [];
 
   return (
     <div className="w-full" style={{ background: "#121212", paddingBottom: "9rem" }}>
@@ -216,7 +258,6 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
         className="sticky top-0 z-20 px-4 pt-12 pb-3 flex items-center justify-between"
         style={{ background: "rgba(18,18,18,0.97)", backdropFilter: "blur(20px)" }}
       >
-        {/* Left: app name */}
         <div className="flex items-center gap-2">
           <div
             className="w-8 h-8 rounded-lg flex items-center justify-center"
@@ -227,7 +268,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
           <h1 className="text-xl font-bold text-white">Home</h1>
         </div>
 
-        {/* Right: user avatar */}
+        {/* User avatar */}
         <div className="relative">
           <button
             onClick={() =>
@@ -245,11 +286,14 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
             )}
           </button>
 
-          {/* User dropdown */}
           {showUserMenu && user && (
             <div
               className="absolute right-0 top-full mt-2 w-48 rounded-xl shadow-2xl overflow-hidden animate-fade-in"
-              style={{ background: "#1a1a1a", border: "1px solid rgba(255,255,255,0.08)" }}
+              style={{
+                background: "#1a1a1a",
+                border: "1px solid rgba(255,255,255,0.08)",
+                zIndex: 50,
+              }}
             >
               <div
                 className="px-4 py-3"
@@ -284,7 +328,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
 
       {/* ── Recently Played ── */}
       {recentlyPlayed.length > 0 && (
-        <Section title="Recently Played">
+        <SimpleSection title="Recently Played">
           {recentlyPlayed.slice(0, 10).map((song) => (
             <SongRow
               key={song.id}
@@ -293,55 +337,25 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
               onRequireAuth={handleRequireAuth}
             />
           ))}
-        </Section>
+        </SimpleSection>
       )}
 
-      {/* ── Trending Hindi ── */}
-      {trendingHindi.length > 0 && (
-        <CollapsibleSection title="Trending Hindi" songs={trendingHindi} onRequireAuth={handleRequireAuth} />
-      )}
-
-      {/* ── Trending Telugu ── */}
-      {trendingTelugu.length > 0 && (
-        <CollapsibleSection title="Trending Telugu" songs={trendingTelugu} onRequireAuth={handleRequireAuth} />
-      )}
-
-      {/* ── Trending Tamil ── */}
-      {trendingTamil.length > 0 && (
-        <CollapsibleSection title="Trending Tamil" songs={trendingTamil} onRequireAuth={handleRequireAuth} />
-      )}
-
-      {/* ── Latest Bollywood ── */}
-      {bollywood.length > 0 && (
-        <CollapsibleSection title="Latest Bollywood" songs={bollywood} onRequireAuth={handleRequireAuth} />
-      )}
-
-      {/* ── Top Punjabi ── */}
-      {punjabi.length > 0 && (
-        <CollapsibleSection title="Top Punjabi" songs={punjabi} onRequireAuth={handleRequireAuth} />
-      )}
-
-      {/* ── Romantic Vibes ── */}
-      {romantic.length > 0 && (
-        <CollapsibleSection title="Romantic Vibes" songs={romantic} onRequireAuth={handleRequireAuth} />
-      )}
-
-      {/* ── Party Hits ── */}
-      {party.length > 0 && (
-        <CollapsibleSection title="Party Hits" songs={party} onRequireAuth={handleRequireAuth} />
-      )}
-
-      {/* ── Old is Gold ── */}
-      {retro.length > 0 && (
-        <CollapsibleSection title="Old is Gold" songs={retro} onRequireAuth={handleRequireAuth} />
-      )}
+      {/* ── Daily rotating sections ── */}
+      {sections.map(({ title, songs }) => (
+        <CollapsibleSection
+          key={title}
+          title={title}
+          songs={songs}
+          onRequireAuth={handleRequireAuth}
+        />
+      ))}
 
       <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} />
     </div>
   );
 }
 
-// ── Section with show more / less ────────────────────────────────────────────
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
 function CollapsibleSection({
   title,
@@ -367,17 +381,13 @@ function CollapsibleSection({
       {songs.length > PREVIEW && (
         <button
           onClick={() => setExpanded((v) => !v)}
-          className="flex items-center gap-1 text-xs font-semibold mt-2 mx-4 transition-colors"
+          className="flex items-center gap-1.5 text-xs font-semibold mt-2 mx-4"
           style={{ color: "rgba(255,255,255,0.4)" }}
         >
           {expanded ? (
-            <>
-              <ChevronUp className="w-3.5 h-3.5" /> Show less
-            </>
+            <><ChevronUp className="w-3.5 h-3.5" /> Show less</>
           ) : (
-            <>
-              <ChevronDown className="w-3.5 h-3.5" /> Show {songs.length - PREVIEW} more
-            </>
+            <><ChevronDown className="w-3.5 h-3.5" /> Show {songs.length - PREVIEW} more</>
           )}
         </button>
       )}
@@ -385,7 +395,13 @@ function CollapsibleSection({
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function SimpleSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="mb-5">
       <h2 className="text-base font-bold text-white mb-2 px-4">{title}</h2>
