@@ -18,7 +18,7 @@ interface FullPlayerProps {
   onRequireAuth?: () => void;
 }
 
-// ── Lyrics fetcher ────────────────────────────────────────────────────────────
+// ── Lyrics fetcher ─────────────────────────────────────────────────────────────
 const BASE_URL =
   (import.meta as any).env?.VITE_API_BACKEND_URL ||
   "https://musicbackend-g2sp.onrender.com/api";
@@ -28,7 +28,6 @@ async function fetchLyrics(songId: string): Promise<string | null> {
     const res = await fetch(`${BASE_URL}/songs/${songId}/lyrics`);
     if (!res.ok) return null;
     const data = await res.json();
-    // Try common shapes: data.lyrics / data.data.lyrics / data.data / plain string
     if (typeof data === "string") return data;
     if (data?.lyrics) return data.lyrics;
     if (data?.data?.lyrics) return data.data.lyrics;
@@ -51,15 +50,12 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
     setProgress,
     showPlayer,
     setShowPlayer,
-    queue,
-    queueIndex,
   } = usePlayer();
 
   const [showLyrics, setShowLyrics] = useState(false);
   const [lyrics, setLyrics] = useState<string | null>(null);
   const [lyricsLoading, setLyricsLoading] = useState(false);
 
-  // Fetch lyrics whenever song changes and lyrics tab is open
   useEffect(() => {
     if (!currentSong) return;
     setLyrics(null);
@@ -107,8 +103,11 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         }}
       />
 
-      {/* ── Everything is relative and fills the screen, NO overflow ── */}
-      <div className="relative flex flex-col w-full h-full px-6" style={{ overflow: "hidden" }}>
+      {/* ── Main layout — fills screen, zero overflow ── */}
+      <div
+        className="relative flex flex-col w-full h-full px-6"
+        style={{ overflow: "hidden" }}
+      >
 
         {/* ── Header ── */}
         <div className="flex items-center justify-between pt-10 pb-2 flex-shrink-0">
@@ -126,7 +125,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         </div>
 
         {/* ── Tab switcher: Cover / Lyrics ── */}
-        <div className="flex items-center justify-center gap-1 mb-3 flex-shrink-0">
+        <div className="flex items-center justify-center gap-1 mb-4 flex-shrink-0">
           <button
             onClick={() => setShowLyrics(false)}
             className="px-5 py-1.5 rounded-full text-xs font-semibold transition-all"
@@ -150,15 +149,14 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           </button>
         </div>
 
-        {/* ── Album Art OR Lyrics panel ── */}
-        <div className="flex items-center justify-center flex-shrink-0" style={{ height: "34vw", maxHeight: 220 }}>
-          {!showLyrics ? (
-            /* Album art — sized to never overflow */
+        {/* ── Album Art ── */}
+        {!showLyrics && (
+          <div className="flex items-center justify-center flex-shrink-0 mb-2">
             <div
-              className="rounded-2xl overflow-hidden shadow-2xl"
+              className="rounded-2xl overflow-hidden"
               style={{
-                width: "min(52vw, 210px)",
-                height: "min(52vw, 210px)",
+                width: "min(58vw, 220px)",
+                height: "min(58vw, 220px)",
                 boxShadow: "0 24px 64px -12px rgba(0,0,0,0.9)",
               }}
             >
@@ -178,52 +176,64 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
                 </div>
               )}
             </div>
-          ) : (
-            /* Lyrics panel — scrollable ONLY inside this box */
+          </div>
+        )}
+
+        {/* ── Lyrics panel — only scrolls inside itself ── */}
+        {showLyrics && (
+          <div className="flex-shrink-0 mb-2">
             <div
-              className="w-full rounded-2xl px-4 py-3"
+              className="w-full rounded-2xl px-4 py-4"
               style={{
-                height: "min(52vw, 210px)",
+                height: 220,
                 background: "rgba(255,255,255,0.05)",
-                border: "1px solid rgba(255,255,255,0.07)",
+                border: "1px solid rgba(255,255,255,0.08)",
                 overflowY: "auto",
+                WebkitOverflowScrolling: "touch",
               }}
             >
               {lyricsLoading ? (
                 <div className="flex items-center justify-center h-full">
                   <div
-                    className="w-6 h-6 rounded-full border-2 border-t-transparent animate-spin"
-                    style={{ borderColor: "rgba(255,255,255,0.3)", borderTopColor: "transparent" }}
+                    className="w-6 h-6 rounded-full border-2 animate-spin"
+                    style={{
+                      borderColor: "rgba(255,255,255,0.2)",
+                      borderTopColor: "#1DB954",
+                    }}
                   />
                 </div>
               ) : lyrics ? (
                 <p
-                  className="text-sm leading-7 whitespace-pre-wrap"
-                  style={{ color: "rgba(255,255,255,0.75)" }}
+                  className="text-sm leading-7 whitespace-pre-wrap text-center"
+                  style={{ color: "rgba(255,255,255,0.80)" }}
                 >
                   {lyrics}
                 </p>
               ) : (
-                <div className="flex flex-col items-center justify-center h-full gap-2">
-                  <Mic2 className="w-8 h-8" style={{ color: "rgba(255,255,255,0.2)" }} />
-                  <p className="text-xs" style={{ color: "rgba(255,255,255,0.3)" }}>
-                    Lyrics not available
+                <div className="flex flex-col items-center justify-center h-full gap-3">
+                  <Mic2 className="w-10 h-10" style={{ color: "rgba(255,255,255,0.15)" }} />
+                  <p className="text-xs font-medium" style={{ color: "rgba(255,255,255,0.35)" }}>
+                    Lyrics not available for this song
                   </p>
                 </div>
               )}
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* ── Song Info + Like ── */}
-        <div className="flex items-center gap-3 mt-4 mb-3 flex-shrink-0">
+        <div className="flex items-center gap-3 mt-3 mb-3 flex-shrink-0">
           <div className="flex-1 min-w-0">
             <h2 className="text-xl font-bold text-white truncate leading-tight">
               {currentSong.title}
             </h2>
-            <p className="text-sm text-white/50 mt-0.5 truncate">{currentSong.artist}</p>
+            <p className="text-sm text-white/50 mt-0.5 truncate">
+              {currentSong.artist}
+            </p>
             {currentSong.movie && (
-              <p className="text-xs text-white/30 mt-0.5 truncate">{currentSong.movie}</p>
+              <p className="text-xs text-white/30 mt-0.5 truncate">
+                {currentSong.movie}
+              </p>
             )}
           </div>
           <LikeButton
@@ -235,13 +245,16 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         </div>
 
         {/* ── Seek Bar ── */}
-        <div className="mb-4 flex-shrink-0">
+        <div className="mb-5 flex-shrink-0">
           <div
             className="relative h-1.5 rounded-full cursor-pointer"
             style={{ background: "rgba(255,255,255,0.15)" }}
             onClick={(e) => {
               const rect = e.currentTarget.getBoundingClientRect();
-              const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+              const ratio = Math.max(
+                0,
+                Math.min(1, (e.clientX - rect.left) / rect.width)
+              );
               setProgress(Math.floor(ratio * totalDuration));
             }}
           >
@@ -266,7 +279,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           </div>
         </div>
 
-        {/* ── Controls ── */}
+        {/* ── Playback Controls ── */}
         <div className="flex items-center justify-between flex-shrink-0">
           <button
             className="p-3 active:scale-90 transition-transform"
@@ -308,16 +321,6 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             <Repeat className="w-5 h-5" />
           </button>
         </div>
-
-        {/* ── Queue Info ── */}
-        {queue.length > 0 && (
-          <div
-            className="text-center text-xs mt-3 flex-shrink-0 pb-4"
-            style={{ color: "rgba(255,255,255,0.25)" }}
-          >
-            {queueIndex + 1} of {queue.length} songs
-          </div>
-        )}
 
       </div>
     </div>
