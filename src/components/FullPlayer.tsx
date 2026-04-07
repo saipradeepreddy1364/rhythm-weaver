@@ -19,47 +19,31 @@ interface FullPlayerProps {
 }
 
 // ── Lyrics fetcher ─────────────────────────────────────────────────────────────
-// Tries your backend first, then falls back to the public saavn.dev API directly.
+// IMPORTANT: Only calls YOUR backend — never calls saavn.dev directly.
+// saavn.dev must be proxied server-side (Spring Boot). Calling it from the
+// browser fails with ERR_NAME_NOT_RESOLVED in many networks/regions.
 const BACKEND_URL =
   (import.meta as any).env?.VITE_API_BACKEND_URL ||
   "https://musicbackend-g2sp.onrender.com/api";
 
-const SAAVN_API = "https://saavn.dev/api";
-
 async function fetchLyrics(songId: string): Promise<string | null> {
-  // ── Attempt 1: your own backend ──────────────────────────────────────────
   try {
     const res = await fetch(`${BACKEND_URL}/songs/${songId}/lyrics`);
-    if (res.ok) {
-      const data = await res.json();
-      const text =
-        (typeof data === "string" && data.trim()) ||
-        (typeof data?.lyrics === "string" && data.lyrics.trim()) ||
-        (typeof data?.data?.lyrics === "string" && data.data.lyrics.trim()) ||
-        (typeof data?.data === "string" && data.data.trim()) ||
-        null;
-      if (text && text.length > 10) return text;
-    }
-  } catch {
-    // backend unavailable — fall through to direct API
-  }
 
-  // ── Attempt 2: saavn.dev public API ─────────────────────────────────────
-  // saavn.dev exposes lyrics at: GET /songs/{id}/lyrics
-  try {
-    const res = await fetch(`${SAAVN_API}/songs/${songId}/lyrics`, {
-      headers: { Accept: "application/json" },
-    });
-    if (!res.ok) return null;
+    // 404 = song has no lyrics — backend now returns 404 instead of 500
+    if (res.status === 404 || !res.ok) return null;
+
     const data = await res.json();
-    // saavn.dev wraps the payload in { success, data: { lyrics, snippet, ... } }
+
+    // Handle all possible wrapper shapes from saavn.dev
     const text =
-      (typeof data?.data?.lyrics === "string" && data.data.lyrics.trim()) ||
-      (typeof data?.lyrics === "string" && data.lyrics.trim()) ||
-      (typeof data?.data === "string" && data.data.trim()) ||
+      (typeof data === "string" && data.trim().length > 5 && data.trim()) ||
+      (typeof data?.lyrics === "string" && data.lyrics.trim().length > 5 && data.lyrics.trim()) ||
+      (typeof data?.data?.lyrics === "string" && data.data.lyrics.trim().length > 5 && data.data.lyrics.trim()) ||
+      (typeof data?.data === "string" && data.data.trim().length > 5 && data.data.trim()) ||
       null;
-    if (text && text.length > 10) return text;
-    return null;
+
+    return text;
   } catch {
     return null;
   }
@@ -89,7 +73,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
     setLyricsLoading(false);
   }, [currentSong?.id]);
 
-  // Fetch only when lyrics tab is open and not yet fetched
+  // Fetch only when lyrics tab is open and not yet fetched for this song
   useEffect(() => {
     if (!currentSong || !showLyrics) return;
     if (lyrics !== null) return;
@@ -136,6 +120,14 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         }}
       />
 
+      {/* ── Webkit scrollbar styles for lyrics panel ── */}
+      <style>{`
+        .lyrics-scroll::-webkit-scrollbar { width: 3px; }
+        .lyrics-scroll::-webkit-scrollbar-track { background: transparent; }
+        .lyrics-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 99px; }
+        .lyrics-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.4); }
+      `}</style>
+
       {/* ── Main layout — never scrolls ── */}
       <div
         className="relative flex flex-col w-full h-full px-6"
@@ -181,7 +173,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           </button>
         </div>
 
-        {/* ── Cover tab: album art — NO overflow, NO scrollbar ── */}
+        {/* ── Cover tab: NO overflow, NO scrollbar ── */}
         {!showLyrics && (
           <div
             className="flex items-center justify-center flex-shrink-0"
@@ -214,14 +206,14 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           </div>
         )}
 
-        {/* ── Lyrics tab: inner box scrollable, thin custom scrollbar ── */}
+        {/* ── Lyrics tab: thin scrollbar, only this box scrolls ── */}
         {showLyrics && (
           <div
             className="flex-shrink-0"
             style={{ height: 240, overflow: "hidden" }}
           >
             <div
-              className="w-full h-full rounded-2xl px-5 py-4"
+              className="lyrics-scroll w-full h-full rounded-2xl px-5 py-4"
               style={{
                 background: "rgba(255,255,255,0.05)",
                 border: "1px solid rgba(255,255,255,0.08)",
@@ -229,7 +221,6 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
                 overflowX: "hidden",
                 WebkitOverflowScrolling: "touch",
                 overscrollBehavior: "contain",
-                // thin scrollbar styling
                 scrollbarWidth: "thin",
                 scrollbarColor: "rgba(255,255,255,0.2) transparent",
               }}
