@@ -4,7 +4,7 @@ import { api, extractResults } from "@/services/api";
 import { SongRow } from "@/components/SongRow";
 import { usePlayer } from "@/context/PlayerContext";
 import { useAuth } from "@/context/AuthContext";
-import { Music2, User, LogOut, ChevronDown, ChevronUp, Play, Disc3, X, ArrowLeft } from "lucide-react";
+import { Music2, User, LogOut, ChevronDown, ChevronUp, Play, Disc3, ArrowLeft } from "lucide-react";
 import { AuthModal } from "@/components/AuthModal";
 
 // ─── Daily rotation ───────────────────────────────────────────────────────────
@@ -81,21 +81,48 @@ const MALAYALAM_QUERIES = [
   "malayalam chartbusters 2025",   "super hit malayalam songs",
 ];
 
-// ─── Album queries ────────────────────────────────────────────────────────────
+// ─── Album + Artist queries (30+ entries) ─────────────────────────────────────
 
 const ALBUM_QUERIES = [
-  { title: "Kalki 2898 AD",          query: "Kalki 2898 AD songs" },
-  { title: "Animal",                 query: "Animal movie songs bollywood" },
-  { title: "Jawan",                  query: "Jawan movie songs shahrukh" },
-  { title: "Dunki",                  query: "Dunki movie songs 2023" },
-  { title: "Leo",                    query: "Leo Tamil movie songs" },
-  { title: "Jailer",                 query: "Jailer Tamil movie songs" },
-  { title: "Pushpa 2",               query: "Pushpa 2 Telugu songs" },
-  { title: "Devara",                 query: "Devara Jr NTR songs" },
-  { title: "RRR",                    query: "RRR movie songs" },
-  { title: "Pathaan",                query: "Pathaan movie songs" },
-  { title: "Rocky Aur Rani",         query: "Rocky Aur Rani Kii Prem Kahaani songs" },
-  { title: "Tu Jhoothi Main Makkar", query: "Tu Jhoothi Main Makkar songs" },
+  // ── Blockbuster Films ──
+  { title: "Kalki 2898 AD",          query: "Kalki 2898 AD songs",                    type: "album" },
+  { title: "Animal",                 query: "Animal movie songs bollywood",            type: "album" },
+  { title: "Jawan",                  query: "Jawan movie songs shahrukh",              type: "album" },
+  { title: "Dunki",                  query: "Dunki movie songs 2023",                  type: "album" },
+  { title: "Leo",                    query: "Leo Tamil movie songs",                   type: "album" },
+  { title: "Jailer",                 query: "Jailer Tamil movie songs",                type: "album" },
+  { title: "Pushpa 2",               query: "Pushpa 2 Telugu songs",                   type: "album" },
+  { title: "Devara",                 query: "Devara Jr NTR songs",                     type: "album" },
+  { title: "RRR",                    query: "RRR movie songs",                         type: "album" },
+  { title: "Pathaan",                query: "Pathaan movie songs",                     type: "album" },
+  { title: "Rocky Aur Rani",         query: "Rocky Aur Rani Kii Prem Kahaani songs",  type: "album" },
+  { title: "Tu Jhoothi Main Makkar", query: "Tu Jhoothi Main Makkar songs",            type: "album" },
+  { title: "Stree 2",                query: "Stree 2 movie songs 2024",                type: "album" },
+  { title: "Fighter",                query: "Fighter movie songs Hrithik 2024",        type: "album" },
+  { title: "Singham Returns",        query: "Singham Returns movie songs 2024",        type: "album" },
+  { title: "Merry Christmas",        query: "Merry Christmas movie songs 2024",        type: "album" },
+  { title: "HanuMan",                query: "HanuMan Telugu movie songs",              type: "album" },
+  { title: "Salaar",                 query: "Salaar Prabhas movie songs",              type: "album" },
+  { title: "Bhool Bhulaiyaa 3",      query: "Bhool Bhulaiyaa 3 songs 2024",           type: "album" },
+  { title: "Singham Again",          query: "Singham Again songs 2024",               type: "album" },
+
+  // ── Popular Artists ──
+  { title: "Arijit Singh Hits",      query: "Arijit Singh best songs",                type: "artist" },
+  { title: "AR Rahman Classics",     query: "AR Rahman hit songs",                    type: "artist" },
+  { title: "Shreya Ghoshal",         query: "Shreya Ghoshal best songs",              type: "artist" },
+  { title: "Diljit Dosanjh",         query: "Diljit Dosanjh top songs",               type: "artist" },
+  { title: "Badshah Hits",           query: "Badshah rap songs best",                 type: "artist" },
+  { title: "Neha Kakkar",            query: "Neha Kakkar hit songs",                  type: "artist" },
+  { title: "Atif Aslam",             query: "Atif Aslam best Hindi songs",            type: "artist" },
+  { title: "Sonu Nigam",             query: "Sonu Nigam hit songs",                   type: "artist" },
+  { title: "Kumar Sanu Classics",    query: "Kumar Sanu 90s hit songs",               type: "artist" },
+  { title: "Lata Mangeshkar",        query: "Lata Mangeshkar golden songs",           type: "artist" },
+  { title: "Kishore Kumar",          query: "Kishore Kumar evergreen songs",          type: "artist" },
+  { title: "Mohammed Rafi",          query: "Mohammed Rafi classic hit songs",        type: "artist" },
+  { title: "Asha Bhosle",            query: "Asha Bhosle best songs",                 type: "artist" },
+  { title: "SP Balasubrahmanyam",    query: "SP Balasubrahmanyam hit songs telugu",   type: "artist" },
+  { title: "KGF Chapter 2",          query: "KGF Chapter 2 songs Kannada",            type: "album" },
+  { title: "Mirzapur Soundtrack",    query: "Mirzapur web series songs",              type: "album" },
 ];
 
 const SECTION_DEFS = [
@@ -122,6 +149,7 @@ interface AlbumData {
   title: string;
   coverArt: string;
   songs: Song[];
+  type?: string;
 }
 
 interface HomePageProps {
@@ -147,6 +175,33 @@ async function fetchSection(query: string, limit = 25): Promise<Song[]> {
   return [];
 }
 
+/** Fetch 100+ songs for an album/artist by paginating across multiple pages */
+async function fetchAlbumSongs(query: string, targetCount = 120): Promise<Song[]> {
+  const seen = new Set<string>();
+  const all: Song[] = [];
+  const pageSize = 50;
+  const maxPages = Math.ceil(targetCount / pageSize);
+
+  for (let page = 1; page <= maxPages; page++) {
+    try {
+      if (page > 1) await sleep(300);
+      const res = await api.searchSongs(query, page, pageSize);
+      const items = extractResults(res);
+      const songs = items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
+      for (const s of songs) {
+        if (s.id && !seen.has(s.id)) {
+          seen.add(s.id);
+          all.push(s);
+        }
+      }
+      // Stop early if API returned fewer than pageSize (no more results)
+      if (songs.length < pageSize) break;
+      if (all.length >= targetCount) break;
+    } catch { break; }
+  }
+  return all;
+}
+
 function dedup(songs: Song[], seen: Set<string>): Song[] {
   const out: Song[] = [];
   for (const s of songs) {
@@ -158,7 +213,7 @@ function dedup(songs: Song[], seen: Set<string>): Song[] {
   return out;
 }
 
-// ─── Album Detail Modal ───────────────────────────────────────────────────────
+// ─── Album Detail Page ────────────────────────────────────────────────────────
 
 function AlbumModal({
   album,
@@ -170,6 +225,24 @@ function AlbumModal({
   onRequireAuth: () => void;
 }) {
   const { playSong } = usePlayer();
+  const [songs, setSongs] = useState<Song[]>(album.songs);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  // If album was opened with few songs, try to load more
+  useEffect(() => {
+    if (album.songs.length < 60) {
+      setLoadingMore(true);
+      const aq = ALBUM_QUERIES.find((a) => a.title === album.title);
+      if (aq) {
+        fetchAlbumSongs(aq.query, 120).then((fetched) => {
+          if (fetched.length > album.songs.length) setSongs(fetched);
+          setLoadingMore(false);
+        });
+      } else {
+        setLoadingMore(false);
+      }
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div
@@ -207,23 +280,28 @@ function AlbumModal({
           <div className="flex-1 min-w-0">
             <h2 className="text-lg font-bold text-white truncate">{album.title}</h2>
             <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>
-              {album.songs.length} songs
+              {loadingMore ? "Loading songs…" : `${songs.length} songs`}
             </p>
           </div>
-          <button
-            onClick={() => playSong(album.songs[0], album.songs)}
-            className="w-11 h-11 rounded-full flex items-center justify-center shadow-xl flex-shrink-0"
-            style={{ background: "#1DB954" }}
-          >
-            <Play className="w-5 h-5 text-black fill-black ml-0.5" />
-          </button>
+          {songs.length > 0 && (
+            <button
+              onClick={() => playSong(songs[0], songs)}
+              className="w-11 h-11 rounded-full flex items-center justify-center shadow-xl flex-shrink-0"
+              style={{ background: "#1DB954" }}
+            >
+              <Play className="w-5 h-5 text-black fill-black ml-0.5" />
+            </button>
+          )}
         </div>
 
         {/* Cover art */}
         <div className="px-4 mb-4 flex-shrink-0">
           <div className="rounded-2xl overflow-hidden mx-auto shadow-2xl" style={{ width: 180, height: 180 }}>
             {album.coverArt ? (
-              <img src={album.coverArt} alt={album.title} className="w-full h-full object-cover"
+              <img
+                src={album.coverArt}
+                alt={album.title}
+                className="w-full h-full object-cover"
                 onError={(e) => { (e.target as HTMLImageElement).src = "https://via.placeholder.com/300x300?text=🎵"; }}
               />
             ) : (
@@ -236,11 +314,23 @@ function AlbumModal({
 
         {/* Song list */}
         <div className="flex-1 overflow-y-auto" style={{ WebkitOverflowScrolling: "touch" }}>
-          <div className="space-y-0.5 px-2 pb-32">
-            {album.songs.map((song) => (
-              <SongRow key={song.id} song={song} queue={album.songs} onRequireAuth={onRequireAuth} />
-            ))}
-          </div>
+          {loadingMore && songs.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 gap-3">
+              <div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white/70 animate-spin" />
+              <p className="text-sm text-white/40">Loading songs…</p>
+            </div>
+          ) : (
+            <div className="space-y-0.5 px-2 pb-32">
+              {songs.map((song) => (
+                <SongRow key={song.id} song={song} queue={songs} onRequireAuth={onRequireAuth} />
+              ))}
+              {loadingMore && (
+                <div className="flex items-center justify-center py-6">
+                  <div className="w-6 h-6 rounded-full border-2 border-white/20 border-t-white/60 animate-spin" />
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -255,8 +345,12 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [sections, setSections] = useState<SectionData[]>([]);
-  const [albums, setAlbums] = useState<AlbumData[]>([]);
+
+  // Separate album sections: films vs artists
+  const [filmAlbums, setFilmAlbums] = useState<AlbumData[]>([]);
+  const [artistAlbums, setArtistAlbums] = useState<AlbumData[]>([]);
   const [albumsLoading, setAlbumsLoading] = useState(true);
+
   const [openAlbum, setOpenAlbum] = useState<AlbumData | null>(null);
 
   const loadedRef = useRef(false);
@@ -316,25 +410,33 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
     return () => { unmounted = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Load album sections ─────────────────────────────────────────────────────
+  // ── Load all albums with 100+ songs each ────────────────────────────────────
   useEffect(() => {
     let unmounted = false;
     setAlbumsLoading(true);
 
     async function loadAlbums() {
+      // Load all albums in parallel (initial quick fetch of ~20 songs each)
       const settled = await Promise.allSettled(
-        ALBUM_QUERIES.map(async ({ title, query }) => {
-          const res = await api.searchSongs(query, 1, 20);
-          const songs = extractResults(res).map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
-          if (songs.length < 3) return null;
-          return { title, coverArt: songs[0].albumArt || "", songs } as AlbumData;
+        ALBUM_QUERIES.map(async ({ title, query, type }) => {
+          try {
+            const res = await api.searchSongs(query, 1, 30);
+            const songs = extractResults(res).map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
+            if (songs.length < 3) return null;
+            return { title, coverArt: songs[0].albumArt || "", songs, type } as AlbumData;
+          } catch {
+            return null;
+          }
         })
       );
       if (unmounted) return;
+
       const result = settled
         .map((r) => (r.status === "fulfilled" ? r.value : null))
         .filter((a): a is AlbumData => a !== null);
-      setAlbums(result);
+
+      setFilmAlbums(result.filter((a) => a.type !== "artist"));
+      setArtistAlbums(result.filter((a) => a.type === "artist"));
       setAlbumsLoading(false);
     }
 
@@ -342,7 +444,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
     return () => { unmounted = true; };
   }, []);
 
-  // ── Daily-rotating quick picks: shuffle based on today's date ───────────────
+  // ── Daily-rotating quick picks ───────────────────────────────────────────────
   const quickPickSongs = (() => {
     const pool = sections.flatMap((s) => s.songs);
     if (pool.length === 0) return [];
@@ -418,7 +520,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
         </div>
       </div>
 
-      {/* ── Quick Picks (daily rotating) ── */}
+      {/* ── Quick Picks ── */}
       <div className="px-4 pt-4 mb-6">
         <h2 className="text-base font-bold text-white mb-3">Quick Picks</h2>
         {quickPickSongs.length > 0 ? (
@@ -443,35 +545,22 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
         )}
       </div>
 
-      {/* ── Featured Albums ── */}
-      <div className="mb-6">
-        <h2 className="text-base font-bold text-white mb-3 px-4">Featured Albums</h2>
-        {albumsLoading ? (
-          <div className="flex gap-4 px-4 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="flex-shrink-0" style={{ width: 140 }}>
-                <div className="rounded-xl mb-2" style={{ width: 140, height: 140, background: "rgba(255,255,255,0.07)" }} />
-                <div className="h-3 w-24 rounded mb-1.5" style={{ background: "rgba(255,255,255,0.07)" }} />
-                <div className="h-2.5 w-16 rounded" style={{ background: "rgba(255,255,255,0.05)" }} />
-              </div>
-            ))}
-          </div>
-        ) : albums.length > 0 ? (
-          <div
-            className="flex gap-4 px-4 overflow-x-auto"
-            style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" } as React.CSSProperties}
-          >
-            {albums.map((album) => (
-              <AlbumCard
-                key={album.title}
-                album={album}
-                onRequireAuth={handleRequireAuth}
-                onOpen={() => setOpenAlbum(album)}
-              />
-            ))}
-          </div>
-        ) : null}
-      </div>
+      {/* ── Featured Movie Albums ── */}
+      <AlbumRow
+        title="Featured Albums"
+        albums={filmAlbums}
+        loading={albumsLoading}
+        onOpen={setOpenAlbum}
+      />
+
+      {/* ── Popular Artists ── */}
+      <AlbumRow
+        title="Popular Artists"
+        albums={artistAlbums}
+        loading={albumsLoading}
+        onOpen={setOpenAlbum}
+        roundCovers
+      />
 
       {/* ── Recently Played ── */}
       {recentlyPlayed.length > 0 && (
@@ -507,54 +596,118 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
   );
 }
 
-// ─── AlbumCard — opens full modal, no dropdown ────────────────────────────────
+// ─── AlbumRow — horizontal scrollable row of album cards ─────────────────────
 
-function AlbumCard({
-  album,
-  onRequireAuth,
+function AlbumRow({
+  title,
+  albums,
+  loading,
   onOpen,
+  roundCovers = false,
 }: {
-  album: AlbumData;
-  onRequireAuth: () => void;
-  onOpen: () => void;
+  title: string;
+  albums: AlbumData[];
+  loading: boolean;
+  onOpen: (a: AlbumData) => void;
+  roundCovers?: boolean;
 }) {
   const { playSong } = usePlayer();
 
   return (
-    <div className="flex-shrink-0" style={{ width: 150 }}>
-      <div
-        className="relative rounded-xl overflow-hidden mb-2 cursor-pointer active:scale-95 transition-transform"
-        style={{ width: 150, height: 150 }}
-        onClick={onOpen}
-      >
-        {album.coverArt ? (
-          <img src={album.coverArt} alt={album.title} className="w-full h-full object-cover"
-            onError={(e) => { (e.target as HTMLImageElement).src = "https://via.placeholder.com/300x300?text=🎵"; }}
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.08)" }}>
-            <Disc3 className="w-10 h-10" style={{ color: "rgba(255,255,255,0.2)" }} />
-          </div>
-        )}
-        <button
-          onClick={(e) => { e.stopPropagation(); playSong(album.songs[0], album.songs); }}
-          className="absolute bottom-2 right-2 w-10 h-10 rounded-full flex items-center justify-center shadow-xl active:scale-90 transition-transform"
-          style={{ background: "#1DB954" }}
+    <div className="mb-6">
+      <h2 className="text-base font-bold text-white mb-3 px-4">{title}</h2>
+      {loading ? (
+        <div className="flex gap-4 px-4 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="flex-shrink-0" style={{ width: 140 }}>
+              <div
+                className="mb-2"
+                style={{
+                  width: 140, height: 140,
+                  background: "rgba(255,255,255,0.07)",
+                  borderRadius: roundCovers ? "50%" : 12,
+                }}
+              />
+              <div className="h-3 w-24 rounded mb-1.5" style={{ background: "rgba(255,255,255,0.07)" }} />
+              <div className="h-2.5 w-16 rounded" style={{ background: "rgba(255,255,255,0.05)" }} />
+            </div>
+          ))}
+        </div>
+      ) : albums.length > 0 ? (
+        <div
+          className="flex gap-4 px-4 overflow-x-auto"
+          style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" } as React.CSSProperties}
         >
-          <Play className="w-4 h-4 text-black fill-black ml-0.5" />
-        </button>
-      </div>
-      <p className="text-sm font-semibold text-white truncate leading-tight">{album.title}</p>
-      <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>
-        {album.songs.length} songs
-      </p>
+          {albums.map((album) => (
+            <div key={album.title} className="flex-shrink-0" style={{ width: 150 }}>
+              {/* Cover art */}
+              <div
+                className="relative overflow-hidden mb-2 cursor-pointer active:scale-95 transition-transform"
+                style={{
+                  width: 150,
+                  height: 150,
+                  borderRadius: roundCovers ? "50%" : 12,
+                }}
+                onClick={() => onOpen(album)}
+              >
+                {album.coverArt ? (
+                  <img
+                    src={album.coverArt}
+                    alt={album.title}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = "https://via.placeholder.com/300x300?text=🎵";
+                    }}
+                  />
+                ) : (
+                  <div
+                    className="w-full h-full flex items-center justify-center"
+                    style={{ background: "rgba(255,255,255,0.08)" }}
+                  >
+                    <Disc3 className="w-10 h-10" style={{ color: "rgba(255,255,255,0.2)" }} />
+                  </div>
+                )}
+                {/* Play button — hidden for round (artist) covers */}
+                {!roundCovers && album.songs.length > 0 && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      playSong(album.songs[0], album.songs);
+                    }}
+                    className="absolute bottom-2 right-2 w-10 h-10 rounded-full flex items-center justify-center shadow-xl active:scale-90 transition-transform"
+                    style={{ background: "#1DB954" }}
+                  >
+                    <Play className="w-4 h-4 text-black fill-black ml-0.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Label */}
+              <p className="text-sm font-semibold text-white truncate leading-tight text-center">
+                {album.title}
+              </p>
+              <p className="text-xs mt-0.5 text-center" style={{ color: "rgba(255,255,255,0.4)" }}>
+                {album.songs.length}+ songs
+              </p>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function CollapsibleSection({ title, songs, onRequireAuth }: { title: string; songs: Song[]; onRequireAuth: () => void }) {
+function CollapsibleSection({
+  title,
+  songs,
+  onRequireAuth,
+}: {
+  title: string;
+  songs: Song[];
+  onRequireAuth: () => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const PREVIEW = 5;
   const visible = expanded ? songs : songs.slice(0, PREVIEW);
@@ -601,12 +754,19 @@ function QuickPick({ song, queue }: { song: Song; queue: Song[] }) {
       style={{ background: "rgba(255,255,255,0.08)", minWidth: 0 }}
     >
       {song.albumArt ? (
-        <img src={song.albumArt} alt={song.title} className="w-12 h-12 object-cover flex-shrink-0"
-          onError={(e) => { (e.target as HTMLImageElement).src = "https://via.placeholder.com/100x100?text=🎵"; }}
+        <img
+          src={song.albumArt}
+          alt={song.title}
+          className="w-12 h-12 object-cover flex-shrink-0"
+          onError={(e) => {
+            (e.target as HTMLImageElement).src = "https://via.placeholder.com/100x100?text=🎵";
+          }}
         />
       ) : (
-        <div className="w-12 h-12 flex-shrink-0 flex items-center justify-center"
-          style={{ background: "linear-gradient(135deg,#f43f5e,#7c3aed)" }}>
+        <div
+          className="w-12 h-12 flex-shrink-0 flex items-center justify-center"
+          style={{ background: "linear-gradient(135deg,#f43f5e,#7c3aed)" }}
+        >
           <span className="text-white text-lg">🎵</span>
         </div>
       )}
