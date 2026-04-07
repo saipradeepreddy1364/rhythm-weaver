@@ -1,6 +1,5 @@
 import { usePlayer } from "@/context/PlayerContext";
-import { formatDuration } from "@/data/songs";
-import { Play, Pause, SkipForward, Music2 } from "lucide-react";
+import { Play, Pause, Music2 } from "lucide-react";
 import { LikeButton } from "@/components/LikeButton";
 
 interface MiniPlayerProps {
@@ -12,10 +11,8 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
     currentSong,
     isPlaying,
     togglePlay,
-    nextSong,
     progress,
     duration,
-    setProgress,
     setShowPlayer,
   } = usePlayer();
 
@@ -25,46 +22,62 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
     duration && isFinite(duration) && duration > 0
       ? duration
       : currentSong.duration || 1;
+
   const pct = Math.min(100, (progress / totalDuration) * 100);
 
+  // SVG circular progress
+  const RADIUS = 26;
+  const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+  const strokeDashoffset = CIRCUMFERENCE - (pct / 100) * CIRCUMFERENCE;
+
   return (
-    /* Sits just above the bottom nav bar (h-14 = 56px) */
     <div className="fixed bottom-14 left-0 right-0 z-50 px-3 pb-2 pointer-events-none">
       <div
-        className="rounded-2xl overflow-hidden shadow-2xl pointer-events-auto"
+        className="rounded-full overflow-hidden shadow-2xl pointer-events-auto flex items-center gap-3 px-3 py-2"
         style={{
-          background: "rgba(28,28,30,0.98)",
+          background: "rgba(38,28,32,0.97)",
           backdropFilter: "blur(24px)",
-          border: "1px solid rgba(255,255,255,0.09)",
+          border: "1px solid rgba(255,255,255,0.07)",
+          height: 72,
         }}
       >
-        {/* Progress strip */}
-        <div
-          className="h-1 w-full cursor-pointer relative"
-          style={{ background: "rgba(255,255,255,0.08)" }}
-          onClick={(e) => {
-            const rect = e.currentTarget.getBoundingClientRect();
-            const ratio = Math.max(
-              0,
-              Math.min(1, (e.clientX - rect.left) / rect.width)
-            );
-            setProgress(Math.floor(ratio * totalDuration));
-          }}
-        >
-          <div
-            className="absolute top-0 left-0 h-full rounded-full transition-all duration-100"
-            style={{
-              width: `${pct}%`,
-              background: "linear-gradient(90deg, #1DB954, #1ed760)",
-            }}
-          />
-        </div>
+        {/* ── Album art with circular progress ring + play/pause overlay ── */}
+        <div className="relative flex-shrink-0" style={{ width: 60, height: 60 }}>
+          {/* SVG ring */}
+          <svg
+            width="60"
+            height="60"
+            className="absolute inset-0"
+            style={{ transform: "rotate(-90deg)" }}
+          >
+            {/* Track */}
+            <circle
+              cx="30"
+              cy="30"
+              r={RADIUS}
+              fill="none"
+              stroke="rgba(255,255,255,0.12)"
+              strokeWidth="2.5"
+            />
+            {/* Progress */}
+            <circle
+              cx="30"
+              cy="30"
+              r={RADIUS}
+              fill="none"
+              stroke="#e8b4bc"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeDasharray={CIRCUMFERENCE}
+              strokeDashoffset={strokeDashoffset}
+              style={{ transition: "stroke-dashoffset 0.3s ease" }}
+            />
+          </svg>
 
-        <div className="flex items-center gap-3 px-3 py-2">
-          {/* Album art — tapping opens full player */}
-          <button
-            onClick={() => setShowPlayer(true)}
-            className="w-10 h-10 rounded-xl flex-shrink-0 overflow-hidden shadow-lg"
+          {/* Album art circle */}
+          <div
+            className="absolute rounded-full overflow-hidden"
+            style={{ inset: 5 }}
           >
             {currentSong.albumArt ? (
               <img
@@ -78,54 +91,50 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
               />
             ) : (
               <div className="w-full h-full bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center">
-                <Music2 className="w-5 h-5 text-black" />
+                <Music2 className="w-4 h-4 text-black" />
               </div>
             )}
-          </button>
+          </div>
 
-          {/* Song info — tapping opens full player */}
+          {/* Play/Pause overlay */}
           <button
-            className="flex-1 min-w-0 text-left"
-            onClick={() => setShowPlayer(true)}
+            onClick={(e) => { e.stopPropagation(); togglePlay(); }}
+            className="absolute inset-0 rounded-full flex items-center justify-center active:scale-95 transition-transform"
+            style={{ background: "rgba(0,0,0,0.30)" }}
           >
-            <p className="text-sm font-semibold truncate text-white leading-tight">
-              {currentSong.title}
-            </p>
-            <p className="text-xs text-white/50 truncate mt-0.5 leading-tight">
-              {currentSong.artist}
-            </p>
+            {isPlaying ? (
+              <Pause className="w-5 h-5 text-white fill-white drop-shadow" />
+            ) : (
+              <Play className="w-5 h-5 text-white fill-white ml-0.5 drop-shadow" />
+            )}
           </button>
+        </div>
 
-          {/* Controls */}
+        {/* ── Song info — tapping opens full player ── */}
+        <button
+          className="flex-1 min-w-0 text-left"
+          onClick={() => setShowPlayer(true)}
+        >
+          <p className="font-bold truncate text-white leading-tight" style={{ fontSize: 15 }}>
+            {currentSong.title}
+          </p>
+          <p className="text-xs truncate mt-0.5 leading-tight" style={{ color: "rgba(255,255,255,0.5)" }}>
+            {currentSong.artist}
+          </p>
+        </button>
+
+        {/* ── Like button ── */}
+        <div className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
           <div
-            className="flex items-center gap-1 flex-shrink-0"
-            onClick={(e) => e.stopPropagation()}
+            className="w-10 h-10 rounded-full flex items-center justify-center"
+            style={{ background: "rgba(255,255,255,0.08)" }}
           >
             <LikeButton
               song={currentSong}
               onRequireAuth={onRequireAuth}
               size="sm"
-              className="p-2 text-white/60 hover:text-white"
+              className="text-white/70 hover:text-white"
             />
-
-            <button
-              onClick={togglePlay}
-              className="w-9 h-9 rounded-full flex items-center justify-center transition-transform active:scale-95"
-              style={{ background: "linear-gradient(135deg, #1DB954, #1ed760)" }}
-            >
-              {isPlaying ? (
-                <Pause className="w-4 h-4 text-black fill-black" />
-              ) : (
-                <Play className="w-4 h-4 text-black fill-black ml-0.5" />
-              )}
-            </button>
-
-            <button
-              onClick={nextSong}
-              className="p-2 text-white/60 hover:text-white transition-colors"
-            >
-              <SkipForward className="w-4 h-4" />
-            </button>
           </div>
         </div>
       </div>
