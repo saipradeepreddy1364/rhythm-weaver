@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { usePlayer } from "@/context/PlayerContext";
 import { AuthModal } from "@/components/AuthModal";
+import { MiniPlayer } from "@/components/MiniPlayer";
 
 interface SearchPageProps {
   onRequireAuth?: () => void;
@@ -141,19 +142,22 @@ function CategorySongModal({
               <p className="text-sm text-white/40">Loading songs…</p>
             </div>
           ) : (
-            <div className="space-y-0.5 px-2 pb-32">
+            <div className="space-y-0.5 px-2 pb-40">
               {songs.map((song) => (
                 <SongRow key={song.id} song={song} queue={songs} onRequireAuth={onRequireAuth} />
               ))}
             </div>
           )}
         </div>
+
+        {/* ── MiniPlayer visible inside this modal ── */}
+        <MiniPlayer onRequireAuth={onRequireAuth} />
       </div>
     </div>
   );
 }
 
-// ─── Plain album-image category card (no color overlay) ──────────────────────
+// ─── Homepage-style category card (square, same look as homepage album cards) ──
 
 interface CategoryCardProps {
   label: string;
@@ -182,37 +186,48 @@ function CategoryCard({ label, query, onSelect }: CategoryCardProps) {
   }, [query]);
 
   return (
+    // Same width/structure as homepage album cards — square image + label below
     <button
       onClick={() => onSelect(label, songs, coverArt || "")}
-      className="relative rounded-2xl overflow-hidden active:scale-95 transition-transform text-left"
-      style={{ height: 110, background: "rgba(255,255,255,0.06)" }}
+      className="flex flex-col items-start text-left active:scale-95 transition-transform"
+      style={{ width: "100%" }}
     >
-      {/* Full-bleed album art */}
-      {coverArt ? (
-        <img
-          src={coverArt}
-          alt={label}
-          className="absolute inset-0 w-full h-full object-cover"
-          onError={() => setCoverArt(null)}
-        />
-      ) : (
-        <div className="absolute inset-0 flex items-center justify-center">
-          {!loaded ? (
-            <div className="w-6 h-6 rounded-full border-2 border-white/20 border-t-white/60 animate-spin" />
-          ) : (
-            <Music2 className="w-8 h-8" style={{ color: "rgba(255,255,255,0.2)" }} />
-          )}
-        </div>
-      )}
-
-      {/* Bottom gradient + label */}
+      {/* Square album art — same proportions as homepage */}
       <div
-        className="absolute inset-0"
-        style={{ background: "linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.1) 60%, transparent 100%)" }}
-      />
-      <span className="absolute bottom-2.5 left-3 text-sm font-bold text-white drop-shadow-lg leading-tight z-10">
-        {label}
-      </span>
+        className="relative rounded-xl overflow-hidden w-full shadow-md"
+        style={{ aspectRatio: "1 / 1", background: "rgba(255,255,255,0.07)" }}
+      >
+        {coverArt ? (
+          <img
+            src={coverArt}
+            alt={label}
+            className="absolute inset-0 w-full h-full object-cover"
+            onError={() => setCoverArt(null)}
+          />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center">
+            {!loaded ? (
+              <div className="w-6 h-6 rounded-full border-2 border-white/20 border-t-white/60 animate-spin" />
+            ) : (
+              <Music2 className="w-8 h-8" style={{ color: "rgba(255,255,255,0.2)" }} />
+            )}
+          </div>
+        )}
+
+        {/* Subtle play button overlay on bottom-right — same as homepage album cards */}
+        <div
+          className="absolute bottom-2 right-2 w-8 h-8 rounded-full flex items-center justify-center shadow-lg"
+          style={{ background: "rgba(29,185,84,0.92)" }}
+        >
+          <Play className="w-3.5 h-3.5 text-black fill-black ml-0.5" />
+        </div>
+      </div>
+
+      {/* Label below image — same as homepage */}
+      <p className="mt-2 text-sm font-semibold text-white truncate w-full leading-tight">{label}</p>
+      <p className="text-xs mt-0.5 truncate w-full" style={{ color: "rgba(255,255,255,0.4)" }}>
+        {loaded && songs.length > 0 ? `${songs.length} songs` : "Browse"}
+      </p>
     </button>
   );
 }
@@ -221,14 +236,22 @@ function CategoryCard({ label, query, onSelect }: CategoryCardProps) {
 
 function AlbumModal({
   album,
+  allSongs,
   onClose,
   onRequireAuth,
 }: {
   album: Album;
+  // FIX: pass the full search results so after album ends, queue continues with other songs
+  allSongs: Song[];
   onClose: () => void;
   onRequireAuth: () => void;
 }) {
   const { playSong } = usePlayer();
+
+  // Build a deduplicated queue: album songs first, then remaining search songs not in album
+  const albumSongIds = new Set(album.songs.map((s) => s.id));
+  const remainingSongs = allSongs.filter((s) => !albumSongIds.has(s.id));
+  const fullQueue = [...album.songs, ...remainingSongs];
 
   return (
     <div className="fixed inset-0 z-[55] flex flex-col" style={{ background: "#0d0d0d" }}>
@@ -267,7 +290,7 @@ function AlbumModal({
             </p>
           </div>
           <button
-            onClick={() => playSong(album.songs[0], album.songs)}
+            onClick={() => playSong(album.songs[0], fullQueue)}
             className="w-11 h-11 rounded-full flex items-center justify-center shadow-xl flex-shrink-0"
             style={{ background: "#1DB954" }}
           >
@@ -290,14 +313,22 @@ function AlbumModal({
           </div>
         </div>
 
-        {/* Songs */}
+        {/* Songs — each song's queue is the full queue so playback continues beyond album */}
         <div className="flex-1 overflow-y-auto" style={{ WebkitOverflowScrolling: "touch" }}>
-          <div className="space-y-0.5 px-2 pb-32">
+          <div className="space-y-0.5 px-2 pb-40">
             {album.songs.map((song) => (
-              <SongRow key={song.id} song={song} queue={album.songs} onRequireAuth={onRequireAuth} />
+              <SongRow
+                key={song.id}
+                song={song}
+                queue={fullQueue}
+                onRequireAuth={onRequireAuth}
+              />
             ))}
           </div>
         </div>
+
+        {/* ── MiniPlayer visible inside album modal ── */}
+        <MiniPlayer onRequireAuth={onRequireAuth} />
       </div>
     </div>
   );
@@ -372,9 +403,9 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
   };
 
   // Handle category card click — open modal with songs
-  const handleCategorySelect = (label: string, songs: Song[], coverArt: string) => {
-    if (songs.length > 0) {
-      setCategoryModal({ label, songs, coverArt, loading: false });
+  const handleCategorySelect = (label: string, catSongs: Song[], coverArt: string) => {
+    if (catSongs.length > 0) {
+      setCategoryModal({ label, songs: catSongs, coverArt, loading: false });
     } else {
       // Still loading — open modal and fetch
       setCategoryModal({ label, songs: [], coverArt: "", loading: true });
@@ -489,10 +520,11 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
         />
       )}
 
-      {/* Album detail modal */}
+      {/* Album detail modal — pass full songs list to fix repeat bug */}
       {activeAlbum && (
         <AlbumModal
           album={activeAlbum}
+          allSongs={songs}
           onClose={() => setActiveAlbum(null)}
           onRequireAuth={handleRequireAuth}
         />
@@ -529,11 +561,11 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
         </div>
       </div>
 
-      {/* ── Browse categories — plain album images, 2-col grid ── */}
+      {/* ── Browse categories — homepage-style square album cards, 2-col grid ── */}
       {!searched && !query && (
         <div className="px-4 pt-4">
           <p className="text-base font-bold text-white mb-4">Browse Categories</p>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-4">
             {BROWSE_CATEGORIES.map(({ label, query: catQuery }) => (
               <CategoryCard
                 key={label}
@@ -597,7 +629,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                 </div>
               )}
 
-              {/* ── Albums — horizontal scroll, click opens modal ── */}
+              {/* ── Albums — horizontal scroll, homepage-style square cards, click opens modal ── */}
               {albums.length > 0 && (
                 <div className="mb-6">
                   <p className="text-base font-bold text-white mb-3">
@@ -615,6 +647,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                         style={{ width: 140 }}
                         onClick={() => setActiveAlbum(album)}
                       >
+                        {/* Square image — same as homepage album cards */}
                         <div
                           className="relative rounded-xl overflow-hidden mb-2 active:scale-95 transition-transform"
                           style={{ width: 140, height: 140 }}
@@ -630,7 +663,13 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                             </div>
                           )}
                           <button
-                            onClick={(e) => { e.stopPropagation(); playSong(album.songs[0], album.songs); }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              // FIX: build full queue starting from album songs then remaining
+                              const albumSongIds = new Set(album.songs.map((s) => s.id));
+                              const rest = songs.filter((s) => !albumSongIds.has(s.id));
+                              playSong(album.songs[0], [...album.songs, ...rest]);
+                            }}
                             className="absolute bottom-2 right-2 w-9 h-9 rounded-full flex items-center justify-center shadow-xl active:scale-90 transition-transform"
                             style={{ background: "#1DB954" }}
                           >

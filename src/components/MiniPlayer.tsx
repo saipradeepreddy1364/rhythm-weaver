@@ -79,65 +79,105 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
   return (
     <div className="fixed bottom-14 left-0 right-0 z-50 px-3 pb-2 pointer-events-none">
       <style>{`
-        .mini-vol-slider { -webkit-appearance: none; appearance: none; background: transparent; width: 100%; height: 100%; cursor: pointer; }
+        .mini-vol-slider {
+          -webkit-appearance: none;
+          appearance: none;
+          background: transparent;
+          width: 100%;
+          cursor: pointer;
+          height: 20px;
+        }
         .mini-vol-slider::-webkit-slider-thumb {
           -webkit-appearance: none;
-          width: 12px; height: 12px;
+          width: 14px;
+          height: 14px;
           border-radius: 50%;
-          background: #fff;
+          background: #ffffff;
           cursor: pointer;
-          margin-top: -4.5px;
-          box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+          margin-top: -5px;
+          box-shadow: 0 1px 6px rgba(0,0,0,0.6);
+          transition: transform 0.15s;
+        }
+        .mini-vol-slider:hover::-webkit-slider-thumb {
+          transform: scale(1.2);
         }
         .mini-vol-slider::-moz-range-thumb {
-          width: 12px; height: 12px;
+          width: 14px;
+          height: 14px;
           border-radius: 50%;
-          background: #fff;
+          background: #ffffff;
           cursor: pointer;
           border: none;
+          box-shadow: 0 1px 6px rgba(0,0,0,0.6);
         }
-        .mini-vol-slider::-webkit-slider-runnable-track { height: 3px; background: transparent; }
-        .mini-vol-slider::-moz-range-track { height: 3px; background: transparent; }
-        @keyframes miniVolUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        .mini-vol-slider::-webkit-slider-runnable-track {
+          height: 4px;
+          background: transparent;
+          border-radius: 2px;
+        }
+        .mini-vol-slider::-moz-range-track {
+          height: 4px;
+          background: transparent;
+          border-radius: 2px;
+        }
+        @keyframes miniVolUp {
+          from { opacity: 0; transform: translateY(8px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
       `}</style>
 
-      {/* ── Volume popup — same thin YouTube-style bar, appears above pill ── */}
+      {/* ── Volume popup — tall & clearly visible bar ── */}
       {showVolume && (
         <div
-          className="pointer-events-auto mb-2 mx-2 rounded-2xl px-4 py-3 flex items-center gap-3"
+          className="pointer-events-auto mb-2 mx-2 rounded-2xl px-4 py-4 flex items-center gap-4"
           style={{
             background: "rgba(22,14,18,0.98)",
             backdropFilter: "blur(28px)",
-            border: "1px solid rgba(255,255,255,0.09)",
-            boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+            border: "1px solid rgba(255,255,255,0.12)",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.7)",
             animation: "miniVolUp 0.15s ease",
           }}
           onClick={(e) => e.stopPropagation()}
           onMouseMove={resetHideTimer}
           onTouchMove={resetHideTimer}
         >
-          {/* Mute toggle */}
+          {/* Mute toggle icon */}
           <button
             onClick={toggleMute}
             className="flex-shrink-0 active:scale-90 transition-transform"
-            style={{ color: isMuted ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.75)" }}
+            style={{ color: isMuted ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.85)" }}
           >
-            {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+            {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
           </button>
 
-          {/* Slim 3px bar */}
-          <div className="relative flex-1" style={{ height: 3 }}>
-            {/* Track bg */}
-            <div className="absolute inset-0 rounded-full" style={{ background: "rgba(255,255,255,0.15)" }} />
-            {/* Filled part */}
+          {/* Track + filled bar + range input */}
+          <div className="relative flex-1" style={{ height: 20 }}>
+            {/* Background track */}
             <div
-              className="absolute top-0 left-0 h-full rounded-full pointer-events-none"
+              className="absolute rounded-full"
               style={{
-                width: `${volume * 100}%`,
-                background: "linear-gradient(90deg, #e8b4bc, #f4c4cb)",
+                top: "50%",
+                transform: "translateY(-50%)",
+                left: 0,
+                right: 0,
+                height: 4,
+                background: "rgba(255,255,255,0.18)",
               }}
             />
-            {/* Range input */}
+            {/* Filled portion */}
+            <div
+              className="absolute rounded-full pointer-events-none"
+              style={{
+                top: "50%",
+                transform: "translateY(-50%)",
+                left: 0,
+                height: 4,
+                width: `${volume * 100}%`,
+                background: "linear-gradient(90deg, #e8b4bc, #f4c4cb)",
+                transition: "width 0.05s linear",
+              }}
+            />
+            {/* Range input — sits over the track */}
             <input
               type="range"
               min={0}
@@ -145,15 +185,15 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
               step={0.01}
               value={volume}
               onChange={handleVolumeChange}
-              className="mini-vol-slider absolute"
-              style={{ top: "50%", transform: "translateY(-50%)", left: 0 }}
+              className="mini-vol-slider absolute inset-0"
+              style={{ margin: 0, padding: 0 }}
             />
           </div>
 
-          {/* % label */}
+          {/* Percentage label */}
           <span
-            className="text-xs font-semibold w-8 text-right flex-shrink-0"
-            style={{ color: "rgba(255,255,255,0.35)" }}
+            className="text-xs font-bold w-9 text-right flex-shrink-0"
+            style={{ color: "rgba(255,255,255,0.5)", fontVariantNumeric: "tabular-nums" }}
           >
             {Math.round(volume * 100)}%
           </span>
