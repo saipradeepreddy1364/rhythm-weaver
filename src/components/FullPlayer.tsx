@@ -28,10 +28,10 @@ async function fetchLyrics(songId: string): Promise<string | null> {
     const res = await fetch(`${BASE_URL}/songs/${songId}/lyrics`);
     if (!res.ok) return null;
     const data = await res.json();
-    if (typeof data === "string") return data;
-    if (data?.lyrics) return data.lyrics;
-    if (data?.data?.lyrics) return data.data.lyrics;
-    if (typeof data?.data === "string") return data.data;
+    if (typeof data === "string" && data.trim().length > 0) return data.trim();
+    if (data?.lyrics && typeof data.lyrics === "string") return data.lyrics.trim();
+    if (data?.data?.lyrics && typeof data.data.lyrics === "string") return data.data.lyrics.trim();
+    if (typeof data?.data === "string" && data.data.trim().length > 0) return data.data.trim();
     return null;
   } catch {
     return null;
@@ -56,13 +56,19 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   const [lyrics, setLyrics] = useState<string | null>(null);
   const [lyricsLoading, setLyricsLoading] = useState(false);
 
+  // Reset lyrics state when song changes
   useEffect(() => {
-    if (!currentSong) return;
     setLyrics(null);
-    if (!showLyrics) return;
+    setLyricsLoading(false);
+  }, [currentSong?.id]);
+
+  // Fetch lyrics only when lyrics tab is opened
+  useEffect(() => {
+    if (!currentSong || !showLyrics) return;
+    if (lyrics !== null) return; // already fetched for this song
     setLyricsLoading(true);
     fetchLyrics(currentSong.id).then((l) => {
-      setLyrics(l);
+      setLyrics(l ?? "");
       setLyricsLoading(false);
     });
   }, [currentSong?.id, showLyrics]);
@@ -103,7 +109,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         }}
       />
 
-      {/* ── Main layout — fills screen, zero overflow ── */}
+      {/* ── Main layout — fixed height columns, never scrolls ── */}
       <div
         className="relative flex flex-col w-full h-full px-6"
         style={{ overflow: "hidden" }}
@@ -125,7 +131,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         </div>
 
         {/* ── Tab switcher: Cover / Lyrics ── */}
-        <div className="flex items-center justify-center gap-1 mb-4 flex-shrink-0">
+        <div className="flex items-center justify-center gap-1 mb-5 flex-shrink-0">
           <button
             onClick={() => setShowLyrics(false)}
             className="px-5 py-1.5 rounded-full text-xs font-semibold transition-all"
@@ -149,14 +155,17 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           </button>
         </div>
 
-        {/* ── Album Art ── */}
+        {/* ── Cover tab: album art, NO scrolling anywhere ── */}
         {!showLyrics && (
-          <div className="flex items-center justify-center flex-shrink-0 mb-2">
+          <div
+            className="flex items-center justify-center flex-shrink-0"
+            style={{ height: 240 }}
+          >
             <div
               className="rounded-2xl overflow-hidden"
               style={{
-                width: "min(58vw, 220px)",
-                height: "min(58vw, 220px)",
+                width: 220,
+                height: 220,
                 boxShadow: "0 24px 64px -12px rgba(0,0,0,0.9)",
               }}
             >
@@ -179,40 +188,49 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           </div>
         )}
 
-        {/* ── Lyrics panel — only scrolls inside itself ── */}
+        {/* ── Lyrics tab: ONLY the inner box scrolls, page does NOT scroll ── */}
         {showLyrics && (
-          <div className="flex-shrink-0 mb-2">
+          <div
+            className="flex-shrink-0"
+            style={{ height: 240 }}
+          >
             <div
-              className="w-full rounded-2xl px-4 py-4"
+              className="w-full h-full rounded-2xl px-5 py-4"
               style={{
-                height: 220,
                 background: "rgba(255,255,255,0.05)",
                 border: "1px solid rgba(255,255,255,0.08)",
                 overflowY: "auto",
                 WebkitOverflowScrolling: "touch",
+                overscrollBehavior: "contain",
               }}
             >
               {lyricsLoading ? (
                 <div className="flex items-center justify-center h-full">
                   <div
-                    className="w-6 h-6 rounded-full border-2 animate-spin"
+                    className="w-7 h-7 rounded-full border-2 animate-spin"
                     style={{
-                      borderColor: "rgba(255,255,255,0.2)",
+                      borderColor: "rgba(255,255,255,0.15)",
                       borderTopColor: "#1DB954",
                     }}
                   />
                 </div>
-              ) : lyrics ? (
+              ) : lyrics && lyrics.length > 0 ? (
                 <p
                   className="text-sm leading-7 whitespace-pre-wrap text-center"
-                  style={{ color: "rgba(255,255,255,0.80)" }}
+                  style={{ color: "rgba(255,255,255,0.82)" }}
                 >
                   {lyrics}
                 </p>
               ) : (
                 <div className="flex flex-col items-center justify-center h-full gap-3">
-                  <Mic2 className="w-10 h-10" style={{ color: "rgba(255,255,255,0.15)" }} />
-                  <p className="text-xs font-medium" style={{ color: "rgba(255,255,255,0.35)" }}>
+                  <Mic2
+                    className="w-10 h-10"
+                    style={{ color: "rgba(255,255,255,0.15)" }}
+                  />
+                  <p
+                    className="text-xs font-medium text-center"
+                    style={{ color: "rgba(255,255,255,0.35)" }}
+                  >
                     Lyrics not available for this song
                   </p>
                 </div>
@@ -222,16 +240,16 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         )}
 
         {/* ── Song Info + Like ── */}
-        <div className="flex items-center gap-3 mt-3 mb-3 flex-shrink-0">
+        <div className="flex items-center gap-3 mt-5 mb-3 flex-shrink-0">
           <div className="flex-1 min-w-0">
             <h2 className="text-xl font-bold text-white truncate leading-tight">
               {currentSong.title}
             </h2>
-            <p className="text-sm text-white/50 mt-0.5 truncate">
+            <p className="text-sm mt-0.5 truncate" style={{ color: "rgba(255,255,255,0.5)" }}>
               {currentSong.artist}
             </p>
             {currentSong.movie && (
-              <p className="text-xs text-white/30 mt-0.5 truncate">
+              <p className="text-xs mt-0.5 truncate" style={{ color: "rgba(255,255,255,0.3)" }}>
                 {currentSong.movie}
               </p>
             )}
