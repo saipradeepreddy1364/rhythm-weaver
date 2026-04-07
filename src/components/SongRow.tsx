@@ -1,8 +1,9 @@
 import { Song, formatDuration } from "@/data/songs";
 import { usePlayer } from "@/context/PlayerContext";
-import { Play, Pause } from "lucide-react";
+import { Play, Pause, ListPlus } from "lucide-react";
 import { LikeButton } from "@/components/LikeButton";
 import { AddToPlaylistMenu } from "@/components/AddToPlaylistMenu";
+import { useState } from "react";
 
 interface SongRowProps {
   song: Song;
@@ -11,12 +12,20 @@ interface SongRowProps {
 }
 
 export function SongRow({ song, queue, onRequireAuth }: SongRowProps) {
-  const { playSong, currentSong, isPlaying, togglePlay } = usePlayer();
+  const { playSong, currentSong, isPlaying, togglePlay, addToQueue } = usePlayer();
   const isActive = currentSong?.id === song.id;
+  const [queued, setQueued] = useState(false);
 
   const handleClick = () => {
     if (isActive) togglePlay();
     else playSong(song, queue);
+  };
+
+  const handleAddToQueue = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    addToQueue(song);
+    setQueued(true);
+    setTimeout(() => setQueued(false), 2000);
   };
 
   return (
@@ -92,6 +101,18 @@ export function SongRow({ song, queue, onRequireAuth }: SongRowProps) {
         className="flex items-center gap-0.5 flex-shrink-0"
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Add to Queue */}
+        <button
+          onClick={handleAddToQueue}
+          title="Play next"
+          className="p-2 rounded-full transition-all active:scale-90"
+          style={{
+            color: queued ? "#1DB954" : "rgba(255,255,255,0.4)",
+          }}
+        >
+          <ListPlus className="w-4 h-4" />
+        </button>
+
         <LikeButton
           song={song}
           onRequireAuth={onRequireAuth}

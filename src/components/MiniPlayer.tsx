@@ -1,5 +1,5 @@
 import { usePlayer } from "@/context/PlayerContext";
-import { Play, Pause, Music2, Volume2, VolumeX } from "lucide-react";
+import { Play, Pause, Music2, Volume2, VolumeX, ListPlus } from "lucide-react";
 import { LikeButton } from "@/components/LikeButton";
 import { useState, useEffect, useRef } from "react";
 
@@ -17,13 +17,14 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
     volume,
     setVolume,
     setShowPlayer,
+    addToQueue,
   } = usePlayer();
 
   const [showVolume, setShowVolume] = useState(false);
   const [prevVolume, setPrevVolume] = useState(0.7);
+  const [queuedFlash, setQueuedFlash] = useState(false);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Auto-close volume popup after 3 seconds of inactivity
   const resetHideTimer = () => {
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     hideTimerRef.current = setTimeout(() => setShowVolume(false), 3000);
@@ -68,20 +69,28 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
     resetHideTimer();
   };
 
+  const handleAddToQueue = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    addToQueue(currentSong);
+    setQueuedFlash(true);
+    setTimeout(() => setQueuedFlash(false), 2000);
+  };
+
   return (
     <div className="fixed bottom-14 left-0 right-0 z-50 px-3 pb-2 pointer-events-none">
       <style>{`
         .mini-vol-slider { -webkit-appearance: none; appearance: none; background: transparent; width: 100%; height: 100%; cursor: pointer; }
         .mini-vol-slider::-webkit-slider-thumb {
           -webkit-appearance: none;
-          width: 10px; height: 10px;
+          width: 12px; height: 12px;
           border-radius: 50%;
           background: #fff;
           cursor: pointer;
-          margin-top: -3.5px;
+          margin-top: -4.5px;
+          box-shadow: 0 1px 4px rgba(0,0,0,0.5);
         }
         .mini-vol-slider::-moz-range-thumb {
-          width: 10px; height: 10px;
+          width: 12px; height: 12px;
           border-radius: 50%;
           background: #fff;
           cursor: pointer;
@@ -89,39 +98,46 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
         }
         .mini-vol-slider::-webkit-slider-runnable-track { height: 3px; background: transparent; }
         .mini-vol-slider::-moz-range-track { height: 3px; background: transparent; }
+        @keyframes miniVolUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
       `}</style>
 
-      {/* ── Volume popup ── */}
+      {/* ── Volume popup — same thin YouTube-style bar, appears above pill ── */}
       {showVolume && (
         <div
           className="pointer-events-auto mb-2 mx-2 rounded-2xl px-4 py-3 flex items-center gap-3"
           style={{
-            background: "rgba(28,18,22,0.97)",
-            backdropFilter: "blur(24px)",
-            border: "1px solid rgba(255,255,255,0.07)",
-            animation: "fadeSlideUp 0.15s ease",
+            background: "rgba(22,14,18,0.98)",
+            backdropFilter: "blur(28px)",
+            border: "1px solid rgba(255,255,255,0.09)",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+            animation: "miniVolUp 0.15s ease",
           }}
           onClick={(e) => e.stopPropagation()}
           onMouseMove={resetHideTimer}
           onTouchMove={resetHideTimer}
         >
-          <style>{`
-            @keyframes fadeSlideUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-          `}</style>
-          <button onClick={toggleMute} style={{ color: isMuted ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.7)" }}>
+          {/* Mute toggle */}
+          <button
+            onClick={toggleMute}
+            className="flex-shrink-0 active:scale-90 transition-transform"
+            style={{ color: isMuted ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.75)" }}
+          >
             {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
           </button>
 
-          {/* Slim YouTube-style volume bar */}
+          {/* Slim 3px bar */}
           <div className="relative flex-1" style={{ height: 3 }}>
+            {/* Track bg */}
             <div className="absolute inset-0 rounded-full" style={{ background: "rgba(255,255,255,0.15)" }} />
+            {/* Filled part */}
             <div
               className="absolute top-0 left-0 h-full rounded-full pointer-events-none"
               style={{
                 width: `${volume * 100}%`,
-                background: "linear-gradient(90deg,#e8b4bc,#f4c4cb)",
+                background: "linear-gradient(90deg, #e8b4bc, #f4c4cb)",
               }}
             />
+            {/* Range input */}
             <input
               type="range"
               min={0}
@@ -134,8 +150,12 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
             />
           </div>
 
-          <span className="text-xs font-medium w-7 text-right" style={{ color: "rgba(255,255,255,0.4)" }}>
-            {Math.round(volume * 100)}
+          {/* % label */}
+          <span
+            className="text-xs font-semibold w-8 text-right flex-shrink-0"
+            style={{ color: "rgba(255,255,255,0.35)" }}
+          >
+            {Math.round(volume * 100)}%
           </span>
         </div>
       )}
@@ -198,6 +218,19 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
           <p className="text-xs truncate mt-0.5 leading-tight" style={{ color: "rgba(255,255,255,0.5)" }}>
             {currentSong.artist}
           </p>
+        </button>
+
+        {/* ── Add to Queue button ── */}
+        <button
+          onClick={handleAddToQueue}
+          title="Play next"
+          className="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center transition-all active:scale-90"
+          style={{
+            background: queuedFlash ? "rgba(29,185,84,0.2)" : "rgba(255,255,255,0.08)",
+            color: queuedFlash ? "#1DB954" : "rgba(255,255,255,0.6)",
+          }}
+        >
+          <ListPlus className="w-4 h-4" />
         </button>
 
         {/* ── Volume button ── */}

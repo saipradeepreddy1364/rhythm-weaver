@@ -36,85 +36,181 @@ interface Artist {
   songs: Song[];
 }
 
-// ─── Browse categories — each fetches real songs for album art ────────────────
+// ─── Browse categories — each fetches real album art only (no color cards) ──────
 
 const BROWSE_CATEGORIES = [
-  { label: "Trending",     query: "trending hindi songs 2025",     color1: "#f97316", color2: "#ef4444" },
-  { label: "New Releases", query: "new bollywood songs 2025",       color1: "#8b5cf6", color2: "#ec4899" },
-  { label: "Hindi",        query: "top hindi hits 2025",            color1: "#f59e0b", color2: "#f97316" },
-  { label: "Telugu",       query: "trending telugu songs 2025",     color1: "#ec4899", color2: "#f43f5e" },
-  { label: "Tamil",        query: "trending tamil songs 2025",      color1: "#6366f1", color2: "#8b5cf6" },
-  { label: "Romantic",     query: "hindi romantic songs 2025",      color1: "#e11d48", color2: "#f43f5e" },
-  { label: "Punjabi",      query: "top punjabi songs 2025",         color1: "#d97706", color2: "#f59e0b" },
-  { label: "Devotional",   query: "devotional songs hindi 2025",    color1: "#0891b2", color2: "#06b6d4" },
-  { label: "Malayalam",    query: "trending malayalam songs 2025",  color1: "#059669", color2: "#10b981" },
-  { label: "Lofi/Chill",  query: "lofi chill hindi songs",          color1: "#4f46e5", color2: "#6366f1" },
-  { label: "Retro",        query: "90s bollywood hits",             color1: "#7c3aed", color2: "#8b5cf6" },
-  { label: "Kannada",      query: "trending kannada songs 2025",    color1: "#dc2626", color2: "#ef4444" },
+  { label: "Trending",     query: "trending hindi songs 2025" },
+  { label: "New Releases", query: "new bollywood songs 2025" },
+  { label: "Hindi",        query: "top hindi hits 2025" },
+  { label: "Telugu",       query: "trending telugu songs 2025" },
+  { label: "Tamil",        query: "trending tamil songs 2025" },
+  { label: "Romantic",     query: "hindi romantic songs 2025" },
+  { label: "Punjabi",      query: "top punjabi songs 2025" },
+  { label: "Devotional",   query: "devotional songs hindi 2025" },
+  { label: "Malayalam",    query: "trending malayalam songs 2025" },
+  { label: "Lofi/Chill",  query: "lofi chill hindi songs" },
+  { label: "Retro",        query: "90s bollywood hits" },
+  { label: "Kannada",      query: "trending kannada songs 2025" },
 ];
 
-// ─── Category card with real art ──────────────────────────────────────────────
+// ─── Category Song List Modal ─────────────────────────────────────────────────
+
+function CategorySongModal({
+  label,
+  songs,
+  coverArt,
+  loading,
+  onClose,
+  onRequireAuth,
+}: {
+  label: string;
+  songs: Song[];
+  coverArt: string;
+  loading: boolean;
+  onClose: () => void;
+  onRequireAuth: () => void;
+}) {
+  const { playSong } = usePlayer();
+
+  return (
+    <div className="fixed inset-0 z-[55] flex flex-col" style={{ background: "#0d0d0d" }}>
+      {/* Blurred background */}
+      {coverArt && (
+        <div
+          className="absolute inset-0 opacity-20"
+          style={{
+            backgroundImage: `url(${coverArt})`,
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+            filter: "blur(50px) saturate(2)",
+            transform: "scale(1.3)",
+          }}
+        />
+      )}
+      <div
+        className="absolute inset-0"
+        style={{ background: "linear-gradient(to bottom, rgba(13,13,13,0.6) 0%, rgba(13,13,13,0.95) 40%)" }}
+      />
+
+      <div className="relative flex flex-col h-full overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center gap-3 px-4 pt-12 pb-4 flex-shrink-0">
+          <button
+            onClick={onClose}
+            className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
+            style={{ background: "rgba(255,255,255,0.1)" }}
+          >
+            <ArrowLeft className="w-5 h-5 text-white" />
+          </button>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-lg font-bold text-white truncate">{label}</h2>
+            <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>
+              {loading ? "Loading songs…" : `${songs.length} songs`}
+            </p>
+          </div>
+          {songs.length > 0 && (
+            <button
+              onClick={() => playSong(songs[0], songs)}
+              className="w-11 h-11 rounded-full flex items-center justify-center shadow-xl flex-shrink-0"
+              style={{ background: "#1DB954" }}
+            >
+              <Play className="w-5 h-5 text-black fill-black ml-0.5" />
+            </button>
+          )}
+        </div>
+
+        {/* Cover art */}
+        {coverArt && (
+          <div className="px-4 mb-4 flex items-center justify-center flex-shrink-0">
+            <div className="rounded-2xl overflow-hidden shadow-2xl" style={{ width: 170, height: 170 }}>
+              <img
+                src={coverArt}
+                alt={label}
+                className="w-full h-full object-cover"
+                onError={(e) => { (e.target as HTMLImageElement).src = "https://via.placeholder.com/300x300?text=🎵"; }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Song list */}
+        <div className="flex-1 overflow-y-auto" style={{ WebkitOverflowScrolling: "touch" }}>
+          {loading && songs.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 gap-3">
+              <div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white/70 animate-spin" />
+              <p className="text-sm text-white/40">Loading songs…</p>
+            </div>
+          ) : (
+            <div className="space-y-0.5 px-2 pb-32">
+              {songs.map((song) => (
+                <SongRow key={song.id} song={song} queue={songs} onRequireAuth={onRequireAuth} />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Plain album-image category card (no color overlay) ──────────────────────
 
 interface CategoryCardProps {
   label: string;
   query: string;
-  color1: string;
-  color2: string;
-  onSelect: (query: string, label: string) => void;
+  onSelect: (label: string, songs: Song[], coverArt: string) => void;
 }
 
-function CategoryCard({ label, query, color1, color2, onSelect }: CategoryCardProps) {
+function CategoryCard({ label, query, onSelect }: CategoryCardProps) {
   const [coverArt, setCoverArt] = useState<string | null>(null);
+  const [songs, setSongs] = useState<Song[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const fetchedRef = useRef(false);
 
   useEffect(() => {
     if (fetchedRef.current) return;
     fetchedRef.current = true;
-    api.searchSongs(query, 1, 5)
+    api.searchSongs(query, 1, 20)
       .then((res) => {
-        const songs = extractResults(res).map(mapApiSong).filter((s: Song) => s.audioUrl && s.albumArt);
-        if (songs.length > 0) setCoverArt(songs[0].albumArt);
+        const fetched = extractResults(res).map(mapApiSong).filter((s: Song) => s.audioUrl);
+        const withArt = fetched.filter((s: Song) => s.albumArt);
+        if (withArt.length > 0) setCoverArt(withArt[0].albumArt!);
+        setSongs(fetched);
+        setLoaded(true);
       })
-      .catch(() => { /* use gradient fallback */ });
+      .catch(() => setLoaded(true));
   }, [query]);
 
   return (
     <button
-      onClick={() => onSelect(label, label)}
-      className="relative rounded-xl overflow-hidden h-20 active:scale-95 transition-transform text-left"
-      style={{ background: `linear-gradient(135deg, ${color1}, ${color2})` }}
+      onClick={() => onSelect(label, songs, coverArt || "")}
+      className="relative rounded-2xl overflow-hidden active:scale-95 transition-transform text-left"
+      style={{ height: 110, background: "rgba(255,255,255,0.06)" }}
     >
-      {/* Real album art as background */}
-      {coverArt && (
+      {/* Full-bleed album art */}
+      {coverArt ? (
         <img
           src={coverArt}
           alt={label}
           className="absolute inset-0 w-full h-full object-cover"
-          style={{ opacity: 0.45, mixBlendMode: "luminosity" }}
           onError={() => setCoverArt(null)}
         />
-      )}
-      {/* Gradient overlay to keep it legible */}
-      <div
-        className="absolute inset-0"
-        style={{ background: `linear-gradient(135deg, ${color1}cc, ${color2}99)` }}
-      />
-      {/* Album art thumbnail at the right */}
-      {coverArt && (
-        <div
-          className="absolute right-2 bottom-0 top-0 flex items-center"
-          style={{ width: 56 }}
-        >
-          <img
-            src={coverArt}
-            alt=""
-            className="w-14 h-14 object-cover rounded-lg shadow-lg"
-            style={{ transform: "rotate(12deg) translateY(4px)" }}
-            onError={() => setCoverArt(null)}
-          />
+      ) : (
+        <div className="absolute inset-0 flex items-center justify-center">
+          {!loaded ? (
+            <div className="w-6 h-6 rounded-full border-2 border-white/20 border-t-white/60 animate-spin" />
+          ) : (
+            <Music2 className="w-8 h-8" style={{ color: "rgba(255,255,255,0.2)" }} />
+          )}
         </div>
       )}
-      <span className="absolute bottom-2 left-3 text-sm font-bold text-white drop-shadow leading-tight z-10">
+
+      {/* Bottom gradient + label */}
+      <div
+        className="absolute inset-0"
+        style={{ background: "linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.1) 60%, transparent 100%)" }}
+      />
+      <span className="absolute bottom-2.5 left-3 text-sm font-bold text-white drop-shadow-lg leading-tight z-10">
         {label}
       </span>
     </button>
@@ -155,7 +251,7 @@ function AlbumModal({
 
       <div className="relative flex flex-col h-full overflow-hidden">
         {/* Header */}
-        <div className="flex items-center gap-3 px-4 pt-12 pb-4">
+        <div className="flex items-center gap-3 px-4 pt-12 pb-4 flex-shrink-0">
           <button
             onClick={onClose}
             className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
@@ -257,6 +353,14 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
   const [showAllArtists, setShowAllArtists] = useState(false);
   const [activeAlbum, setActiveAlbum] = useState<Album | null>(null);
 
+  // Category song list modal state
+  const [categoryModal, setCategoryModal] = useState<{
+    label: string;
+    songs: Song[];
+    coverArt: string;
+    loading: boolean;
+  } | null>(null);
+
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -265,6 +369,31 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
   const handleRequireAuth = () => {
     if (onRequireAuth) onRequireAuth();
     setShowAuthModal(true);
+  };
+
+  // Handle category card click — open modal with songs
+  const handleCategorySelect = (label: string, songs: Song[], coverArt: string) => {
+    if (songs.length > 0) {
+      setCategoryModal({ label, songs, coverArt, loading: false });
+    } else {
+      // Still loading — open modal and fetch
+      setCategoryModal({ label, songs: [], coverArt: "", loading: true });
+      const cat = BROWSE_CATEGORIES.find((c) => c.label === label);
+      if (cat) {
+        api.searchSongs(cat.query, 1, 50)
+          .then((res) => {
+            const fetched = extractResults(res).map(mapApiSong).filter((s: Song) => s.audioUrl);
+            const withArt = fetched.filter((s: Song) => s.albumArt);
+            setCategoryModal({
+              label,
+              songs: fetched,
+              coverArt: withArt.length > 0 ? (withArt[0].albumArt || "") : "",
+              loading: false,
+            });
+          })
+          .catch(() => setCategoryModal((prev) => prev ? { ...prev, loading: false } : null));
+      }
+    }
   };
 
   const doSearch = useCallback((q: string, pg = 1) => {
@@ -348,6 +477,18 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
   return (
     <div className="w-full min-h-screen" style={{ background: "#121212", paddingBottom: "9rem" }}>
 
+      {/* Category song list modal */}
+      {categoryModal && (
+        <CategorySongModal
+          label={categoryModal.label}
+          songs={categoryModal.songs}
+          coverArt={categoryModal.coverArt}
+          loading={categoryModal.loading}
+          onClose={() => setCategoryModal(null)}
+          onRequireAuth={handleRequireAuth}
+        />
+      )}
+
       {/* Album detail modal */}
       {activeAlbum && (
         <AlbumModal
@@ -388,19 +529,17 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
         </div>
       </div>
 
-      {/* ── Browse categories with real album art ── */}
+      {/* ── Browse categories — plain album images, 2-col grid ── */}
       {!searched && !query && (
         <div className="px-4 pt-4">
           <p className="text-base font-bold text-white mb-4">Browse Categories</p>
           <div className="grid grid-cols-2 gap-3">
-            {BROWSE_CATEGORIES.map(({ label, query: catQuery, color1, color2 }) => (
+            {BROWSE_CATEGORIES.map(({ label, query: catQuery }) => (
               <CategoryCard
                 key={label}
                 label={label}
                 query={catQuery}
-                color1={color1}
-                color2={color2}
-                onSelect={(q) => setQuery(q)}
+                onSelect={handleCategorySelect}
               />
             ))}
           </div>
@@ -463,9 +602,6 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                 <div className="mb-6">
                   <p className="text-base font-bold text-white mb-3">
                     Albums & Movies
-                    <span className="text-xs font-normal ml-2" style={{ color: "rgba(255,255,255,0.35)" }}>
-                      {albums.length} found
-                    </span>
                   </p>
 
                   <div
@@ -493,7 +629,6 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                               <Disc3 className="w-10 h-10" style={{ color: "rgba(255,255,255,0.2)" }} />
                             </div>
                           )}
-                          {/* Play all - doesn't open modal */}
                           <button
                             onClick={(e) => { e.stopPropagation(); playSong(album.songs[0], album.songs); }}
                             className="absolute bottom-2 right-2 w-9 h-9 rounded-full flex items-center justify-center shadow-xl active:scale-90 transition-transform"
@@ -517,9 +652,6 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
               <div className="mb-6">
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-base font-bold text-white">Songs</p>
-                  <span className="text-xs font-semibold" style={{ color: "rgba(255,255,255,0.35)" }}>
-                    {songs.length} results
-                  </span>
                 </div>
                 <div className="space-y-0.5">
                   {songs.map((song) => (

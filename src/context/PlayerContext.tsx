@@ -28,6 +28,7 @@ interface PlayerContextType {
   setShowPlayer: (show: boolean) => void;
   toggleFavorite: (songId: string) => void;
   isFavorite: (songId: string) => boolean;
+  addToQueue: (song: Song) => void;
 }
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
@@ -49,15 +50,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [favorites, setFavorites] = useState<string[]>([]);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  // Refs for event handlers to avoid stale closures
   const queueRef = useRef<Song[]>([]);
   const queueIndexRef = useRef(0);
 
-  // Keep refs in sync with state
   useEffect(() => { queueRef.current = queue; }, [queue]);
   useEffect(() => { queueIndexRef.current = queueIndex; }, [queueIndex]);
 
-  // Load favorites from localStorage
+  // Load favorites
   useEffect(() => {
     const saved = localStorage.getItem(FAVORITES_KEY);
     if (saved) {
@@ -69,7 +68,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
   }, [favorites]);
 
-  // Load recently played from localStorage
+  // Load recently played
   useEffect(() => {
     const saved = localStorage.getItem(RECENTLY_PLAYED_KEY);
     if (saved) {
@@ -91,7 +90,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  // Internal next song that reads from refs (no stale closure)
   const nextSongInternal = useCallback(() => {
     const q = queueRef.current;
     const idx = queueIndexRef.current;
@@ -119,9 +117,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         setDuration(audio.duration);
       }
     };
-    const handleEnded = () => {
-      nextSongInternal();
-    };
+    const handleEnded = () => { nextSongInternal(); };
     const handlePlay = () => setIsPlaying(true);
     const handlePause = () => setIsPlaying(false);
     const handleError = () => {
@@ -193,6 +189,31 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     [addToRecentlyPlayedInternal]
   );
 
+  /**
+   * addToQueue: inserts song right after the current index so it plays next.
+   * If no song is playing, it starts playing immediately.
+   */
+  const addToQueue = useCallback((song: Song) => {
+    if (!queueRef.current.length || !currentSong) {
+      // Nothing playing — just start it
+      const q = [song];
+      queueRef.current = q;
+      queueIndexRef.current = 0;
+      setQueue(q);
+      setQueueIndex(0);
+      setCurrentSong(song);
+      setIsPlaying(true);
+      return;
+    }
+    setQueue((prev) => {
+      const idx = queueIndexRef.current;
+      const next = [...prev];
+      next.splice(idx + 1, 0, song);
+      queueRef.current = next;
+      return next;
+    });
+  }, [currentSong]);
+
   const togglePlay = useCallback(() => {
     setIsPlaying((p) => !p);
   }, []);
@@ -256,6 +277,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         setShowPlayer,
         toggleFavorite,
         isFavorite,
+        addToQueue,
       }}
     >
       {children}

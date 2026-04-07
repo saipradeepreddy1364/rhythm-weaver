@@ -14,6 +14,7 @@ import {
   Mic2,
   Volume2,
   VolumeX,
+  ListPlus,
 } from "lucide-react";
 
 interface FullPlayerProps {
@@ -55,6 +56,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
     setVolume,
     showPlayer,
     setShowPlayer,
+    addToQueue,
   } = usePlayer();
 
   const [showLyrics, setShowLyrics] = useState(false);
@@ -62,6 +64,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   const [lyricsLoading, setLyricsLoading] = useState(false);
   const [prevVolume, setPrevVolume] = useState(0.7);
   const [showVolume, setShowVolume] = useState(false);
+  const [queuedFlash, setQueuedFlash] = useState(false);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const resetHideTimer = () => {
@@ -118,6 +121,12 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
     resetHideTimer();
   };
 
+  const handleAddToQueue = () => {
+    addToQueue(currentSong);
+    setQueuedFlash(true);
+    setTimeout(() => setQueuedFlash(false), 2000);
+  };
+
   return (
     <div
       className="fixed inset-0 z-[60] flex flex-col animate-fade-in"
@@ -149,17 +158,19 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         .lyrics-scroll::-webkit-scrollbar { width: 3px; }
         .lyrics-scroll::-webkit-scrollbar-track { background: transparent; }
         .lyrics-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 99px; }
+
         .full-vol-slider { -webkit-appearance: none; appearance: none; background: transparent; width: 100%; height: 100%; cursor: pointer; }
         .full-vol-slider::-webkit-slider-thumb {
           -webkit-appearance: none;
-          width: 10px; height: 10px;
+          width: 12px; height: 12px;
           border-radius: 50%;
           background: #fff;
           cursor: pointer;
-          margin-top: -3.5px;
+          margin-top: -4.5px;
+          box-shadow: 0 1px 4px rgba(0,0,0,0.5);
         }
         .full-vol-slider::-moz-range-thumb {
-          width: 10px; height: 10px;
+          width: 12px; height: 12px;
           border-radius: 50%;
           background: #fff;
           cursor: pointer;
@@ -181,7 +192,18 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             <ChevronDown className="w-5 h-5 text-white" />
           </button>
           <p className="text-xs text-white/40 uppercase tracking-widest font-semibold">Now Playing</p>
-          <div className="w-10" />
+          {/* Add to Queue button in header */}
+          <button
+            onClick={handleAddToQueue}
+            title="Play next"
+            className="w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-90"
+            style={{
+              background: queuedFlash ? "rgba(29,185,84,0.2)" : "rgba(255,255,255,0.08)",
+              color: queuedFlash ? "#1DB954" : "rgba(255,255,255,0.6)",
+            }}
+          >
+            <ListPlus className="w-5 h-5" />
+          </button>
         </div>
 
         {/* ── Tab switcher ── */}
@@ -282,7 +304,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           <LikeButton song={currentSong} onRequireAuth={onRequireAuth} size="lg" className="flex-shrink-0" />
         </div>
 
-        {/* ── Seek Bar ── */}
+        {/* ── Seek Bar with percentage ── */}
         <div className="mb-3 flex-shrink-0">
           <div
             className="relative h-1.5 rounded-full cursor-pointer"
@@ -302,8 +324,12 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
               style={{ left: `calc(${pct}% - 8px)` }}
             />
           </div>
-          <div className="flex justify-between text-xs mt-1.5" style={{ color: "rgba(255,255,255,0.4)" }}>
+          <div className="flex justify-between items-center text-xs mt-1.5" style={{ color: "rgba(255,255,255,0.4)" }}>
             <span>{formatDuration(Math.floor(progress))}</span>
+            {/* Percentage in center */}
+            <span className="font-semibold" style={{ color: "rgba(255,255,255,0.55)" }}>
+              {Math.round(pct)}%
+            </span>
             <span>{formatDuration(Math.floor(totalDuration))}</span>
           </div>
         </div>
@@ -334,13 +360,14 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           </button>
         </div>
 
-        {/* ── Volume popup (same style as MiniPlayer) ── */}
+        {/* ── Volume popup — appears above the volume toggle button ── */}
         {showVolume && (
           <div
             className="flex-shrink-0 mb-3 rounded-2xl px-4 py-3 flex items-center gap-3"
             style={{
-              background: "rgba(28,18,22,0.85)",
-              border: "1px solid rgba(255,255,255,0.07)",
+              background: "rgba(22,14,18,0.95)",
+              border: "1px solid rgba(255,255,255,0.09)",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
               animation: "fadeSlideUp 0.15s ease",
             }}
             onMouseMove={resetHideTimer}
@@ -349,7 +376,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             <button
               onClick={toggleMute}
               className="flex-shrink-0 active:scale-90 transition-transform"
-              style={{ color: isMuted ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.7)" }}
+              style={{ color: isMuted ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.75)" }}
             >
               {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
             </button>
@@ -376,13 +403,13 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
               />
             </div>
 
-            <span className="text-xs font-medium w-7 text-right flex-shrink-0" style={{ color: "rgba(255,255,255,0.4)" }}>
-              {Math.round(volume * 100)}
+            <span className="text-xs font-semibold w-8 text-right flex-shrink-0" style={{ color: "rgba(255,255,255,0.4)" }}>
+              {Math.round(volume * 100)}%
             </span>
           </div>
         )}
 
-        {/* ── Volume toggle button (always visible at bottom) ── */}
+        {/* ── Volume toggle button ── */}
         <div className="flex items-center justify-center flex-shrink-0 pb-2">
           <button
             onClick={() => {
@@ -391,14 +418,14 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
                 return !v;
               });
             }}
-            className="flex items-center gap-2 px-4 py-2 rounded-full transition-all active:scale-95"
+            className="flex items-center gap-2 px-5 py-2 rounded-full transition-all active:scale-95"
             style={{
               background: showVolume ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.06)",
               color: isMuted ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.6)",
             }}
           >
             {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-            <span className="text-xs font-medium">{Math.round(volume * 100)}%</span>
+            <span className="text-xs font-semibold">{Math.round(volume * 100)}%</span>
           </button>
         </div>
       </div>
