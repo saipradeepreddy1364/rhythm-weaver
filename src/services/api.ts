@@ -5,7 +5,7 @@
 
 const BASE_URL =
   (import.meta as any).env?.VITE_API_BACKEND_URL ||
-  "https://backend-u94c.onrender.com/api";
+  "https://musicbackend-g2sp.onrender.com/api";
 
 export const api = {
 
