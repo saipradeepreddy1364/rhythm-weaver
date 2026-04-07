@@ -4,7 +4,7 @@ import { api, extractResults } from "@/services/api";
 import { SongRow } from "@/components/SongRow";
 import { usePlayer } from "@/context/PlayerContext";
 import { useAuth } from "@/context/AuthContext";
-import { Music2, User, LogOut, ChevronDown, ChevronUp } from "lucide-react";
+import { Music2, User, LogOut, ChevronDown, ChevronUp, Play, Disc3 } from "lucide-react";
 import { AuthModal } from "@/components/AuthModal";
 
 // ─── Daily rotation ───────────────────────────────────────────────────────────
@@ -81,6 +81,23 @@ const MALAYALAM_QUERIES = [
   "malayalam chartbusters 2025",   "super hit malayalam songs",
 ];
 
+// ─── Album queries — large playlists / soundtracks ────────────────────────────
+
+const ALBUM_QUERIES = [
+  { title: "Kalki 2898 AD",      query: "Kalki 2898 AD songs" },
+  { title: "Animal",             query: "Animal movie songs bollywood" },
+  { title: "Jawan",              query: "Jawan movie songs shahrukh" },
+  { title: "Dunki",              query: "Dunki movie songs 2023" },
+  { title: "Leo",                query: "Leo Tamil movie songs" },
+  { title: "Jailer",             query: "Jailer Tamil movie songs" },
+  { title: "Pushpa 2",           query: "Pushpa 2 Telugu songs" },
+  { title: "Devara",             query: "Devara Jr NTR songs" },
+  { title: "RRR",                query: "RRR movie songs" },
+  { title: "Pathaan",            query: "Pathaan movie songs" },
+  { title: "Rocky Aur Rani",     query: "Rocky Aur Rani Kii Prem Kahaani songs" },
+  { title: "Tu Jhoothi Main Makkar", query: "Tu Jhoothi Main Makkar songs" },
+];
+
 const SECTION_DEFS = [
   { title: "Trending Hindi",     pool: HINDI_QUERIES,     seed: 1 },
   { title: "Trending Telugu",    pool: TELUGU_QUERIES,    seed: 2 },
@@ -94,6 +111,23 @@ const SECTION_DEFS = [
   { title: "Trending Malayalam", pool: MALAYALAM_QUERIES, seed: 10 },
 ];
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface SectionData {
+  title: string;
+  songs: Song[];
+}
+
+interface AlbumData {
+  title: string;
+  coverArt: string;
+  songs: Song[];
+}
+
+interface HomePageProps {
+  onRequireAuth?: () => void;
+}
+
 // ─── Fetch helpers ────────────────────────────────────────────────────────────
 
 function sleep(ms: number): Promise<void> {
@@ -105,12 +139,9 @@ async function fetchSection(query: string, limit = 25): Promise<Song[]> {
     try {
       if (attempt > 0) await sleep(1500);
       const res = await api.searchSongs(query, 1, limit);
-
-      // Debug: log raw response shape in development
       if ((import.meta as any).env?.DEV) {
         console.log(`[fetchSection] query="${query}" raw:`, JSON.stringify(res).slice(0, 200));
       }
-
       const items = extractResults(res);
       const songs = items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
       if (songs.length > 0) return songs;
@@ -134,17 +165,6 @@ function dedup(songs: Song[], seen: Set<string>): Song[] {
   return out;
 }
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface SectionData {
-  title: string;
-  songs: Song[];
-}
-
-interface HomePageProps {
-  onRequireAuth?: () => void;
-}
-
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function HomePage({ onRequireAuth }: HomePageProps) {
@@ -153,8 +173,9 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [sections, setSections] = useState<SectionData[]>([]);
+  const [albums, setAlbums] = useState<AlbumData[]>([]);
+  const [albumsLoading, setAlbumsLoading] = useState(true);
 
-  // Prevent double-fire in React StrictMode (dev) and on unmount
   const loadedRef = useRef(false);
   const globalSeenRef = useRef(new Set<string>());
 
@@ -168,8 +189,8 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
     setShowUserMenu(false);
   };
 
+  // ── Load song sections ──────────────────────────────────────────────────────
   useEffect(() => {
-    // Guard against StrictMode double-invoke
     if (loadedRef.current) return;
     loadedRef.current = true;
 
@@ -178,21 +199,16 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
 
     const BATCH_SIZE = 2;
     const BATCH_DELAY_MS = 500;
-
     let unmounted = false;
 
     async function loadInBatches() {
       for (let i = 0; i < SECTION_DEFS.length; i += BATCH_SIZE) {
         if (unmounted) return;
-
         const batch = SECTION_DEFS.slice(i, i + BATCH_SIZE);
-
         const results = await Promise.all(
           batch.map(({ pool, seed }) => fetchSection(pickQuery(pool, seed), 25))
         );
-
         if (unmounted) return;
-
         results.forEach((songs, idx) => {
           const { title } = batch[idx];
           const unique = dedup(songs, globalSeenRef.current);
@@ -210,19 +226,47 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
             return updated;
           });
         });
-
-        if (i + BATCH_SIZE < SECTION_DEFS.length) {
-          await sleep(BATCH_DELAY_MS);
-        }
+        if (i + BATCH_SIZE < SECTION_DEFS.length) await sleep(BATCH_DELAY_MS);
       }
     }
 
     loadInBatches();
-
-    return () => {
-      unmounted = true;
-    };
+    return () => { unmounted = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Load album sections ─────────────────────────────────────────────────────
+  useEffect(() => {
+    let unmounted = false;
+    setAlbumsLoading(true);
+
+    async function loadAlbums() {
+      const result: AlbumData[] = [];
+      for (const { title, query } of ALBUM_QUERIES) {
+        if (unmounted) return;
+        try {
+          const res = await api.searchSongs(query, 1, 50);
+          const songs = extractResults(res)
+            .map(mapApiSong)
+            .filter((s: Song) => Boolean(s.audioUrl));
+          if (songs.length >= 3) {
+            result.push({
+              title,
+              coverArt: songs[0].albumArt || "",
+              songs,
+            });
+          }
+        } catch { /* skip failed album */ }
+        await sleep(300);
+      }
+      if (!unmounted) {
+        setAlbums(result);
+        setAlbumsLoading(false);
+      }
+    }
+
+    loadAlbums();
+    return () => { unmounted = true; };
+  }, []);
 
   const quickPickSongs = sections[0]?.songs.slice(0, 6) ?? [];
 
@@ -314,6 +358,34 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
         )}
       </div>
 
+      {/* ── Featured Albums ── */}
+      <div className="mb-6">
+        <h2 className="text-base font-bold text-white mb-3 px-4">Featured Albums</h2>
+        {albumsLoading ? (
+          <div className="flex gap-4 px-4 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex-shrink-0" style={{ width: 140 }}>
+                <div
+                  className="rounded-xl mb-2"
+                  style={{ width: 140, height: 140, background: "rgba(255,255,255,0.07)" }}
+                />
+                <div className="h-3 w-24 rounded mb-1.5" style={{ background: "rgba(255,255,255,0.07)" }} />
+                <div className="h-2.5 w-16 rounded" style={{ background: "rgba(255,255,255,0.05)" }} />
+              </div>
+            ))}
+          </div>
+        ) : albums.length > 0 ? (
+          <div
+            className="flex gap-4 px-4 overflow-x-auto"
+            style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" } as React.CSSProperties}
+          >
+            {albums.map((album) => (
+              <AlbumCard key={album.title} album={album} onRequireAuth={handleRequireAuth} />
+            ))}
+          </div>
+        ) : null}
+      </div>
+
       {/* ── Recently Played ── */}
       {recentlyPlayed.length > 0 && (
         <SimpleSection title="Recently Played">
@@ -348,6 +420,84 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
       )}
 
       <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} />
+    </div>
+  );
+}
+
+// ─── AlbumCard ────────────────────────────────────────────────────────────────
+
+function AlbumCard({
+  album,
+  onRequireAuth,
+}: {
+  album: AlbumData;
+  onRequireAuth: () => void;
+}) {
+  const { playSong } = usePlayer();
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="flex-shrink-0" style={{ width: 150 }}>
+      {/* Cover */}
+      <div
+        className="relative rounded-xl overflow-hidden mb-2 cursor-pointer active:scale-95 transition-transform"
+        style={{ width: 150, height: 150 }}
+        onClick={() => setExpanded((v) => !v)}
+      >
+        {album.coverArt ? (
+          <img
+            src={album.coverArt}
+            alt={album.title}
+            className="w-full h-full object-cover"
+            onError={(e) => {
+              (e.target as HTMLImageElement).src =
+                "https://via.placeholder.com/300x300?text=🎵";
+            }}
+          />
+        ) : (
+          <div
+            className="w-full h-full flex items-center justify-center"
+            style={{ background: "rgba(255,255,255,0.08)" }}
+          >
+            <Disc3 className="w-10 h-10" style={{ color: "rgba(255,255,255,0.2)" }} />
+          </div>
+        )}
+
+        {/* Play button overlay */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            playSong(album.songs[0], album.songs);
+          }}
+          className="absolute bottom-2 right-2 w-10 h-10 rounded-full flex items-center justify-center shadow-xl active:scale-90 transition-transform"
+          style={{ background: "#1DB954" }}
+        >
+          <Play className="w-4 h-4 text-black fill-black ml-0.5" />
+        </button>
+      </div>
+
+      {/* Info */}
+      <p className="text-sm font-semibold text-white truncate leading-tight">{album.title}</p>
+      <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>
+        {album.songs.length} songs
+      </p>
+
+      {/* Expanded song list */}
+      {expanded && (
+        <div
+          className="mt-2 rounded-xl overflow-hidden"
+          style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)" }}
+        >
+          {album.songs.map((song) => (
+            <SongRow
+              key={song.id}
+              song={song}
+              queue={album.songs}
+              onRequireAuth={onRequireAuth}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
