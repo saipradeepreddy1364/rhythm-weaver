@@ -67,7 +67,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         }}
       />
 
-      {/* Scrollable content wrapper */}
+      {/* Scrollable top: header + art only */}
       <div className="relative flex flex-col flex-1 overflow-y-auto px-6">
 
         {/* ── Header ── */}
@@ -86,12 +86,12 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         </div>
 
         {/* ── Album Art ── */}
-        <div className="flex items-center justify-center py-4">
+        <div className="flex items-center justify-center py-2">
           <div
             className="rounded-3xl overflow-hidden shadow-2xl"
             style={{
-              width: "min(76vw, 320px)",
-              height: "min(76vw, 320px)",
+              width: "min(72vw, 300px)",
+              height: "min(72vw, 300px)",
               boxShadow: "0 32px 80px -16px rgba(0,0,0,0.85)",
             }}
           >
@@ -112,14 +112,18 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             )}
           </div>
         </div>
+      </div>{/* end scrollable */}
+
+      {/* ── Fixed bottom: song info + seek + controls (never scrolls away) ── */}
+      <div className="relative px-6 pb-10 pt-4">
 
         {/* ── Song Info + Like ── */}
-        <div className="flex items-center gap-3 mt-4 mb-5">
+        <div className="flex items-center gap-3 mb-4">
           <div className="flex-1 min-w-0">
             <h2 className="text-xl font-bold text-white truncate leading-tight">
               {currentSong.title}
             </h2>
-            <p className="text-sm text-white/50 mt-1 truncate">{currentSong.artist}</p>
+            <p className="text-sm text-white/50 mt-0.5 truncate">{currentSong.artist}</p>
             {currentSong.movie && (
               <p className="text-xs text-white/30 mt-0.5 truncate">{currentSong.movie}</p>
             )}
@@ -128,59 +132,56 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             song={currentSong}
             onRequireAuth={onRequireAuth}
             size="lg"
-            className="text-white/40 hover:text-white p-2 flex-shrink-0"
+            className="flex-shrink-0"
           />
         </div>
 
         {/* ── Seek Bar ── */}
-        <div className="mb-6">
+        <div className="mb-5">
           <div
-            className="relative h-1.5 rounded-full cursor-pointer group"
+            className="relative h-1.5 rounded-full cursor-pointer"
             style={{ background: "rgba(255,255,255,0.15)" }}
             onClick={(e) => {
               const rect = e.currentTarget.getBoundingClientRect();
-              const ratio = Math.max(
-                0,
-                Math.min(1, (e.clientX - rect.left) / rect.width)
-              );
+              const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
               setProgress(Math.floor(ratio * totalDuration));
             }}
           >
             <div
               className="absolute top-0 left-0 h-full rounded-full transition-all duration-100"
-              style={{
-                width: `${pct}%`,
-                background: "linear-gradient(90deg, #1DB954, #1ed760)",
-              }}
+              style={{ width: `${pct}%`, background: "linear-gradient(90deg, #1DB954, #1ed760)" }}
             />
-            {/* Thumb */}
+            {/* Thumb — always visible (no hover needed on mobile) */}
             <div
-              className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white shadow-md opacity-0 group-hover:opacity-100 transition-opacity"
-              style={{ left: `calc(${pct}% - 7px)` }}
+              className="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-white shadow-md"
+              style={{ left: `calc(${pct}% - 8px)` }}
             />
           </div>
-          <div className="flex justify-between text-xs text-white/30 mt-2">
+          <div className="flex justify-between text-xs mt-2" style={{ color: "rgba(255,255,255,0.4)" }}>
             <span>{formatDuration(Math.floor(progress))}</span>
             <span>{formatDuration(Math.floor(totalDuration))}</span>
           </div>
         </div>
 
         {/* ── Controls ── */}
-        <div className="flex items-center justify-between mb-8">
-          <button className="p-3 text-white/30 hover:text-white/70 transition-colors active:scale-90">
+        <div className="flex items-center justify-between">
+          <button
+            className="p-3 active:scale-90 transition-transform"
+            style={{ color: "rgba(255,255,255,0.5)" }}
+          >
             <Shuffle className="w-5 h-5" />
           </button>
 
           <button
             onClick={prevSong}
-            className="p-3 text-white/80 hover:text-white transition-colors active:scale-90"
+            className="p-3 text-white active:scale-90 transition-transform"
           >
             <SkipBack className="w-7 h-7 fill-current" />
           </button>
 
           <button
             onClick={togglePlay}
-            className="w-16 h-16 rounded-full flex items-center justify-center shadow-2xl transition-transform active:scale-90"
+            className="w-16 h-16 rounded-full flex items-center justify-center shadow-2xl active:scale-90 transition-transform"
             style={{ background: "linear-gradient(135deg, #1DB954, #1ed760)" }}
           >
             {isPlaying ? (
@@ -192,19 +193,22 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
 
           <button
             onClick={nextSong}
-            className="p-3 text-white/80 hover:text-white transition-colors active:scale-90"
+            className="p-3 text-white active:scale-90 transition-transform"
           >
             <SkipForward className="w-7 h-7 fill-current" />
           </button>
 
-          <button className="p-3 text-white/30 hover:text-white/70 transition-colors active:scale-90">
+          <button
+            className="p-3 active:scale-90 transition-transform"
+            style={{ color: "rgba(255,255,255,0.5)" }}
+          >
             <Repeat className="w-5 h-5" />
           </button>
         </div>
 
         {/* ── Queue Info ── */}
         {queue.length > 0 && (
-          <div className="text-center text-xs text-white/25 pb-8">
+          <div className="text-center text-xs mt-4" style={{ color: "rgba(255,255,255,0.25)" }}>
             {queueIndex + 1} of {queue.length} songs
           </div>
         )}
