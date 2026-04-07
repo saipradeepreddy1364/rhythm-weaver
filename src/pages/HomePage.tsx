@@ -1,33 +1,31 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Song, mapApiSong } from "@/data/songs";
 import { api, extractResults } from "@/services/api";
 import { SongRow } from "@/components/SongRow";
 import { usePlayer } from "@/context/PlayerContext";
 import { useAuth } from "@/context/AuthContext";
-import { Loader2, Music2, User, LogOut, ChevronDown, ChevronUp } from "lucide-react";
+import { Music2, User, LogOut, ChevronDown, ChevronUp } from "lucide-react";
 import { AuthModal } from "@/components/AuthModal";
 
-// ─── Daily seed: changes once per day ────────────────────────────────────────
+// ─── Daily rotation seed ──────────────────────────────────────────────────────
 
 function todaysSeed(): number {
   const d = new Date();
   return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
 }
 
-/** Pick today's query from a pool using a per-section seed offset. */
 function pickQuery(pool: string[], sectionOffset: number): string {
-  const idx = (todaysSeed() + sectionOffset) % pool.length;
-  return pool[idx];
+  return pool[(todaysSeed() + sectionOffset) % pool.length];
 }
 
-// ─── Query pools (8 entries each = different query every day for a week+) ────
+// ─── Query pools ──────────────────────────────────────────────────────────────
 
 const HINDI_QUERIES = [
   "trending hindi songs 2025",
   "top hindi hits 2025",
   "best new hindi songs",
   "viral hindi songs 2025",
-  "popular hindi songs april 2025",
+  "popular hindi songs 2025",
   "latest hindi film songs",
   "hindi chartbusters 2025",
   "super hit hindi songs 2025",
@@ -108,6 +106,9 @@ const KANNADA_QUERIES = [
   "best kannada songs 2025",
   "new kannada songs 2025",
   "popular kannada film songs",
+  "viral kannada songs 2025",
+  "kannada chartbusters 2025",
+  "super hit kannada songs",
 ];
 const MALAYALAM_QUERIES = [
   "trending malayalam songs 2025",
@@ -115,9 +116,10 @@ const MALAYALAM_QUERIES = [
   "best malayalam songs 2025",
   "new malayalam songs 2025",
   "popular malayalam film songs",
+  "viral malayalam songs 2025",
+  "malayalam chartbusters 2025",
+  "super hit malayalam songs",
 ];
-
-// ─── Section definitions ──────────────────────────────────────────────────────
 
 const SECTION_DEFS = [
   { title: "Trending Hindi",     pool: HINDI_QUERIES,     seed: 1 },
@@ -137,14 +139,13 @@ const SECTION_DEFS = [
 async function fetchSection(query: string, limit = 25): Promise<Song[]> {
   try {
     const res = await api.searchSongs(query, 1, limit);
-    const items = extractResults(res); // always returns array
+    const items = extractResults(res);
     return items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
   } catch {
     return [];
   }
 }
 
-/** Remove songs already in `seen`; mutates `seen` in-place. */
 function dedup(songs: Song[], seen: Set<string>): Song[] {
   const out: Song[] = [];
   for (const s of songs) {
@@ -156,35 +157,28 @@ function dedup(songs: Song[], seen: Set<string>): Song[] {
   return out;
 }
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
 interface SectionData {
   title: string;
   songs: Song[];
 }
 
-const BASE_URL =
-  (import.meta as any).env?.VITE_API_BASE_URL ||
-  "https://musicbackend-g2sp.onrender.com/api";
-
-async function wakeServer(): Promise<void> {
-  try {
-    await fetch(`${BASE_URL}/search/songs?query=hindi&page=1&limit=1`);
-  } catch { /* ignore */ }
-}
-
-// ─── Component ────────────────────────────────────────────────────────────────
-
 interface HomePageProps {
   onRequireAuth?: () => void;
 }
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function HomePage({ onRequireAuth }: HomePageProps) {
   const { user, logout } = useAuth();
   const { recentlyPlayed } = usePlayer();
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+
+  // Sections arrive one-by-one as each fetch resolves
   const [sections, setSections] = useState<SectionData[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [waking, setWaking] = useState(true);
+  const globalSeenRef = useRef(new Set<string>());
 
   const handleRequireAuth = () => {
     if (onRequireAuth) onRequireAuth();
@@ -197,57 +191,31 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
   };
 
   useEffect(() => {
-    const load = async () => {
-      setWaking(true);
-      await wakeServer();
-      setWaking(false);
-      setLoading(true);
+    globalSeenRef.current = new Set<string>();
 
-      // Fetch all sections in parallel using today's rotated queries
-      const results = await Promise.all(
-        SECTION_DEFS.map(({ pool, seed }) =>
-          fetchSection(pickQuery(pool, seed), 25)
-        )
-      );
+    // Fire all fetches simultaneously; each one pushes its section the moment it resolves.
+    // Sections will appear in the order they finish (fastest API response first).
+    SECTION_DEFS.forEach(({ title, pool, seed }) => {
+      fetchSection(pickQuery(pool, seed), 25).then((songs) => {
+        const unique = dedup(songs, globalSeenRef.current);
+        if (unique.length === 0) return;
+        setSections((prev) => {
+          // Keep sections in the original defined order even if they arrive out-of-order
+          const updated = [
+            ...prev.filter((s) => s.title !== title),
+            { title, songs: unique },
+          ];
+          updated.sort(
+            (a, b) =>
+              SECTION_DEFS.findIndex((d) => d.title === a.title) -
+              SECTION_DEFS.findIndex((d) => d.title === b.title)
+          );
+          return updated;
+        });
+      });
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-      // Global dedup: each song appears in at most one section
-      const globalSeen = new Set<string>();
-      const built: SectionData[] = SECTION_DEFS
-        .map(({ title }, i) => ({
-          title,
-          songs: dedup(results[i], globalSeen),
-        }))
-        .filter(({ songs }) => songs.length > 0);
-
-      setSections(built);
-      setLoading(false);
-    };
-
-    load();
-  }, []);
-
-  // ── Loading state ────────────────────────────────────────────────────────────
-
-  if (waking || loading) {
-    return (
-      <div
-        className="flex flex-col items-center justify-center min-h-screen gap-3"
-        style={{ background: "#121212" }}
-      >
-        <Loader2 className="w-8 h-8 animate-spin" style={{ color: "#1DB954" }} />
-        <p className="text-sm" style={{ color: "rgba(255,255,255,0.5)" }}>
-          {waking ? "Starting music server…" : "Loading songs…"}
-        </p>
-        {waking && (
-          <p className="text-xs" style={{ color: "rgba(255,255,255,0.3)" }}>
-            Free server wakes up in ~15 seconds
-          </p>
-        )}
-      </div>
-    );
-  }
-
-  // Quick picks = first 6 unique songs from the first loaded section
   const quickPickSongs = sections[0]?.songs.slice(0, 6) ?? [];
 
   return (
@@ -256,7 +224,10 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
       {/* ── Header ── */}
       <div
         className="sticky top-0 z-20 px-4 pt-12 pb-3 flex items-center justify-between"
-        style={{ background: "rgba(18,18,18,0.97)", backdropFilter: "blur(20px)" }}
+        style={{
+          background: "rgba(18,18,18,0.97)",
+          backdropFilter: "blur(20px)",
+        }}
       >
         <div className="flex items-center gap-2">
           <div
@@ -279,7 +250,11 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
           >
             {user ? (
               <span className="text-sm font-bold text-black">
-                {(user.username?.charAt(0) || user.email?.charAt(0) || "U").toUpperCase()}
+                {(
+                  user.username?.charAt(0) ||
+                  user.email?.charAt(0) ||
+                  "U"
+                ).toUpperCase()}
               </span>
             ) : (
               <User className="w-4 h-4 text-white" />
@@ -314,17 +289,37 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
         </div>
       </div>
 
-      {/* ── Quick Picks ── */}
-      {quickPickSongs.length > 0 && (
-        <div className="px-4 pt-4 mb-6">
-          <h2 className="text-base font-bold text-white mb-3">Quick Picks</h2>
+      {/* ── Quick Picks (skeleton until first section loads) ── */}
+      <div className="px-4 pt-4 mb-6">
+        <h2 className="text-base font-bold text-white mb-3">Quick Picks</h2>
+        {quickPickSongs.length > 0 ? (
           <div className="grid grid-cols-2 gap-2">
             {quickPickSongs.map((song) => (
               <QuickPick key={song.id} song={song} queue={quickPickSongs} />
             ))}
           </div>
-        </div>
-      )}
+        ) : (
+          /* Skeleton tiles while first section is still loading */
+          <div className="grid grid-cols-2 gap-2">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div
+                key={i}
+                className="flex items-center gap-2 rounded-lg overflow-hidden"
+                style={{ background: "rgba(255,255,255,0.05)", height: 48 }}
+              >
+                <div
+                  className="w-12 h-12 flex-shrink-0"
+                  style={{ background: "rgba(255,255,255,0.07)" }}
+                />
+                <div
+                  className="flex-1 h-3 rounded"
+                  style={{ background: "rgba(255,255,255,0.06)" }}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* ── Recently Played ── */}
       {recentlyPlayed.length > 0 && (
@@ -340,15 +335,47 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
         </SimpleSection>
       )}
 
-      {/* ── Daily rotating sections ── */}
-      {sections.map(({ title, songs }) => (
-        <CollapsibleSection
-          key={title}
-          title={title}
-          songs={songs}
-          onRequireAuth={handleRequireAuth}
-        />
-      ))}
+      {/* ── Dynamic sections — appear one by one as they load ── */}
+      {sections.length === 0 ? (
+        /* Show skeleton rows while waiting for the first section */
+        <div className="px-4 mb-5">
+          <div
+            className="h-4 w-36 rounded mb-4"
+            style={{ background: "rgba(255,255,255,0.07)" }}
+          />
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div
+              key={i}
+              className="flex items-center gap-3 py-2.5 mb-1 rounded-xl"
+              style={{ background: "rgba(255,255,255,0.03)" }}
+            >
+              <div
+                className="w-11 h-11 rounded-xl flex-shrink-0"
+                style={{ background: "rgba(255,255,255,0.07)" }}
+              />
+              <div className="flex-1 space-y-1.5">
+                <div
+                  className="h-3 w-40 rounded"
+                  style={{ background: "rgba(255,255,255,0.07)" }}
+                />
+                <div
+                  className="h-2.5 w-28 rounded"
+                  style={{ background: "rgba(255,255,255,0.05)" }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        sections.map(({ title, songs }) => (
+          <CollapsibleSection
+            key={title}
+            title={title}
+            songs={songs}
+            onRequireAuth={handleRequireAuth}
+          />
+        ))
+      )}
 
       <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} />
     </div>
@@ -375,7 +402,12 @@ function CollapsibleSection({
       <h2 className="text-base font-bold text-white mb-2 px-4">{title}</h2>
       <div className="space-y-0.5 px-4">
         {visible.map((song) => (
-          <SongRow key={song.id} song={song} queue={songs} onRequireAuth={onRequireAuth} />
+          <SongRow
+            key={song.id}
+            song={song}
+            queue={songs}
+            onRequireAuth={onRequireAuth}
+          />
         ))}
       </div>
       {songs.length > PREVIEW && (
@@ -385,9 +417,13 @@ function CollapsibleSection({
           style={{ color: "rgba(255,255,255,0.4)" }}
         >
           {expanded ? (
-            <><ChevronUp className="w-3.5 h-3.5" /> Show less</>
+            <>
+              <ChevronUp className="w-3.5 h-3.5" /> Show less
+            </>
           ) : (
-            <><ChevronDown className="w-3.5 h-3.5" /> Show {songs.length - PREVIEW} more</>
+            <>
+              <ChevronDown className="w-3.5 h-3.5" /> Show {songs.length - PREVIEW} more
+            </>
           )}
         </button>
       )}
