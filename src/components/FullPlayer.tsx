@@ -19,7 +19,7 @@ interface FullPlayerProps {
 }
 
 // ── Lyrics fetcher ─────────────────────────────────────────────────────────────
-// IMPORTANT: Only calls YOUR backend — never calls saavn.dev directly.
+// Only calls YOUR backend — never calls saavn.dev directly from the browser.
 // saavn.dev must be proxied server-side (Spring Boot). Calling it from the
 // browser fails with ERR_NAME_NOT_RESOLVED in many networks/regions.
 const BACKEND_URL =
@@ -30,12 +30,12 @@ async function fetchLyrics(songId: string): Promise<string | null> {
   try {
     const res = await fetch(`${BACKEND_URL}/songs/${songId}/lyrics`);
 
-    // 404 = song has no lyrics — backend now returns 404 instead of 500
+    // 404 = song has no lyrics — backend returns 404, never 500
     if (res.status === 404 || !res.ok) return null;
 
     const data = await res.json();
 
-    // Handle all possible wrapper shapes from saavn.dev
+    // Handle all possible wrapper shapes the backend may return
     const text =
       (typeof data === "string" && data.trim().length > 5 && data.trim()) ||
       (typeof data?.lyrics === "string" && data.lyrics.trim().length > 5 && data.lyrics.trim()) ||
@@ -67,16 +67,25 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   const [lyrics, setLyrics] = useState<string | null>(null);
   const [lyricsLoading, setLyricsLoading] = useState(false);
 
-  // Reset when song changes
+  // ── Reset tab to Cover every time the player is opened ──────────────────────
+  // When showPlayer goes from false → true, always land on the Cover tab.
+  // This ensures that going home and coming back always shows Cover, not Lyrics.
+  useEffect(() => {
+    if (showPlayer) {
+      setShowLyrics(false);
+    }
+  }, [showPlayer]);
+
+  // ── Reset lyrics cache when the song changes ─────────────────────────────────
   useEffect(() => {
     setLyrics(null);
     setLyricsLoading(false);
   }, [currentSong?.id]);
 
-  // Fetch only when lyrics tab is open and not yet fetched for this song
+  // ── Fetch lyrics only when lyrics tab is open and not yet fetched ────────────
   useEffect(() => {
     if (!currentSong || !showLyrics) return;
-    if (lyrics !== null) return;
+    if (lyrics !== null) return; // already fetched for this song
     setLyricsLoading(true);
     fetchLyrics(currentSong.id).then((l) => {
       setLyrics(l ?? "");
@@ -120,7 +129,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         }}
       />
 
-      {/* ── Webkit scrollbar styles for lyrics panel ── */}
+      {/* ── Webkit scrollbar styles for lyrics panel (thin, dark-themed) ── */}
       <style>{`
         .lyrics-scroll::-webkit-scrollbar { width: 3px; }
         .lyrics-scroll::-webkit-scrollbar-track { background: transparent; }
@@ -133,6 +142,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         className="relative flex flex-col w-full h-full px-6"
         style={{ overflow: "hidden" }}
       >
+
         {/* ── Header ── */}
         <div className="flex items-center justify-between pt-10 pb-2 flex-shrink-0">
           <button
@@ -148,7 +158,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           <div className="w-10" />
         </div>
 
-        {/* ── Tab switcher ── */}
+        {/* ── Tab switcher: Cover / Lyrics ── */}
         <div className="flex items-center justify-center gap-1 mb-5 flex-shrink-0">
           <button
             onClick={() => setShowLyrics(false)}
@@ -173,7 +183,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           </button>
         </div>
 
-        {/* ── Cover tab: NO overflow, NO scrollbar ── */}
+        {/* ── Cover tab: NO overflow, NO scrollbar whatsoever ── */}
         {!showLyrics && (
           <div
             className="flex items-center justify-center flex-shrink-0"
@@ -206,7 +216,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           </div>
         )}
 
-        {/* ── Lyrics tab: thin scrollbar, only this box scrolls ── */}
+        {/* ── Lyrics tab: only this inner box scrolls, page never scrolls ── */}
         {showLyrics && (
           <div
             className="flex-shrink-0"
@@ -366,6 +376,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             <Repeat className="w-5 h-5" />
           </button>
         </div>
+
       </div>
     </div>
   );
