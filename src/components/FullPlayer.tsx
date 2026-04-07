@@ -19,19 +19,46 @@ interface FullPlayerProps {
 }
 
 // ── Lyrics fetcher ─────────────────────────────────────────────────────────────
-const BASE_URL =
+// Tries your backend first, then falls back to the public saavn.dev API directly.
+const BACKEND_URL =
   (import.meta as any).env?.VITE_API_BACKEND_URL ||
   "https://musicbackend-g2sp.onrender.com/api";
 
+const SAAVN_API = "https://saavn.dev/api";
+
 async function fetchLyrics(songId: string): Promise<string | null> {
+  // ── Attempt 1: your own backend ──────────────────────────────────────────
   try {
-    const res = await fetch(`${BASE_URL}/songs/${songId}/lyrics`);
+    const res = await fetch(`${BACKEND_URL}/songs/${songId}/lyrics`);
+    if (res.ok) {
+      const data = await res.json();
+      const text =
+        (typeof data === "string" && data.trim()) ||
+        (typeof data?.lyrics === "string" && data.lyrics.trim()) ||
+        (typeof data?.data?.lyrics === "string" && data.data.lyrics.trim()) ||
+        (typeof data?.data === "string" && data.data.trim()) ||
+        null;
+      if (text && text.length > 10) return text;
+    }
+  } catch {
+    // backend unavailable — fall through to direct API
+  }
+
+  // ── Attempt 2: saavn.dev public API ─────────────────────────────────────
+  // saavn.dev exposes lyrics at: GET /songs/{id}/lyrics
+  try {
+    const res = await fetch(`${SAAVN_API}/songs/${songId}/lyrics`, {
+      headers: { Accept: "application/json" },
+    });
     if (!res.ok) return null;
     const data = await res.json();
-    if (typeof data === "string" && data.trim().length > 0) return data.trim();
-    if (data?.lyrics && typeof data.lyrics === "string") return data.lyrics.trim();
-    if (data?.data?.lyrics && typeof data.data.lyrics === "string") return data.data.lyrics.trim();
-    if (typeof data?.data === "string" && data.data.trim().length > 0) return data.data.trim();
+    // saavn.dev wraps the payload in { success, data: { lyrics, snippet, ... } }
+    const text =
+      (typeof data?.data?.lyrics === "string" && data.data.lyrics.trim()) ||
+      (typeof data?.lyrics === "string" && data.lyrics.trim()) ||
+      (typeof data?.data === "string" && data.data.trim()) ||
+      null;
+    if (text && text.length > 10) return text;
     return null;
   } catch {
     return null;
@@ -56,16 +83,16 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   const [lyrics, setLyrics] = useState<string | null>(null);
   const [lyricsLoading, setLyricsLoading] = useState(false);
 
-  // Reset lyrics state when song changes
+  // Reset when song changes
   useEffect(() => {
     setLyrics(null);
     setLyricsLoading(false);
   }, [currentSong?.id]);
 
-  // Fetch lyrics only when lyrics tab is opened
+  // Fetch only when lyrics tab is open and not yet fetched
   useEffect(() => {
     if (!currentSong || !showLyrics) return;
-    if (lyrics !== null) return; // already fetched for this song
+    if (lyrics !== null) return;
     setLyricsLoading(true);
     fetchLyrics(currentSong.id).then((l) => {
       setLyrics(l ?? "");
@@ -109,12 +136,11 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         }}
       />
 
-      {/* ── Main layout — fixed height columns, never scrolls ── */}
+      {/* ── Main layout — never scrolls ── */}
       <div
         className="relative flex flex-col w-full h-full px-6"
         style={{ overflow: "hidden" }}
       >
-
         {/* ── Header ── */}
         <div className="flex items-center justify-between pt-10 pb-2 flex-shrink-0">
           <button
@@ -130,7 +156,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           <div className="w-10" />
         </div>
 
-        {/* ── Tab switcher: Cover / Lyrics ── */}
+        {/* ── Tab switcher ── */}
         <div className="flex items-center justify-center gap-1 mb-5 flex-shrink-0">
           <button
             onClick={() => setShowLyrics(false)}
@@ -155,11 +181,11 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           </button>
         </div>
 
-        {/* ── Cover tab: album art, NO scrolling anywhere ── */}
+        {/* ── Cover tab: album art — NO overflow, NO scrollbar ── */}
         {!showLyrics && (
           <div
             className="flex items-center justify-center flex-shrink-0"
-            style={{ height: 240 }}
+            style={{ height: 240, overflow: "hidden" }}
           >
             <div
               className="rounded-2xl overflow-hidden"
@@ -188,11 +214,11 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           </div>
         )}
 
-        {/* ── Lyrics tab: ONLY the inner box scrolls, page does NOT scroll ── */}
+        {/* ── Lyrics tab: inner box scrollable, thin custom scrollbar ── */}
         {showLyrics && (
           <div
             className="flex-shrink-0"
-            style={{ height: 240 }}
+            style={{ height: 240, overflow: "hidden" }}
           >
             <div
               className="w-full h-full rounded-2xl px-5 py-4"
@@ -200,8 +226,12 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
                 background: "rgba(255,255,255,0.05)",
                 border: "1px solid rgba(255,255,255,0.08)",
                 overflowY: "auto",
+                overflowX: "hidden",
                 WebkitOverflowScrolling: "touch",
                 overscrollBehavior: "contain",
+                // thin scrollbar styling
+                scrollbarWidth: "thin",
+                scrollbarColor: "rgba(255,255,255,0.2) transparent",
               }}
             >
               {lyricsLoading ? (
@@ -216,7 +246,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
                 </div>
               ) : lyrics && lyrics.length > 0 ? (
                 <p
-                  className="text-sm leading-7 whitespace-pre-wrap text-center"
+                  className="text-sm leading-8 whitespace-pre-wrap text-center"
                   style={{ color: "rgba(255,255,255,0.82)" }}
                 >
                   {lyrics}
@@ -245,11 +275,17 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             <h2 className="text-xl font-bold text-white truncate leading-tight">
               {currentSong.title}
             </h2>
-            <p className="text-sm mt-0.5 truncate" style={{ color: "rgba(255,255,255,0.5)" }}>
+            <p
+              className="text-sm mt-0.5 truncate"
+              style={{ color: "rgba(255,255,255,0.5)" }}
+            >
               {currentSong.artist}
             </p>
             {currentSong.movie && (
-              <p className="text-xs mt-0.5 truncate" style={{ color: "rgba(255,255,255,0.3)" }}>
+              <p
+                className="text-xs mt-0.5 truncate"
+                style={{ color: "rgba(255,255,255,0.3)" }}
+              >
                 {currentSong.movie}
               </p>
             )}
@@ -339,7 +375,6 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             <Repeat className="w-5 h-5" />
           </button>
         </div>
-
       </div>
     </div>
   );
