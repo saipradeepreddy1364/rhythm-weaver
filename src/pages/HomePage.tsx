@@ -4,7 +4,7 @@ import { api, extractResults } from "@/services/api";
 import { SongRow } from "@/components/SongRow";
 import { usePlayer } from "@/context/PlayerContext";
 import { useAuth } from "@/context/AuthContext";
-import { Music2, User, LogOut, ChevronDown, ChevronUp, Play, Disc3 } from "lucide-react";
+import { Music2, User, LogOut, ChevronDown, ChevronUp, Play, Disc3, X, ArrowLeft } from "lucide-react";
 import { AuthModal } from "@/components/AuthModal";
 
 // ─── Daily rotation ───────────────────────────────────────────────────────────
@@ -81,20 +81,20 @@ const MALAYALAM_QUERIES = [
   "malayalam chartbusters 2025",   "super hit malayalam songs",
 ];
 
-// ─── Album queries — large playlists / soundtracks ────────────────────────────
+// ─── Album queries ────────────────────────────────────────────────────────────
 
 const ALBUM_QUERIES = [
-  { title: "Kalki 2898 AD",      query: "Kalki 2898 AD songs" },
-  { title: "Animal",             query: "Animal movie songs bollywood" },
-  { title: "Jawan",              query: "Jawan movie songs shahrukh" },
-  { title: "Dunki",              query: "Dunki movie songs 2023" },
-  { title: "Leo",                query: "Leo Tamil movie songs" },
-  { title: "Jailer",             query: "Jailer Tamil movie songs" },
-  { title: "Pushpa 2",           query: "Pushpa 2 Telugu songs" },
-  { title: "Devara",             query: "Devara Jr NTR songs" },
-  { title: "RRR",                query: "RRR movie songs" },
-  { title: "Pathaan",            query: "Pathaan movie songs" },
-  { title: "Rocky Aur Rani",     query: "Rocky Aur Rani Kii Prem Kahaani songs" },
+  { title: "Kalki 2898 AD",          query: "Kalki 2898 AD songs" },
+  { title: "Animal",                 query: "Animal movie songs bollywood" },
+  { title: "Jawan",                  query: "Jawan movie songs shahrukh" },
+  { title: "Dunki",                  query: "Dunki movie songs 2023" },
+  { title: "Leo",                    query: "Leo Tamil movie songs" },
+  { title: "Jailer",                 query: "Jailer Tamil movie songs" },
+  { title: "Pushpa 2",               query: "Pushpa 2 Telugu songs" },
+  { title: "Devara",                 query: "Devara Jr NTR songs" },
+  { title: "RRR",                    query: "RRR movie songs" },
+  { title: "Pathaan",                query: "Pathaan movie songs" },
+  { title: "Rocky Aur Rani",         query: "Rocky Aur Rani Kii Prem Kahaani songs" },
   { title: "Tu Jhoothi Main Makkar", query: "Tu Jhoothi Main Makkar songs" },
 ];
 
@@ -139,17 +139,10 @@ async function fetchSection(query: string, limit = 25): Promise<Song[]> {
     try {
       if (attempt > 0) await sleep(1500);
       const res = await api.searchSongs(query, 1, limit);
-      if ((import.meta as any).env?.DEV) {
-        console.log(`[fetchSection] query="${query}" raw:`, JSON.stringify(res).slice(0, 200));
-      }
       const items = extractResults(res);
       const songs = items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
       if (songs.length > 0) return songs;
-    } catch (err) {
-      if ((import.meta as any).env?.DEV) {
-        console.warn(`[fetchSection] attempt ${attempt + 1} failed for "${query}":`, err);
-      }
-    }
+    } catch { /* silent retry */ }
   }
   return [];
 }
@@ -165,6 +158,95 @@ function dedup(songs: Song[], seen: Set<string>): Song[] {
   return out;
 }
 
+// ─── Album Detail Modal ───────────────────────────────────────────────────────
+
+function AlbumModal({
+  album,
+  onClose,
+  onRequireAuth,
+}: {
+  album: AlbumData;
+  onClose: () => void;
+  onRequireAuth: () => void;
+}) {
+  const { playSong } = usePlayer();
+
+  return (
+    <div
+      className="fixed inset-0 z-[55] flex flex-col"
+      style={{ background: "#0d0d0d" }}
+    >
+      {/* Blurred cover background */}
+      {album.coverArt && (
+        <div
+          className="absolute inset-0 opacity-20"
+          style={{
+            backgroundImage: `url(${album.coverArt})`,
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+            filter: "blur(50px) saturate(2)",
+            transform: "scale(1.3)",
+          }}
+        />
+      )}
+      <div
+        className="absolute inset-0"
+        style={{ background: "linear-gradient(to bottom, rgba(13,13,13,0.6) 0%, rgba(13,13,13,0.95) 40%)" }}
+      />
+
+      <div className="relative flex flex-col h-full overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center gap-3 px-4 pt-12 pb-4">
+          <button
+            onClick={onClose}
+            className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
+            style={{ background: "rgba(255,255,255,0.1)" }}
+          >
+            <ArrowLeft className="w-5 h-5 text-white" />
+          </button>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-lg font-bold text-white truncate">{album.title}</h2>
+            <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>
+              {album.songs.length} songs
+            </p>
+          </div>
+          <button
+            onClick={() => playSong(album.songs[0], album.songs)}
+            className="w-11 h-11 rounded-full flex items-center justify-center shadow-xl flex-shrink-0"
+            style={{ background: "#1DB954" }}
+          >
+            <Play className="w-5 h-5 text-black fill-black ml-0.5" />
+          </button>
+        </div>
+
+        {/* Cover art */}
+        <div className="px-4 mb-4 flex-shrink-0">
+          <div className="rounded-2xl overflow-hidden mx-auto shadow-2xl" style={{ width: 180, height: 180 }}>
+            {album.coverArt ? (
+              <img src={album.coverArt} alt={album.title} className="w-full h-full object-cover"
+                onError={(e) => { (e.target as HTMLImageElement).src = "https://via.placeholder.com/300x300?text=🎵"; }}
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.08)" }}>
+                <Disc3 className="w-12 h-12" style={{ color: "rgba(255,255,255,0.2)" }} />
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Song list */}
+        <div className="flex-1 overflow-y-auto" style={{ WebkitOverflowScrolling: "touch" }}>
+          <div className="space-y-0.5 px-2 pb-32">
+            {album.songs.map((song) => (
+              <SongRow key={song.id} song={song} queue={album.songs} onRequireAuth={onRequireAuth} />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function HomePage({ onRequireAuth }: HomePageProps) {
@@ -175,6 +257,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
   const [sections, setSections] = useState<SectionData[]>([]);
   const [albums, setAlbums] = useState<AlbumData[]>([]);
   const [albumsLoading, setAlbumsLoading] = useState(true);
+  const [openAlbum, setOpenAlbum] = useState<AlbumData | null>(null);
 
   const loadedRef = useRef(false);
   const globalSeenRef = useRef(new Set<string>());
@@ -193,7 +276,6 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
   useEffect(() => {
     if (loadedRef.current) return;
     loadedRef.current = true;
-
     globalSeenRef.current = new Set<string>();
     setSections([]);
 
@@ -240,38 +322,50 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
     setAlbumsLoading(true);
 
     async function loadAlbums() {
-      const result: AlbumData[] = [];
-      for (const { title, query } of ALBUM_QUERIES) {
-        if (unmounted) return;
-        try {
-          const res = await api.searchSongs(query, 1, 50);
-          const songs = extractResults(res)
-            .map(mapApiSong)
-            .filter((s: Song) => Boolean(s.audioUrl));
-          if (songs.length >= 3) {
-            result.push({
-              title,
-              coverArt: songs[0].albumArt || "",
-              songs,
-            });
-          }
-        } catch { /* skip failed album */ }
-        await sleep(300);
-      }
-      if (!unmounted) {
-        setAlbums(result);
-        setAlbumsLoading(false);
-      }
+      const settled = await Promise.allSettled(
+        ALBUM_QUERIES.map(async ({ title, query }) => {
+          const res = await api.searchSongs(query, 1, 20);
+          const songs = extractResults(res).map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
+          if (songs.length < 3) return null;
+          return { title, coverArt: songs[0].albumArt || "", songs } as AlbumData;
+        })
+      );
+      if (unmounted) return;
+      const result = settled
+        .map((r) => (r.status === "fulfilled" ? r.value : null))
+        .filter((a): a is AlbumData => a !== null);
+      setAlbums(result);
+      setAlbumsLoading(false);
     }
 
     loadAlbums();
     return () => { unmounted = true; };
   }, []);
 
-  const quickPickSongs = sections[0]?.songs.slice(0, 6) ?? [];
+  // ── Daily-rotating quick picks: shuffle based on today's date ───────────────
+  const quickPickSongs = (() => {
+    const pool = sections.flatMap((s) => s.songs);
+    if (pool.length === 0) return [];
+    const seed = todaysSeed();
+    const shuffled = [...pool].sort((a, b) => {
+      const ha = ((a.id?.charCodeAt(0) ?? 0) + seed) % 997;
+      const hb = ((b.id?.charCodeAt(0) ?? 0) + seed) % 997;
+      return ha - hb;
+    });
+    return shuffled;
+  })();
 
   return (
     <div className="w-full" style={{ background: "#121212", paddingBottom: "9rem" }}>
+
+      {/* ── Album detail modal ── */}
+      {openAlbum && (
+        <AlbumModal
+          album={openAlbum}
+          onClose={() => setOpenAlbum(null)}
+          onRequireAuth={handleRequireAuth}
+        />
+      )}
 
       {/* ── Header ── */}
       <div
@@ -290,9 +384,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
 
         <div className="relative">
           <button
-            onClick={() =>
-              user ? setShowUserMenu((v) => !v) : setShowAuthModal(true)
-            }
+            onClick={() => user ? setShowUserMenu((v) => !v) : setShowAuthModal(true)}
             className="w-9 h-9 rounded-full flex items-center justify-center transition-all active:scale-95"
             style={{ background: user ? "#1DB954" : "rgba(255,255,255,0.1)" }}
           >
@@ -308,16 +400,9 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
           {showUserMenu && user && (
             <div
               className="absolute right-0 top-full mt-2 w-48 rounded-xl shadow-2xl overflow-hidden animate-fade-in"
-              style={{
-                background: "#1a1a1a",
-                border: "1px solid rgba(255,255,255,0.08)",
-                zIndex: 50,
-              }}
+              style={{ background: "#1a1a1a", border: "1px solid rgba(255,255,255,0.08)", zIndex: 50 }}
             >
-              <div
-                className="px-4 py-3"
-                style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}
-              >
+              <div className="px-4 py-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
                 <p className="text-sm font-semibold text-white">{user.username}</p>
                 <p className="text-xs text-white/40 mt-0.5">{user.email}</p>
               </div>
@@ -333,7 +418,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
         </div>
       </div>
 
-      {/* ── Quick Picks ── */}
+      {/* ── Quick Picks (daily rotating) ── */}
       <div className="px-4 pt-4 mb-6">
         <h2 className="text-base font-bold text-white mb-3">Quick Picks</h2>
         {quickPickSongs.length > 0 ? (
@@ -344,7 +429,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-2">
-            {Array.from({ length: 6 }).map((_, i) => (
+            {Array.from({ length: 12 }).map((_, i) => (
               <div
                 key={i}
                 className="flex items-center gap-2 rounded-lg overflow-hidden"
@@ -365,10 +450,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
           <div className="flex gap-4 px-4 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
             {Array.from({ length: 5 }).map((_, i) => (
               <div key={i} className="flex-shrink-0" style={{ width: 140 }}>
-                <div
-                  className="rounded-xl mb-2"
-                  style={{ width: 140, height: 140, background: "rgba(255,255,255,0.07)" }}
-                />
+                <div className="rounded-xl mb-2" style={{ width: 140, height: 140, background: "rgba(255,255,255,0.07)" }} />
                 <div className="h-3 w-24 rounded mb-1.5" style={{ background: "rgba(255,255,255,0.07)" }} />
                 <div className="h-2.5 w-16 rounded" style={{ background: "rgba(255,255,255,0.05)" }} />
               </div>
@@ -380,7 +462,12 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
             style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" } as React.CSSProperties}
           >
             {albums.map((album) => (
-              <AlbumCard key={album.title} album={album} onRequireAuth={handleRequireAuth} />
+              <AlbumCard
+                key={album.title}
+                album={album}
+                onRequireAuth={handleRequireAuth}
+                onOpen={() => setOpenAlbum(album)}
+              />
             ))}
           </div>
         ) : null}
@@ -400,11 +487,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
         <div className="px-4 mb-5">
           <div className="h-4 w-36 rounded mb-4" style={{ background: "rgba(255,255,255,0.07)" }} />
           {Array.from({ length: 5 }).map((_, i) => (
-            <div
-              key={i}
-              className="flex items-center gap-3 py-2.5 mb-1 rounded-xl"
-              style={{ background: "rgba(255,255,255,0.03)" }}
-            >
+            <div key={i} className="flex items-center gap-3 py-2.5 mb-1 rounded-xl" style={{ background: "rgba(255,255,255,0.03)" }}>
               <div className="w-11 h-11 rounded-xl flex-shrink-0" style={{ background: "rgba(255,255,255,0.07)" }} />
               <div className="flex-1 space-y-1.5">
                 <div className="h-3 w-40 rounded" style={{ background: "rgba(255,255,255,0.07)" }} />
@@ -424,91 +507,54 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
   );
 }
 
-// ─── AlbumCard ────────────────────────────────────────────────────────────────
+// ─── AlbumCard — opens full modal, no dropdown ────────────────────────────────
 
 function AlbumCard({
   album,
   onRequireAuth,
+  onOpen,
 }: {
   album: AlbumData;
   onRequireAuth: () => void;
+  onOpen: () => void;
 }) {
   const { playSong } = usePlayer();
-  const [expanded, setExpanded] = useState(false);
 
   return (
     <div className="flex-shrink-0" style={{ width: 150 }}>
-      {/* Cover */}
       <div
         className="relative rounded-xl overflow-hidden mb-2 cursor-pointer active:scale-95 transition-transform"
         style={{ width: 150, height: 150 }}
-        onClick={() => setExpanded((v) => !v)}
+        onClick={onOpen}
       >
         {album.coverArt ? (
-          <img
-            src={album.coverArt}
-            alt={album.title}
-            className="w-full h-full object-cover"
-            onError={(e) => {
-              (e.target as HTMLImageElement).src =
-                "https://via.placeholder.com/300x300?text=🎵";
-            }}
+          <img src={album.coverArt} alt={album.title} className="w-full h-full object-cover"
+            onError={(e) => { (e.target as HTMLImageElement).src = "https://via.placeholder.com/300x300?text=🎵"; }}
           />
         ) : (
-          <div
-            className="w-full h-full flex items-center justify-center"
-            style={{ background: "rgba(255,255,255,0.08)" }}
-          >
+          <div className="w-full h-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.08)" }}>
             <Disc3 className="w-10 h-10" style={{ color: "rgba(255,255,255,0.2)" }} />
           </div>
         )}
-
-        {/* Play button overlay */}
         <button
-          onClick={(e) => {
-            e.stopPropagation();
-            playSong(album.songs[0], album.songs);
-          }}
+          onClick={(e) => { e.stopPropagation(); playSong(album.songs[0], album.songs); }}
           className="absolute bottom-2 right-2 w-10 h-10 rounded-full flex items-center justify-center shadow-xl active:scale-90 transition-transform"
           style={{ background: "#1DB954" }}
         >
           <Play className="w-4 h-4 text-black fill-black ml-0.5" />
         </button>
       </div>
-
-      {/* Info */}
       <p className="text-sm font-semibold text-white truncate leading-tight">{album.title}</p>
       <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>
         {album.songs.length} songs
       </p>
-
-      {/* Expanded song list */}
-      {expanded && (
-        <div
-          className="mt-2 rounded-xl overflow-hidden"
-          style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)" }}
-        >
-          {album.songs.map((song) => (
-            <SongRow
-              key={song.id}
-              song={song}
-              queue={album.songs}
-              onRequireAuth={onRequireAuth}
-            />
-          ))}
-        </div>
-      )}
     </div>
   );
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function CollapsibleSection({
-  title, songs, onRequireAuth,
-}: {
-  title: string; songs: Song[]; onRequireAuth: () => void;
-}) {
+function CollapsibleSection({ title, songs, onRequireAuth }: { title: string; songs: Song[]; onRequireAuth: () => void }) {
   const [expanded, setExpanded] = useState(false);
   const PREVIEW = 5;
   const visible = expanded ? songs : songs.slice(0, PREVIEW);
@@ -529,7 +575,8 @@ function CollapsibleSection({
         >
           {expanded
             ? <><ChevronUp className="w-3.5 h-3.5" /> Show less</>
-            : <><ChevronDown className="w-3.5 h-3.5" /> Show {songs.length - PREVIEW} more</>}
+            : <><ChevronDown className="w-3.5 h-3.5" /> Show {songs.length - PREVIEW} more</>
+          }
         </button>
       )}
     </div>
@@ -554,19 +601,12 @@ function QuickPick({ song, queue }: { song: Song; queue: Song[] }) {
       style={{ background: "rgba(255,255,255,0.08)", minWidth: 0 }}
     >
       {song.albumArt ? (
-        <img
-          src={song.albumArt}
-          alt={song.title}
-          className="w-12 h-12 object-cover flex-shrink-0"
-          onError={(e) => {
-            (e.target as HTMLImageElement).src = "https://via.placeholder.com/100x100?text=🎵";
-          }}
+        <img src={song.albumArt} alt={song.title} className="w-12 h-12 object-cover flex-shrink-0"
+          onError={(e) => { (e.target as HTMLImageElement).src = "https://via.placeholder.com/100x100?text=🎵"; }}
         />
       ) : (
-        <div
-          className="w-12 h-12 flex-shrink-0 flex items-center justify-center"
-          style={{ background: "linear-gradient(135deg,#f43f5e,#7c3aed)" }}
-        >
+        <div className="w-12 h-12 flex-shrink-0 flex items-center justify-center"
+          style={{ background: "linear-gradient(135deg,#f43f5e,#7c3aed)" }}>
           <span className="text-white text-lg">🎵</span>
         </div>
       )}

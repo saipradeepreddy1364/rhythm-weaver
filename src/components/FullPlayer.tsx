@@ -1,7 +1,7 @@
 import { usePlayer } from "@/context/PlayerContext";
 import { formatDuration } from "@/data/songs";
 import { LikeButton } from "@/components/LikeButton";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Play,
   Pause,
@@ -20,8 +20,6 @@ interface FullPlayerProps {
   onRequireAuth?: () => void;
 }
 
-// ── Lyrics fetcher ─────────────────────────────────────────────────────────────
-// Only calls YOUR backend — never calls saavn.dev directly from the browser.
 const BACKEND_URL =
   (import.meta as any).env?.VITE_API_BACKEND_URL ||
   "https://musicbackend-g2sp.onrender.com/api";
@@ -63,21 +61,28 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   const [lyrics, setLyrics] = useState<string | null>(null);
   const [lyricsLoading, setLyricsLoading] = useState(false);
   const [prevVolume, setPrevVolume] = useState(0.7);
+  const [showVolume, setShowVolume] = useState(false);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── Reset tab to Cover every time the player is opened ──────────────────────
+  const resetHideTimer = () => {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = setTimeout(() => setShowVolume(false), 3000);
+  };
+
   useEffect(() => {
-    if (showPlayer) {
-      setShowLyrics(false);
-    }
+    if (showVolume) resetHideTimer();
+    return () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current); };
+  }, [showVolume]);
+
+  useEffect(() => {
+    if (showPlayer) setShowLyrics(false);
   }, [showPlayer]);
 
-  // ── Reset lyrics cache when the song changes ─────────────────────────────────
   useEffect(() => {
     setLyrics(null);
     setLyricsLoading(false);
   }, [currentSong?.id]);
 
-  // ── Fetch lyrics only when lyrics tab is open and not yet fetched ────────────
   useEffect(() => {
     if (!currentSong || !showLyrics) return;
     if (lyrics !== null) return;
@@ -105,10 +110,15 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
       setPrevVolume(volume);
       setVolume(0);
     }
+    resetHideTimer();
+  };
+
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setVolume(parseFloat(e.target.value));
+    resetHideTimer();
   };
 
   return (
-    // z-[60] — AuthModal uses z-[70] so it renders on top of this
     <div
       className="fixed inset-0 z-[60] flex flex-col animate-fade-in"
       style={{ background: "#0a0a0a", overflow: "hidden" }}
@@ -127,7 +137,6 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         />
       )}
 
-      {/* ── Dark gradient overlay ── */}
       <div
         className="absolute inset-0"
         style={{
@@ -136,35 +145,32 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         }}
       />
 
-      {/* ── Webkit scrollbar styles for lyrics panel ── */}
       <style>{`
         .lyrics-scroll::-webkit-scrollbar { width: 3px; }
         .lyrics-scroll::-webkit-scrollbar-track { background: transparent; }
         .lyrics-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 99px; }
-        .lyrics-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.4); }
-        .volume-slider::-webkit-slider-thumb {
+        .full-vol-slider { -webkit-appearance: none; appearance: none; background: transparent; width: 100%; height: 100%; cursor: pointer; }
+        .full-vol-slider::-webkit-slider-thumb {
           -webkit-appearance: none;
-          width: 14px; height: 14px;
+          width: 10px; height: 10px;
           border-radius: 50%;
           background: #fff;
           cursor: pointer;
-          box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+          margin-top: -3.5px;
         }
-        .volume-slider::-moz-range-thumb {
-          width: 14px; height: 14px;
+        .full-vol-slider::-moz-range-thumb {
+          width: 10px; height: 10px;
           border-radius: 50%;
           background: #fff;
           cursor: pointer;
           border: none;
-          box-shadow: 0 1px 4px rgba(0,0,0,0.4);
         }
+        .full-vol-slider::-webkit-slider-runnable-track { height: 3px; background: transparent; }
+        .full-vol-slider::-moz-range-track { height: 3px; background: transparent; }
+        @keyframes fadeSlideUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
       `}</style>
 
-      {/* ── Main layout — never scrolls ── */}
-      <div
-        className="relative flex flex-col w-full h-full px-6"
-        style={{ overflow: "hidden" }}
-      >
+      <div className="relative flex flex-col w-full h-full px-6" style={{ overflow: "hidden" }}>
         {/* ── Header ── */}
         <div className="flex items-center justify-between pt-10 pb-2 flex-shrink-0">
           <button
@@ -174,13 +180,11 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           >
             <ChevronDown className="w-5 h-5 text-white" />
           </button>
-          <p className="text-xs text-white/40 uppercase tracking-widest font-semibold">
-            Now Playing
-          </p>
+          <p className="text-xs text-white/40 uppercase tracking-widest font-semibold">Now Playing</p>
           <div className="w-10" />
         </div>
 
-        {/* ── Tab switcher: Cover / Lyrics ── */}
+        {/* ── Tab switcher ── */}
         <div className="flex items-center justify-center gap-1 mb-4 flex-shrink-0">
           <button
             onClick={() => setShowLyrics(false)}
@@ -205,29 +209,16 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           </button>
         </div>
 
-        {/* ── Cover tab: NO overflow, NO scrollbar ── */}
+        {/* ── Cover tab ── */}
         {!showLyrics && (
-          <div
-            className="flex items-center justify-center flex-shrink-0"
-            style={{ height: 230, overflow: "hidden" }}
-          >
+          <div className="flex items-center justify-center flex-shrink-0" style={{ height: 230, overflow: "hidden" }}>
             <div
               className="rounded-2xl overflow-hidden"
-              style={{
-                width: 210,
-                height: 210,
-                boxShadow: "0 24px 64px -12px rgba(0,0,0,0.9)",
-              }}
+              style={{ width: 210, height: 210, boxShadow: "0 24px 64px -12px rgba(0,0,0,0.9)" }}
             >
               {currentSong.albumArt ? (
-                <img
-                  src={currentSong.albumArt}
-                  alt={currentSong.title}
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).src =
-                      "https://via.placeholder.com/400x400?text=🎵";
-                  }}
+                <img src={currentSong.albumArt} alt={currentSong.title} className="w-full h-full object-cover"
+                  onError={(e) => { (e.target as HTMLImageElement).src = "https://via.placeholder.com/400x400?text=🎵"; }}
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-green-500 to-emerald-600">
@@ -238,12 +229,9 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           </div>
         )}
 
-        {/* ── Lyrics tab: only this inner box scrolls ── */}
+        {/* ── Lyrics tab ── */}
         {showLyrics && (
-          <div
-            className="flex-shrink-0"
-            style={{ height: 230, overflow: "hidden" }}
-          >
+          <div className="flex-shrink-0" style={{ height: 230, overflow: "hidden" }}>
             <div
               className="lyrics-scroll w-full h-full rounded-2xl px-5 py-4"
               style={{
@@ -259,31 +247,17 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             >
               {lyricsLoading ? (
                 <div className="flex items-center justify-center h-full">
-                  <div
-                    className="w-7 h-7 rounded-full border-2 animate-spin"
-                    style={{
-                      borderColor: "rgba(255,255,255,0.15)",
-                      borderTopColor: "#1DB954",
-                    }}
-                  />
+                  <div className="w-7 h-7 rounded-full border-2 animate-spin"
+                    style={{ borderColor: "rgba(255,255,255,0.15)", borderTopColor: "#1DB954" }} />
                 </div>
               ) : lyrics && lyrics.length > 0 ? (
-                <p
-                  className="text-sm leading-8 whitespace-pre-wrap text-center"
-                  style={{ color: "rgba(255,255,255,0.82)" }}
-                >
+                <p className="text-sm leading-8 whitespace-pre-wrap text-center" style={{ color: "rgba(255,255,255,0.82)" }}>
                   {lyrics}
                 </p>
               ) : (
                 <div className="flex flex-col items-center justify-center h-full gap-3">
-                  <Mic2
-                    className="w-10 h-10"
-                    style={{ color: "rgba(255,255,255,0.15)" }}
-                  />
-                  <p
-                    className="text-xs font-medium text-center"
-                    style={{ color: "rgba(255,255,255,0.35)" }}
-                  >
+                  <Mic2 className="w-10 h-10" style={{ color: "rgba(255,255,255,0.15)" }} />
+                  <p className="text-xs font-medium text-center" style={{ color: "rgba(255,255,255,0.35)" }}>
                     Lyrics not available for this song
                   </p>
                 </div>
@@ -295,30 +269,17 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         {/* ── Song Info + Like ── */}
         <div className="flex items-center gap-3 mt-4 mb-2 flex-shrink-0">
           <div className="flex-1 min-w-0">
-            <h2 className="text-xl font-bold text-white truncate leading-tight">
-              {currentSong.title}
-            </h2>
-            <p
-              className="text-sm mt-0.5 truncate"
-              style={{ color: "rgba(255,255,255,0.5)" }}
-            >
+            <h2 className="text-xl font-bold text-white truncate leading-tight">{currentSong.title}</h2>
+            <p className="text-sm mt-0.5 truncate" style={{ color: "rgba(255,255,255,0.5)" }}>
               {currentSong.artist}
             </p>
             {currentSong.movie && (
-              <p
-                className="text-xs mt-0.5 truncate"
-                style={{ color: "rgba(255,255,255,0.3)" }}
-              >
+              <p className="text-xs mt-0.5 truncate" style={{ color: "rgba(255,255,255,0.3)" }}>
                 {currentSong.movie}
               </p>
             )}
           </div>
-          <LikeButton
-            song={currentSong}
-            onRequireAuth={onRequireAuth}
-            size="lg"
-            className="flex-shrink-0"
-          />
+          <LikeButton song={currentSong} onRequireAuth={onRequireAuth} size="lg" className="flex-shrink-0" />
         </div>
 
         {/* ── Seek Bar ── */}
@@ -328,29 +289,20 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             style={{ background: "rgba(255,255,255,0.15)" }}
             onClick={(e) => {
               const rect = e.currentTarget.getBoundingClientRect();
-              const ratio = Math.max(
-                0,
-                Math.min(1, (e.clientX - rect.left) / rect.width)
-              );
+              const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
               setProgress(Math.floor(ratio * totalDuration));
             }}
           >
             <div
               className="absolute top-0 left-0 h-full rounded-full transition-all duration-100"
-              style={{
-                width: `${pct}%`,
-                background: "linear-gradient(90deg, #1DB954, #1ed760)",
-              }}
+              style={{ width: `${pct}%`, background: "linear-gradient(90deg, #1DB954, #1ed760)" }}
             />
             <div
               className="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-white shadow-md"
               style={{ left: `calc(${pct}% - 8px)` }}
             />
           </div>
-          <div
-            className="flex justify-between text-xs mt-1.5"
-            style={{ color: "rgba(255,255,255,0.4)" }}
-          >
+          <div className="flex justify-between text-xs mt-1.5" style={{ color: "rgba(255,255,255,0.4)" }}>
             <span>{formatDuration(Math.floor(progress))}</span>
             <span>{formatDuration(Math.floor(totalDuration))}</span>
           </div>
@@ -358,87 +310,96 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
 
         {/* ── Playback Controls ── */}
         <div className="flex items-center justify-between mb-4 flex-shrink-0">
-          <button
-            className="p-3 active:scale-90 transition-transform"
-            style={{ color: "rgba(255,255,255,0.5)" }}
-          >
+          <button className="p-3 active:scale-90 transition-transform" style={{ color: "rgba(255,255,255,0.5)" }}>
             <Shuffle className="w-5 h-5" />
           </button>
-
-          <button
-            onClick={prevSong}
-            className="p-3 text-white active:scale-90 transition-transform"
-          >
+          <button onClick={prevSong} className="p-3 text-white active:scale-90 transition-transform">
             <SkipBack className="w-7 h-7 fill-current" />
           </button>
-
           <button
             onClick={togglePlay}
             className="w-16 h-16 rounded-full flex items-center justify-center shadow-2xl active:scale-90 transition-transform"
             style={{ background: "linear-gradient(135deg, #1DB954, #1ed760)" }}
           >
-            {isPlaying ? (
-              <Pause className="w-7 h-7 text-black fill-black" />
-            ) : (
-              <Play className="w-7 h-7 text-black fill-black ml-1" />
-            )}
+            {isPlaying
+              ? <Pause className="w-7 h-7 text-black fill-black" />
+              : <Play className="w-7 h-7 text-black fill-black ml-1" />
+            }
           </button>
-
-          <button
-            onClick={nextSong}
-            className="p-3 text-white active:scale-90 transition-transform"
-          >
+          <button onClick={nextSong} className="p-3 text-white active:scale-90 transition-transform">
             <SkipForward className="w-7 h-7 fill-current" />
           </button>
-
-          <button
-            className="p-3 active:scale-90 transition-transform"
-            style={{ color: "rgba(255,255,255,0.5)" }}
-          >
+          <button className="p-3 active:scale-90 transition-transform" style={{ color: "rgba(255,255,255,0.5)" }}>
             <Repeat className="w-5 h-5" />
           </button>
         </div>
 
-        {/* ── Volume Control ── */}
-        <div className="flex items-center gap-3 flex-shrink-0">
-          <button
-            onClick={toggleMute}
-            className="flex-shrink-0 active:scale-90 transition-transform"
-            style={{ color: isMuted ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.6)" }}
+        {/* ── Volume popup (same style as MiniPlayer) ── */}
+        {showVolume && (
+          <div
+            className="flex-shrink-0 mb-3 rounded-2xl px-4 py-3 flex items-center gap-3"
+            style={{
+              background: "rgba(28,18,22,0.85)",
+              border: "1px solid rgba(255,255,255,0.07)",
+              animation: "fadeSlideUp 0.15s ease",
+            }}
+            onMouseMove={resetHideTimer}
+            onTouchMove={resetHideTimer}
           >
-            {isMuted ? (
-              <VolumeX className="w-5 h-5" />
-            ) : (
-              <Volume2 className="w-5 h-5" />
-            )}
-          </button>
+            <button
+              onClick={toggleMute}
+              className="flex-shrink-0 active:scale-90 transition-transform"
+              style={{ color: isMuted ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.7)" }}
+            >
+              {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+            </button>
 
-          <div className="relative flex-1 h-1.5 rounded-full" style={{ background: "rgba(255,255,255,0.15)" }}>
-            <div
-              className="absolute top-0 left-0 h-full rounded-full"
-              style={{
-                width: `${volume * 100}%`,
-                background: "linear-gradient(90deg, #1DB954, #1ed760)",
-              }}
-            />
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={volume}
-              onChange={(e) => setVolume(parseFloat(e.target.value))}
-              className="volume-slider absolute inset-0 w-full opacity-0 cursor-pointer"
-              style={{ height: "100%" }}
-            />
+            {/* Slim 3px YouTube-style volume bar */}
+            <div className="relative flex-1" style={{ height: 3 }}>
+              <div className="absolute inset-0 rounded-full" style={{ background: "rgba(255,255,255,0.15)" }} />
+              <div
+                className="absolute top-0 left-0 h-full rounded-full pointer-events-none"
+                style={{
+                  width: `${volume * 100}%`,
+                  background: "linear-gradient(90deg, #1DB954, #1ed760)",
+                }}
+              />
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={volume}
+                onChange={handleVolumeChange}
+                className="full-vol-slider absolute"
+                style={{ top: "50%", transform: "translateY(-50%)", left: 0 }}
+              />
+            </div>
+
+            <span className="text-xs font-medium w-7 text-right flex-shrink-0" style={{ color: "rgba(255,255,255,0.4)" }}>
+              {Math.round(volume * 100)}
+            </span>
           </div>
+        )}
 
-          <span
-            className="text-xs font-medium flex-shrink-0 w-8 text-right"
-            style={{ color: "rgba(255,255,255,0.35)" }}
+        {/* ── Volume toggle button (always visible at bottom) ── */}
+        <div className="flex items-center justify-center flex-shrink-0 pb-2">
+          <button
+            onClick={() => {
+              setShowVolume((v) => {
+                if (!v) resetHideTimer();
+                return !v;
+              });
+            }}
+            className="flex items-center gap-2 px-4 py-2 rounded-full transition-all active:scale-95"
+            style={{
+              background: showVolume ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.06)",
+              color: isMuted ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.6)",
+            }}
           >
-            {Math.round(volume * 100)}
-          </span>
+            {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+            <span className="text-xs font-medium">{Math.round(volume * 100)}%</span>
+          </button>
         </div>
       </div>
     </div>
