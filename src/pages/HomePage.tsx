@@ -254,7 +254,7 @@ async function fetchAllSongs(
   query: string,
   albumTitle: string,
   albumType: string,
-  targetCount = 200
+  targetCount = 1000
 ): Promise<Song[]> {
   const seen = new Set<string>();
   const all: Song[] = [];
@@ -304,30 +304,23 @@ async function fetchLanguageSongs(
 
   for (const query of queries) {
     try {
-      const res = await api.searchSongs(query, 1, targetPerQuery);
-      const items = extractResults(res);
-      const songs = items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
-      for (const s of songs) {
-        if (s.id && !seen.has(s.id)) {
-          seen.add(s.id);
-          all.push(s);
-        }
-      }
-      // Also fetch page 2 for more results
-      if (items.length >= targetPerQuery) {
-        await sleep(200);
-        const res2 = await api.searchSongs(query, 2, targetPerQuery);
-        const items2 = extractResults(res2);
-        const songs2 = items2.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
-        for (const s of songs2) {
+      for (let pg = 1; pg <= 4; pg++) {
+        if (pg > 1) await sleep(200);
+        const res = await api.searchSongs(query, pg, targetPerQuery);
+        const items = extractResults(res);
+        const songs = items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
+        let added = 0;
+        for (const s of songs) {
           if (s.id && !seen.has(s.id)) {
             seen.add(s.id);
             all.push(s);
+            added++;
           }
         }
+        if (items.length < targetPerQuery || added === 0) break;
       }
     } catch { /* continue with next query */ }
-    await sleep(200);
+    await sleep(150);
   }
   return all;
 }
@@ -364,7 +357,7 @@ function AlbumModal({
 
   useEffect(() => {
     setLoadingMore(true);
-    fetchAllSongs(albumQuery, album.title, albumType, 200).then((fetched) => {
+    fetchAllSongs(albumQuery, album.title, albumType, 1000).then((fetched) => {
       if (fetched.length > 0) setSongs(fetched);
       setLoadingMore(false);
     }).catch(() => setLoadingMore(false));
@@ -1061,36 +1054,6 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
             ))}
           </div>
         )}
-      </div>
-
-      {/* ── Browse by Language ── */}
-      <div className="mb-6 px-4">
-        <h2 className="text-base font-bold text-white mb-3">Browse by Language</h2>
-        <div className="flex gap-3 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
-          {LANGUAGE_CATEGORIES.map((lang) => (
-            <button
-              key={lang.label}
-              onClick={() => setOpenLanguage(lang)}
-              className="flex-shrink-0 flex flex-col items-center gap-1.5 active:scale-95 transition-transform"
-            >
-              <div
-                className="w-20 h-20 rounded-2xl flex items-center justify-center shadow-lg"
-                style={{
-                  background: lang.label === "Hindi"
-                    ? "linear-gradient(135deg,#FF6B35,#F7C59F)"
-                    : lang.label === "Telugu"
-                    ? "linear-gradient(135deg,#1DB954,#1ed760)"
-                    : "linear-gradient(135deg,#e91e63,#ff5722)",
-                }}
-              >
-                <span className="text-2xl">
-                  {lang.label === "Hindi" ? "🎵" : lang.label === "Telugu" ? "🎶" : "🎸"}
-                </span>
-              </div>
-              <span className="text-xs font-semibold text-white">{lang.label}</span>
-            </button>
-          ))}
-        </div>
       </div>
 
       {/* ── Featured Movie & Hero Albums (with song count) ── */}

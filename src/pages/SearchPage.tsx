@@ -426,8 +426,8 @@ function LanguageAlbumModal({
       const queries = getLanguageQueries(language);
 
       for (const q of queries) {
-        // Each query: paginate up to 4 pages (4 × 50 = 200 per query)
-        for (let page = 1; page <= 4; page++) {
+        // Each query: paginate up to 8 pages (8 × 50 = 400 per query)
+        for (let page = 1; page <= 8; page++) {
           try {
             if (page > 1) await sleep(200);
             const res = await api.searchSongs(q, page, 50);
@@ -787,7 +787,7 @@ function AlbumModal({
       const all: Song[] = [...album.songs];
       const pageSize = 50;
 
-      for (let page = 1; page <= 5; page++) {
+      for (let page = 1; page <= 20; page++) {
         try {
           if (page > 1) await sleep(300);
           const res   = await api.searchSongs(album.name, page, pageSize);
@@ -811,7 +811,7 @@ function AlbumModal({
           }
 
           if (items.length < pageSize) break;
-          if (all.length >= 100) break;
+          if (all.length >= 1000) break;
         } catch { break; }
       }
 
@@ -967,8 +967,8 @@ function ArtistModal({
       ];
 
       for (const q of queryVariants) {
-        // Up to 12 pages per query variant → 12 × 50 = 600 per variant
-        for (let page = 1; page <= 12; page++) {
+        // Up to 20 pages per query variant → 20 × 50 = 1000 per variant
+        for (let page = 1; page <= 20; page++) {
           try {
             if (page > 1) await sleep(250);
             const res   = await api.searchSongs(q, page, pageSize);
@@ -1004,12 +1004,12 @@ function ArtistModal({
             }
 
             if (items.length < pageSize) break; // no more pages for this query
-            if (all.length >= 600) break;       // hit our target — stop
+            if (all.length >= 1000) break;       // hit our target — stop
           } catch { break; }
         }
 
         await sleep(120); // brief pause between query variants
-        if (all.length >= 600) break;
+        if (all.length >= 1000) break;
       }
 
       setFullSongs([...all]);
@@ -1293,9 +1293,25 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
       .then((res) => {
         const results = extractResults(res).map(mapApiSong).filter((s: Song) => s.audioUrl);
         if (pg === 1) {
+          // ── Artist detection: if the trimmed query closely matches a top artist name,
+          //    auto-open ArtistModal so they see 1000s of that artist's songs first ──
+          const grouped = groupIntoArtists(results);
+          const topArtist = grouped[0];
+          if (
+            topArtist &&
+            topArtist.songCount >= 3 &&
+            topArtist.name.toLowerCase().includes(trimmed.toLowerCase())
+          ) {
+            setActiveArtist(topArtist);
+            setSongs(results);
+            setAlbums(groupIntoAlbums(results));
+            setArtists(grouped);
+            setLoading(false);
+            return;
+          }
           setSongs(results);
           setAlbums(groupIntoAlbums(results));
-          setArtists(groupIntoArtists(results));
+          setArtists(grouped);
         } else {
           setSongs((prev) => {
             const merged = [...prev, ...results];
