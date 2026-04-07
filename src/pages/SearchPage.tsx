@@ -37,7 +37,7 @@ interface Artist {
   songs: Song[];
 }
 
-// ─── Browse categories — each fetches real album art only (no color cards) ──────
+// ─── Browse categories ────────────────────────────────────────────────────────
 
 const BROWSE_CATEGORIES = [
   { label: "Trending",     query: "trending hindi songs 2025" },
@@ -54,6 +54,21 @@ const BROWSE_CATEGORIES = [
   { label: "Kannada",      query: "trending kannada songs 2025" },
 ];
 
+// ─── Language categories with sub-categories for full song loading ────────────
+
+const LANGUAGE_EXTRA_QUERIES: Record<string, string[]> = {
+  "Hindi":     ["popular hindi songs", "hindi film songs superhit", "hindi songs chartbuster"],
+  "Telugu":    ["popular telugu songs", "telugu film songs superhit", "telugu songs chartbuster"],
+  "Tamil":     ["popular tamil songs", "tamil film songs superhit", "kollywood superhit songs"],
+  "Malayalam": ["popular malayalam songs", "malayalam film songs", "mollywood superhit songs"],
+  "Kannada":   ["popular kannada songs", "kannada film songs", "sandalwood superhit songs"],
+  "Punjabi":   ["popular punjabi songs", "punjabi hits", "punjabi new songs"],
+};
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 // ─── Category Song List Modal ─────────────────────────────────────────────────
 
 function CategorySongModal({
@@ -63,6 +78,7 @@ function CategorySongModal({
   loading,
   onClose,
   onRequireAuth,
+  fetchMore,
 }: {
   label: string;
   songs: Song[];
@@ -70,12 +86,12 @@ function CategorySongModal({
   loading: boolean;
   onClose: () => void;
   onRequireAuth: () => void;
+  fetchMore?: () => void;
 }) {
   const { playSong } = usePlayer();
 
   return (
     <div className="fixed inset-0 z-[55] flex flex-col" style={{ background: "#0d0d0d" }}>
-      {/* Blurred background */}
       {coverArt && (
         <div
           className="absolute inset-0 opacity-20"
@@ -146,18 +162,24 @@ function CategorySongModal({
               {songs.map((song) => (
                 <SongRow key={song.id} song={song} queue={songs} onRequireAuth={onRequireAuth} />
               ))}
+              {loading && songs.length > 0 && (
+                <div className="flex items-center justify-center py-4 gap-2">
+                  <div className="w-5 h-5 rounded-full border-2 border-white/20 border-t-white/60 animate-spin" />
+                  <span className="text-xs text-white/40">Loading more…</span>
+                </div>
+              )}
             </div>
           )}
         </div>
-
-        {/* ── MiniPlayer visible inside this modal ── */}
-        <MiniPlayer onRequireAuth={onRequireAuth} />
       </div>
+
+      {/* MiniPlayer always visible inside modal */}
+      <MiniPlayer onRequireAuth={onRequireAuth} />
     </div>
   );
 }
 
-// ─── Homepage-style category card (square, same look as homepage album cards) ──
+// ─── Category Card ────────────────────────────────────────────────────────────
 
 interface CategoryCardProps {
   label: string;
@@ -174,25 +196,44 @@ function CategoryCard({ label, query, onSelect }: CategoryCardProps) {
   useEffect(() => {
     if (fetchedRef.current) return;
     fetchedRef.current = true;
-    api.searchSongs(query, 1, 20)
-      .then((res) => {
-        const fetched = extractResults(res).map(mapApiSong).filter((s: Song) => s.audioUrl);
-        const withArt = fetched.filter((s: Song) => s.albumArt);
-        if (withArt.length > 0) setCoverArt(withArt[0].albumArt!);
-        setSongs(fetched);
-        setLoaded(true);
-      })
-      .catch(() => setLoaded(true));
-  }, [query]);
+
+    // Fetch more songs for language categories by using extra queries
+    const extraQueries = LANGUAGE_EXTRA_QUERIES[label] || [];
+    const allQueries = [query, ...extraQueries];
+
+    const fetchAll = async () => {
+      const seen = new Set<string>();
+      const allSongs: Song[] = [];
+
+      for (const q of allQueries) {
+        try {
+          const res = await api.searchSongs(q, 1, 30);
+          const fetched = extractResults(res).map(mapApiSong).filter((s: Song) => s.audioUrl);
+          for (const s of fetched) {
+            if (s.id && !seen.has(s.id)) {
+              seen.add(s.id);
+              allSongs.push(s);
+            }
+          }
+        } catch { /* continue */ }
+        await sleep(150);
+      }
+
+      const withArt = allSongs.filter((s: Song) => s.albumArt);
+      if (withArt.length > 0) setCoverArt(withArt[0].albumArt!);
+      setSongs(allSongs);
+      setLoaded(true);
+    };
+
+    fetchAll().catch(() => setLoaded(true));
+  }, [query, label]);
 
   return (
-    // Same width/structure as homepage album cards — square image + label below
     <button
       onClick={() => onSelect(label, songs, coverArt || "")}
       className="flex flex-col items-start text-left active:scale-95 transition-transform"
       style={{ width: "100%" }}
     >
-      {/* Square album art — same proportions as homepage */}
       <div
         className="relative rounded-xl overflow-hidden w-full shadow-md"
         style={{ aspectRatio: "1 / 1", background: "rgba(255,255,255,0.07)" }}
@@ -214,7 +255,6 @@ function CategoryCard({ label, query, onSelect }: CategoryCardProps) {
           </div>
         )}
 
-        {/* Subtle play button overlay on bottom-right — same as homepage album cards */}
         <div
           className="absolute bottom-2 right-2 w-8 h-8 rounded-full flex items-center justify-center shadow-lg"
           style={{ background: "rgba(29,185,84,0.92)" }}
@@ -223,7 +263,6 @@ function CategoryCard({ label, query, onSelect }: CategoryCardProps) {
         </div>
       </div>
 
-      {/* Label below image — same as homepage */}
       <p className="mt-2 text-sm font-semibold text-white truncate w-full leading-tight">{label}</p>
       <p className="text-xs mt-0.5 truncate w-full" style={{ color: "rgba(255,255,255,0.4)" }}>
         {loaded && songs.length > 0 ? `${songs.length} songs` : "Browse"}
@@ -232,7 +271,7 @@ function CategoryCard({ label, query, onSelect }: CategoryCardProps) {
   );
 }
 
-// ─── Album Detail Modal ───────────────────────────────────────────────────────
+// ─── Album Detail Modal — loads ALL songs ─────────────────────────────────────
 
 function AlbumModal({
   album,
@@ -241,17 +280,66 @@ function AlbumModal({
   onRequireAuth,
 }: {
   album: Album;
-  // FIX: pass the full search results so after album ends, queue continues with other songs
   allSongs: Song[];
   onClose: () => void;
   onRequireAuth: () => void;
 }) {
   const { playSong } = usePlayer();
+  const [fullAlbumSongs, setFullAlbumSongs] = useState<Song[]>(album.songs);
+  const [loadingFull, setLoadingFull] = useState(true);
+  const fetchedRef = useRef(false);
 
-  // Build a deduplicated queue: album songs first, then remaining search songs not in album
-  const albumSongIds = new Set(album.songs.map((s) => s.id));
+  useEffect(() => {
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
+
+    // Fetch all songs for this album by paginating
+    const fetchAllAlbumSongs = async () => {
+      const seen = new Set<string>(album.songs.map((s) => s.id));
+      const all: Song[] = [...album.songs];
+      const pageSize = 50;
+
+      // Try multiple pages
+      for (let page = 1; page <= 5; page++) {
+        try {
+          if (page > 1) await sleep(300);
+          const res = await api.searchSongs(album.name, page, pageSize);
+          const items = extractResults(res);
+          const songs = items
+            .map(mapApiSong)
+            .filter((s: Song) => Boolean(s.audioUrl));
+
+          // Filter to only songs from this album
+          const albumSongs = songs.filter((s: Song) =>
+            s.album?.toLowerCase().includes(album.name.toLowerCase()) ||
+            s.movie?.toLowerCase().includes(album.name.toLowerCase()) ||
+            album.name.toLowerCase().includes(s.album?.toLowerCase() || "") ||
+            album.name.toLowerCase().includes(s.movie?.toLowerCase() || "")
+          );
+
+          const toAdd = albumSongs.length >= 1 ? albumSongs : songs;
+          for (const s of toAdd) {
+            if (s.id && !seen.has(s.id)) {
+              seen.add(s.id);
+              all.push(s);
+            }
+          }
+
+          if (items.length < pageSize) break;
+          if (all.length >= 100) break;
+        } catch { break; }
+      }
+
+      setFullAlbumSongs(all);
+      setLoadingFull(false);
+    };
+
+    fetchAllAlbumSongs().catch(() => setLoadingFull(false));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const albumSongIds = new Set(fullAlbumSongs.map((s) => s.id));
   const remainingSongs = allSongs.filter((s) => !albumSongIds.has(s.id));
-  const fullQueue = [...album.songs, ...remainingSongs];
+  const fullQueue = [...fullAlbumSongs, ...remainingSongs];
 
   return (
     <div className="fixed inset-0 z-[55] flex flex-col" style={{ background: "#0d0d0d" }}>
@@ -285,12 +373,14 @@ function AlbumModal({
           <div className="flex-1 min-w-0">
             <h2 className="text-lg font-bold text-white truncate">{album.name}</h2>
             <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>
-              {album.songs.length === 1 ? "Single" : `${album.songs.length} songs`}
+              {loadingFull
+                ? "Loading all songs…"
+                : `${fullAlbumSongs.length} song${fullAlbumSongs.length !== 1 ? "s" : ""}`}
               {album.year ? ` · ${album.year}` : ""}
             </p>
           </div>
           <button
-            onClick={() => playSong(album.songs[0], fullQueue)}
+            onClick={() => playSong(fullAlbumSongs[0], fullQueue)}
             className="w-11 h-11 rounded-full flex items-center justify-center shadow-xl flex-shrink-0"
             style={{ background: "#1DB954" }}
           >
@@ -313,10 +403,10 @@ function AlbumModal({
           </div>
         </div>
 
-        {/* Songs — each song's queue is the full queue so playback continues beyond album */}
+        {/* Songs */}
         <div className="flex-1 overflow-y-auto" style={{ WebkitOverflowScrolling: "touch" }}>
           <div className="space-y-0.5 px-2 pb-40">
-            {album.songs.map((song) => (
+            {fullAlbumSongs.map((song) => (
               <SongRow
                 key={song.id}
                 song={song}
@@ -324,12 +414,165 @@ function AlbumModal({
                 onRequireAuth={onRequireAuth}
               />
             ))}
+            {loadingFull && (
+              <div className="flex items-center justify-center py-4 gap-2">
+                <div className="w-5 h-5 rounded-full border-2 border-white/20 border-t-white/60 animate-spin" />
+                <span className="text-xs text-white/40">Fetching all songs…</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* MiniPlayer visible inside album modal */}
+      <MiniPlayer onRequireAuth={onRequireAuth} />
+    </div>
+  );
+}
+
+// ─── Artist Detail Modal — loads ALL songs for the artist ────────────────────
+
+function ArtistModal({
+  artist,
+  allSongs,
+  onClose,
+  onRequireAuth,
+}: {
+  artist: Artist;
+  allSongs: Song[];
+  onClose: () => void;
+  onRequireAuth: () => void;
+}) {
+  const { playSong } = usePlayer();
+  const [fullSongs, setFullSongs] = useState<Song[]>(artist.songs);
+  const [loading, setLoading] = useState(true);
+  const fetchedRef = useRef(false);
+
+  useEffect(() => {
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
+
+    const fetchAll = async () => {
+      const seen = new Set<string>(artist.songs.map((s) => s.id));
+      const all: Song[] = [...artist.songs];
+      const pageSize = 50;
+
+      // Fetch up to 5 pages for the artist
+      for (let page = 1; page <= 5; page++) {
+        try {
+          if (page > 1) await sleep(300);
+          const res = await api.searchSongs(`${artist.name} songs`, page, pageSize);
+          const items = extractResults(res);
+          const songs = items
+            .map(mapApiSong)
+            .filter((s: Song) => Boolean(s.audioUrl));
+
+          // Filter to songs by this artist
+          const artistSongs = songs.filter((s: Song) =>
+            s.artist?.toLowerCase().includes(artist.name.toLowerCase()) ||
+            artist.name.toLowerCase().includes(s.artist?.toLowerCase() || "")
+          );
+
+          const toAdd = artistSongs.length >= 2 ? artistSongs : songs;
+          for (const s of toAdd) {
+            if (s.id && !seen.has(s.id)) {
+              seen.add(s.id);
+              all.push(s);
+            }
+          }
+          if (items.length < pageSize) break;
+          if (all.length >= 150) break;
+        } catch { break; }
+      }
+
+      setFullSongs(all);
+      setLoading(false);
+    };
+
+    fetchAll().catch(() => setLoading(false));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="fixed inset-0 z-[60] flex flex-col" style={{ background: "#0d0d0d" }}>
+      {artist.coverArt && (
+        <div
+          className="absolute inset-0 opacity-20"
+          style={{
+            backgroundImage: `url(${artist.coverArt})`,
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+            filter: "blur(50px) saturate(2)",
+            transform: "scale(1.3)",
+          }}
+        />
+      )}
+      <div
+        className="absolute inset-0"
+        style={{ background: "linear-gradient(to bottom, rgba(13,13,13,0.6) 0%, rgba(13,13,13,0.95) 35%)" }}
+      />
+
+      <div className="relative flex flex-col h-full overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center gap-3 px-4 pt-12 pb-4 flex-shrink-0">
+          <button
+            onClick={onClose}
+            className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
+            style={{ background: "rgba(255,255,255,0.1)" }}
+          >
+            <ArrowLeft className="w-5 h-5 text-white" />
+          </button>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-lg font-bold text-white truncate">{artist.name}</h2>
+            <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>
+              {loading ? "Loading all songs…" : `${fullSongs.length} songs`}
+            </p>
+          </div>
+          {fullSongs.length > 0 && (
+            <button
+              onClick={() => playSong(fullSongs[0], fullSongs)}
+              className="w-11 h-11 rounded-full flex items-center justify-center shadow-xl flex-shrink-0"
+              style={{ background: "#1DB954" }}
+            >
+              <Play className="w-5 h-5 text-black fill-black ml-0.5" />
+            </button>
+          )}
+        </div>
+
+        {/* Artist avatar */}
+        <div className="px-4 mb-4 flex items-center justify-center flex-shrink-0">
+          <div
+            className="rounded-full overflow-hidden shadow-2xl"
+            style={{ width: 130, height: 130, border: "3px solid rgba(255,255,255,0.1)" }}
+          >
+            {artist.coverArt ? (
+              <img src={artist.coverArt} alt={artist.name} className="w-full h-full object-cover"
+                onError={(e) => { (e.target as HTMLImageElement).src = "https://via.placeholder.com/200x200?text=🎵"; }}
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.08)" }}>
+                <User2 className="w-14 h-14" style={{ color: "rgba(255,255,255,0.2)" }} />
+              </div>
+            )}
           </div>
         </div>
 
-        {/* ── MiniPlayer visible inside album modal ── */}
-        <MiniPlayer onRequireAuth={onRequireAuth} />
+        {/* Songs */}
+        <div className="flex-1 overflow-y-auto" style={{ WebkitOverflowScrolling: "touch" }}>
+          <div className="space-y-0.5 px-2 pb-40">
+            {fullSongs.map((song) => (
+              <SongRow key={song.id} song={song} queue={fullSongs} onRequireAuth={onRequireAuth} />
+            ))}
+            {loading && (
+              <div className="flex items-center justify-center py-4 gap-2">
+                <div className="w-5 h-5 rounded-full border-2 border-white/20 border-t-white/60 animate-spin" />
+                <span className="text-xs text-white/40">Loading more songs…</span>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
+
+      <MiniPlayer onRequireAuth={onRequireAuth} />
     </div>
   );
 }
@@ -383,8 +626,8 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
   const [expandedArtists, setExpandedArtists] = useState<Set<string>>(new Set());
   const [showAllArtists, setShowAllArtists] = useState(false);
   const [activeAlbum, setActiveAlbum] = useState<Album | null>(null);
+  const [activeArtist, setActiveArtist] = useState<Artist | null>(null);
 
-  // Category song list modal state
   const [categoryModal, setCategoryModal] = useState<{
     label: string;
     songs: Song[];
@@ -407,26 +650,48 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
     if (catSongs.length > 0) {
       setCategoryModal({ label, songs: catSongs, coverArt, loading: false });
     } else {
-      // Still loading — open modal and fetch
+      // Still loading — open modal and fetch with all extra queries
       setCategoryModal({ label, songs: [], coverArt: "", loading: true });
       const cat = BROWSE_CATEGORIES.find((c) => c.label === label);
       if (cat) {
-        api.searchSongs(cat.query, 1, 50)
-          .then((res) => {
-            const fetched = extractResults(res).map(mapApiSong).filter((s: Song) => s.audioUrl);
-            const withArt = fetched.filter((s: Song) => s.albumArt);
-            setCategoryModal({
-              label,
-              songs: fetched,
-              coverArt: withArt.length > 0 ? (withArt[0].albumArt || "") : "",
-              loading: false,
-            });
-          })
-          .catch(() => setCategoryModal((prev) => prev ? { ...prev, loading: false } : null));
+        const extraQueries = LANGUAGE_EXTRA_QUERIES[label] || [];
+        const allQueries = [cat.query, ...extraQueries];
+
+        const fetchAll = async () => {
+          const seen = new Set<string>();
+          const all: Song[] = [];
+
+          for (const q of allQueries) {
+            try {
+              const res = await api.searchSongs(q, 1, 50);
+              const fetched = extractResults(res).map(mapApiSong).filter((s: Song) => s.audioUrl);
+              for (const s of fetched) {
+                if (s.id && !seen.has(s.id)) {
+                  seen.add(s.id);
+                  all.push(s);
+                }
+              }
+            } catch { /* continue */ }
+            await sleep(150);
+          }
+
+          const withArt = all.filter((s: Song) => s.albumArt);
+          setCategoryModal({
+            label,
+            songs: all,
+            coverArt: withArt.length > 0 ? (withArt[0].albumArt || "") : "",
+            loading: false,
+          });
+        };
+
+        fetchAll().catch(() =>
+          setCategoryModal((prev) => prev ? { ...prev, loading: false } : null)
+        );
       }
     }
   };
 
+  // Real-time search starts on first character
   const doSearch = useCallback((q: string, pg = 1) => {
     const trimmed = q.trim();
     if (!trimmed) {
@@ -443,6 +708,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
       setExpandedArtists(new Set());
       setShowAllArtists(false);
       setActiveAlbum(null);
+      setActiveArtist(null);
       setPage(1);
     } else {
       setLoadingMore(true);
@@ -476,10 +742,11 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
       });
   }, []);
 
+  // Debounce: 150ms for near-instant results on each keystroke
   useEffect(() => {
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     if (query.trim()) {
-      debounceTimer.current = setTimeout(() => doSearch(query, 1), 300);
+      debounceTimer.current = setTimeout(() => doSearch(query, 1), 150);
     } else {
       setSearched(false);
       setSongs([]);
@@ -493,14 +760,6 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
     const nextPage = page + 1;
     setPage(nextPage);
     doSearch(query, nextPage);
-  };
-
-  const toggleArtist = (name: string) => {
-    setExpandedArtists((prev) => {
-      const s = new Set(prev);
-      s.has(name) ? s.delete(name) : s.add(name);
-      return s;
-    });
   };
 
   const visibleArtists = showAllArtists ? artists : artists.slice(0, 8);
@@ -520,12 +779,22 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
         />
       )}
 
-      {/* Album detail modal — pass full songs list to fix repeat bug */}
+      {/* Album detail modal */}
       {activeAlbum && (
         <AlbumModal
           album={activeAlbum}
           allSongs={songs}
           onClose={() => setActiveAlbum(null)}
+          onRequireAuth={handleRequireAuth}
+        />
+      )}
+
+      {/* Artist detail modal */}
+      {activeArtist && (
+        <ArtistModal
+          artist={activeArtist}
+          allSongs={songs}
+          onClose={() => setActiveArtist(null)}
           onRequireAuth={handleRequireAuth}
         />
       )}
@@ -561,7 +830,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
         </div>
       </div>
 
-      {/* ── Browse categories — homepage-style square album cards, 2-col grid ── */}
+      {/* ── Browse categories ── */}
       {!searched && !query && (
         <div className="px-4 pt-4">
           <p className="text-base font-bold text-white mb-4">Browse Categories</p>
@@ -629,13 +898,10 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                 </div>
               )}
 
-              {/* ── Albums — horizontal scroll, homepage-style square cards, click opens modal ── */}
+              {/* ── Albums — horizontal scroll with song count ── */}
               {albums.length > 0 && (
                 <div className="mb-6">
-                  <p className="text-base font-bold text-white mb-3">
-                    Albums & Movies
-                  </p>
-
+                  <p className="text-base font-bold text-white mb-3">Albums & Movies</p>
                   <div
                     className="flex gap-4 overflow-x-auto pb-2"
                     style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" } as React.CSSProperties}
@@ -647,7 +913,6 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                         style={{ width: 140 }}
                         onClick={() => setActiveAlbum(album)}
                       >
-                        {/* Square image — same as homepage album cards */}
                         <div
                           className="relative rounded-xl overflow-hidden mb-2 active:scale-95 transition-transform"
                           style={{ width: 140, height: 140 }}
@@ -662,10 +927,16 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                               <Disc3 className="w-10 h-10" style={{ color: "rgba(255,255,255,0.2)" }} />
                             </div>
                           )}
+                          {/* Song count badge */}
+                          <div
+                            className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-xs font-bold"
+                            style={{ background: "rgba(0,0,0,0.75)", color: "rgba(255,255,255,0.9)" }}
+                          >
+                            {album.songs.length}+
+                          </div>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              // FIX: build full queue starting from album songs then remaining
                               const albumSongIds = new Set(album.songs.map((s) => s.id));
                               const rest = songs.filter((s) => !albumSongIds.has(s.id));
                               playSong(album.songs[0], [...album.songs, ...rest]);
@@ -678,8 +949,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                         </div>
                         <p className="text-sm font-semibold text-white truncate leading-tight">{album.name}</p>
                         <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>
-                          {album.songs.length === 1 ? "Single" : `${album.songs.length} songs`}
-                          {album.year ? ` · ${album.year}` : ""}
+                          {album.songs.length} songs{album.year ? ` · ${album.year}` : ""}
                         </p>
                       </div>
                     ))}
@@ -691,6 +961,9 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
               <div className="mb-6">
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-base font-bold text-white">Songs</p>
+                  <span className="text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>
+                    {songs.length} results
+                  </span>
                 </div>
                 <div className="space-y-0.5">
                   {songs.map((song) => (
@@ -699,7 +972,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                 </div>
               </div>
 
-              {/* ── Artists ── */}
+              {/* ── Artists — click opens full artist modal ── */}
               {artists.length > 0 && (
                 <div className="mb-6">
                   <div className="flex items-center justify-between mb-3">
@@ -720,7 +993,10 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                       return (
                         <div key={artist.name} className="rounded-xl overflow-hidden"
                           style={{ background: "rgba(255,255,255,0.05)" }}>
-                          <button className="w-full flex items-center gap-3 p-3" onClick={() => toggleArtist(artist.name)}>
+                          <button
+                            className="w-full flex items-center gap-3 p-3"
+                            onClick={() => setActiveArtist(artist)}
+                          >
                             <div className="w-12 h-12 rounded-full overflow-hidden flex-shrink-0 shadow-lg">
                               {artist.coverArt ? (
                                 <img src={artist.coverArt} alt={artist.name} className="w-full h-full object-cover"
@@ -735,7 +1011,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                             <div className="flex-1 text-left min-w-0">
                               <p className="text-sm font-semibold text-white truncate">{artist.name}</p>
                               <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>
-                                Artist · {artist.songCount} {artist.songCount === 1 ? "song" : "songs"}
+                                Artist · {artist.songCount} {artist.songCount === 1 ? "song" : "songs"} shown
                               </p>
                             </div>
                             <div className="flex items-center gap-2 flex-shrink-0">
@@ -746,19 +1022,11 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                               >
                                 <Play className="w-3.5 h-3.5 text-black fill-black ml-0.5" />
                               </button>
-                              {expanded
-                                ? <ChevronUp className="w-4 h-4" style={{ color: "rgba(255,255,255,0.4)" }} />
-                                : <ChevronDown className="w-4 h-4" style={{ color: "rgba(255,255,255,0.4)" }} />
-                              }
+                              <span className="text-xs" style={{ color: "rgba(255,255,255,0.3)" }}>
+                                View all →
+                              </span>
                             </div>
                           </button>
-                          {expanded && (
-                            <div className="border-t" style={{ borderColor: "rgba(255,255,255,0.08)" }}>
-                              {artist.songs.map((song) => (
-                                <SongRow key={song.id} song={song} queue={artist.songs} onRequireAuth={handleRequireAuth} />
-                              ))}
-                            </div>
-                          )}
                         </div>
                       );
                     })}

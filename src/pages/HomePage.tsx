@@ -6,6 +6,7 @@ import { usePlayer } from "@/context/PlayerContext";
 import { useAuth } from "@/context/AuthContext";
 import { Music2, User, LogOut, ChevronDown, ChevronUp, Play, Disc3, ArrowLeft } from "lucide-react";
 import { AuthModal } from "@/components/AuthModal";
+import { MiniPlayer } from "@/components/MiniPlayer";
 
 // ─── Daily seed (changes every day) ──────────────────────────────────────────
 
@@ -93,12 +94,8 @@ const MALAYALAM_QUERIES = [
 ];
 
 // ─── ALL album + artist entries ───────────────────────────────────────────────
-// type: "movie"   → only songs from that exact movie
-// type: "artist"  → only songs by that artist/singer
-// type: "hero"    → all songs where that hero acted (across movies)
 
 const ALL_ALBUM_ENTRIES = [
-  // ── Movie albums — only songs from that movie ──
   { title: "Kalki 2898 AD",          query: "Kalki 2898 AD songs",                    type: "movie" },
   { title: "Animal",                 query: "Animal movie songs bollywood",            type: "movie" },
   { title: "Jawan",                  query: "Jawan movie songs shahrukh",              type: "movie" },
@@ -122,7 +119,6 @@ const ALL_ALBUM_ENTRIES = [
   { title: "Mirzapur Soundtrack",    query: "Mirzapur web series songs",              type: "movie" },
   { title: "Merry Christmas",        query: "Merry Christmas movie songs 2024",        type: "movie" },
 
-  // ── Singer / composer albums — all songs by that artist ──
   { title: "Arijit Singh Hits",      query: "Arijit Singh best songs",                type: "artist" },
   { title: "AR Rahman Classics",     query: "AR Rahman hit songs",                    type: "artist" },
   { title: "Shreya Ghoshal",         query: "Shreya Ghoshal best songs",              type: "artist" },
@@ -138,7 +134,6 @@ const ALL_ALBUM_ENTRIES = [
   { title: "Asha Bhosle",            query: "Asha Bhosle best songs",                 type: "artist" },
   { title: "SP Balasubrahmanyam",    query: "SP Balasubrahmanyam hit songs telugu",   type: "artist" },
 
-  // ── Hero albums — all songs featuring that hero across movies ──
   { title: "Prabhas Hits",           query: "Prabhas songs all movies",               type: "hero" },
   { title: "Allu Arjun Hits",        query: "Allu Arjun songs all movies",            type: "hero" },
   { title: "Jr NTR Hits",            query: "Jr NTR songs all movies",                type: "hero" },
@@ -153,7 +148,6 @@ const ALL_ALBUM_ENTRIES = [
   { title: "Mahesh Babu Hits",       query: "Mahesh Babu songs all movies",           type: "hero" },
 ];
 
-// Daily-pick: shuffle album entries by today's seed, pick first N for film/hero rows and artist rows
 const FILM_HERO_POOL = ALL_ALBUM_ENTRIES.filter((e) => e.type === "movie" || e.type === "hero");
 const ARTIST_POOL    = ALL_ALBUM_ENTRIES.filter((e) => e.type === "artist");
 
@@ -161,7 +155,6 @@ function getTodaysAlbums() {
   const seed = todaysSeed();
   const shuffledFilm   = seededShuffle(FILM_HERO_POOL, seed);
   const shuffledArtist = seededShuffle(ARTIST_POOL, seed + 9999);
-  // Show 10 from each pool each day
   return {
     filmEntries:   shuffledFilm.slice(0, 10),
     artistEntries: shuffledArtist.slice(0, 8),
@@ -179,6 +172,41 @@ const SECTION_DEFS = [
   { title: "Old is Gold",        pool: RETRO_QUERIES,     seed: 8 },
   { title: "Trending Kannada",   pool: KANNADA_QUERIES,   seed: 9 },
   { title: "Trending Malayalam", pool: MALAYALAM_QUERIES, seed: 10 },
+];
+
+// ─── Language category queries for full song lists ────────────────────────────
+
+const LANGUAGE_CATEGORIES = [
+  {
+    label: "Hindi",
+    queries: ["top hindi songs 2025", "hindi hits 2025", "bollywood songs 2025", "latest hindi film songs 2025"],
+    subCategories: [
+      { label: "Romantic", query: "hindi romantic songs 2025" },
+      { label: "Party/Dance", query: "hindi dance party songs 2025" },
+      { label: "Devotional", query: "hindi devotional songs 2025" },
+      { label: "Retro 90s", query: "90s hindi songs superhit" },
+    ]
+  },
+  {
+    label: "Telugu",
+    queries: ["top telugu songs 2025", "tollywood hits 2025", "telugu film songs 2025", "new telugu songs 2025"],
+    subCategories: [
+      { label: "Romantic", query: "telugu romantic songs 2025" },
+      { label: "Item Songs", query: "telugu item songs hit" },
+      { label: "Devotional", query: "telugu devotional songs" },
+      { label: "Old Hits", query: "old telugu songs evergreen" },
+    ]
+  },
+  {
+    label: "Tamil",
+    queries: ["top tamil songs 2025", "kollywood hits 2025", "tamil film songs 2025", "new tamil songs 2025"],
+    subCategories: [
+      { label: "Romantic", query: "tamil romantic songs 2025" },
+      { label: "Folk", query: "tamil folk songs hit" },
+      { label: "Devotional", query: "tamil devotional songs" },
+      { label: "Old Hits", query: "old tamil songs evergreen" },
+    ]
+  },
 ];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -219,16 +247,14 @@ async function fetchSection(query: string, limit = 25): Promise<Song[]> {
 }
 
 /**
- * Fetch all songs for an album/artist/hero by paginating.
- * For "movie" type: filter to only songs where song.movie matches title.
- * For "artist" type: fetch all songs by that artist/singer.
- * For "hero" type: fetch all songs across movies where that hero acted.
+ * Fetch ALL available songs by paginating multiple pages.
+ * Fetches up to targetCount songs, returns everything with audioUrl.
  */
-async function fetchAlbumSongs(
+async function fetchAllSongs(
   query: string,
   albumTitle: string,
   albumType: string,
-  targetCount = 100
+  targetCount = 200
 ): Promise<Song[]> {
   const seen = new Set<string>();
   const all: Song[] = [];
@@ -242,13 +268,13 @@ async function fetchAlbumSongs(
       const items = extractResults(res);
       let songs = items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
 
-      // For movie-type albums: only keep songs that actually belong to this movie
       if (albumType === "movie") {
-        songs = songs.filter((s: Song) => {
-          const movieMatch = s.movie?.toLowerCase().includes(albumTitle.toLowerCase()) ||
-            s.album?.toLowerCase().includes(albumTitle.toLowerCase());
-          return movieMatch !== false;
-        });
+        const filtered = songs.filter((s: Song) =>
+          s.movie?.toLowerCase().includes(albumTitle.toLowerCase()) ||
+          s.album?.toLowerCase().includes(albumTitle.toLowerCase())
+        );
+        // Only filter strictly if we get enough matches
+        if (filtered.length >= 2) songs = filtered;
       }
 
       for (const s of songs) {
@@ -257,9 +283,51 @@ async function fetchAlbumSongs(
           all.push(s);
         }
       }
+      // Stop if API returned fewer results than page size (no more data)
       if (items.length < pageSize) break;
       if (all.length >= targetCount) break;
     } catch { break; }
+  }
+  return all;
+}
+
+/**
+ * Fetch songs for multiple queries combined (for language categories),
+ * returning all unique songs across all queries.
+ */
+async function fetchLanguageSongs(
+  queries: string[],
+  targetPerQuery = 50
+): Promise<Song[]> {
+  const seen = new Set<string>();
+  const all: Song[] = [];
+
+  for (const query of queries) {
+    try {
+      const res = await api.searchSongs(query, 1, targetPerQuery);
+      const items = extractResults(res);
+      const songs = items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
+      for (const s of songs) {
+        if (s.id && !seen.has(s.id)) {
+          seen.add(s.id);
+          all.push(s);
+        }
+      }
+      // Also fetch page 2 for more results
+      if (items.length >= targetPerQuery) {
+        await sleep(200);
+        const res2 = await api.searchSongs(query, 2, targetPerQuery);
+        const items2 = extractResults(res2);
+        const songs2 = items2.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
+        for (const s of songs2) {
+          if (s.id && !seen.has(s.id)) {
+            seen.add(s.id);
+            all.push(s);
+          }
+        }
+      }
+    } catch { /* continue with next query */ }
+    await sleep(200);
   }
   return all;
 }
@@ -275,7 +343,7 @@ function dedup(songs: Song[], seen: Set<string>): Song[] {
   return out;
 }
 
-// ─── Album Detail Page ────────────────────────────────────────────────────────
+// ─── Album Detail Modal ────────────────────────────────────────────────────────
 
 function AlbumModal({
   album,
@@ -295,9 +363,8 @@ function AlbumModal({
   const [loadingMore, setLoadingMore] = useState(false);
 
   useEffect(() => {
-    // Always try to load full list when modal opens
     setLoadingMore(true);
-    fetchAlbumSongs(albumQuery, album.title, albumType, 120).then((fetched) => {
+    fetchAllSongs(albumQuery, album.title, albumType, 200).then((fetched) => {
       if (fetched.length > 0) setSongs(fetched);
       setLoadingMore(false);
     }).catch(() => setLoadingMore(false));
@@ -311,7 +378,6 @@ function AlbumModal({
 
   return (
     <div className="fixed inset-0 z-[55] flex flex-col" style={{ background: "#0d0d0d" }}>
-      {/* Blurred cover background */}
       {album.coverArt && (
         <div
           className="absolute inset-0 opacity-20"
@@ -342,7 +408,12 @@ function AlbumModal({
           <div className="flex-1 min-w-0">
             <h2 className="text-lg font-bold text-white truncate">{album.title}</h2>
             <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>
-              {typeLabel}{loadingMore ? " · Loading…" : ""}
+              {typeLabel}
+              {loadingMore
+                ? " · Loading more…"
+                : songs.length > 0
+                ? ` · ${songs.length} songs`
+                : ""}
             </p>
           </div>
           {songs.length > 0 && (
@@ -374,6 +445,19 @@ function AlbumModal({
           </div>
         </div>
 
+        {/* Song count badge */}
+        {songs.length > 0 && (
+          <div className="px-4 mb-3 flex-shrink-0">
+            <span
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold"
+              style={{ background: "rgba(29,185,84,0.15)", color: "#1DB954" }}
+            >
+              <Music2 className="w-3 h-3" />
+              {songs.length} songs available
+            </span>
+          </div>
+        )}
+
         {/* Song list */}
         <div className="flex-1 overflow-y-auto" style={{ WebkitOverflowScrolling: "touch" }}>
           {loadingMore && songs.length === 0 ? (
@@ -382,24 +466,157 @@ function AlbumModal({
               <p className="text-sm text-white/40">Loading songs…</p>
             </div>
           ) : (
-            <div className="space-y-0.5 px-2 pb-32">
+            <div className="space-y-0.5 px-2 pb-40">
               {songs.map((song) => (
                 <SongRow key={song.id} song={song} queue={songs} onRequireAuth={onRequireAuth} />
               ))}
               {loadingMore && songs.length > 0 && (
-                <div className="flex items-center justify-center py-6">
-                  <div className="w-6 h-6 rounded-full border-2 border-white/20 border-t-white/60 animate-spin" />
+                <div className="flex items-center justify-center py-6 gap-2">
+                  <div className="w-5 h-5 rounded-full border-2 border-white/20 border-t-white/60 animate-spin" />
+                  <span className="text-xs text-white/40">Loading more songs…</span>
                 </div>
               )}
             </div>
           )}
         </div>
       </div>
+
+      {/* MiniPlayer inside modal */}
+      <MiniPlayer onRequireAuth={onRequireAuth} />
     </div>
   );
 }
 
-// ─── AlbumRow — horizontal scrollable row of album cards (no count label) ────
+// ─── Language Category Modal — shows all songs for a language with sub-categories ──
+
+function LanguageCategoryModal({
+  label,
+  mainQueries,
+  subCategories,
+  onClose,
+  onRequireAuth,
+}: {
+  label: string;
+  mainQueries: string[];
+  subCategories: { label: string; query: string }[];
+  onClose: () => void;
+  onRequireAuth: () => void;
+}) {
+  const { playSong } = usePlayer();
+  const [allSongs, setAllSongs] = useState<Song[]>([]);
+  const [subSongs, setSubSongs] = useState<Record<string, Song[]>>({});
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState("All");
+  const fetchedRef = useRef(false);
+
+  useEffect(() => {
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
+
+    // Fetch main language songs
+    fetchLanguageSongs(mainQueries, 50).then((songs) => {
+      setAllSongs(songs);
+      setLoading(false);
+    });
+
+    // Fetch sub-category songs in background
+    subCategories.forEach(async ({ label: subLabel, query }) => {
+      const songs = await fetchSection(query, 50);
+      setSubSongs((prev) => ({ ...prev, [subLabel]: songs }));
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const tabs = ["All", ...subCategories.map((s) => s.label)];
+  const displaySongs = activeTab === "All" ? allSongs : (subSongs[activeTab] || []);
+
+  return (
+    <div className="fixed inset-0 z-[55] flex flex-col" style={{ background: "#0d0d0d" }}>
+      <div
+        className="absolute inset-0"
+        style={{ background: "linear-gradient(to bottom, rgba(29,185,84,0.15) 0%, rgba(13,13,13,0.98) 30%)" }}
+      />
+
+      <div className="relative flex flex-col h-full overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center gap-3 px-4 pt-12 pb-3 flex-shrink-0">
+          <button
+            onClick={onClose}
+            className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
+            style={{ background: "rgba(255,255,255,0.1)" }}
+          >
+            <ArrowLeft className="w-5 h-5 text-white" />
+          </button>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-lg font-bold text-white">{label} Music</h2>
+            <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>
+              {loading ? "Loading…" : `${allSongs.length}+ songs`}
+            </p>
+          </div>
+          {displaySongs.length > 0 && (
+            <button
+              onClick={() => playSong(displaySongs[0], displaySongs)}
+              className="w-11 h-11 rounded-full flex items-center justify-center shadow-xl flex-shrink-0"
+              style={{ background: "#1DB954" }}
+            >
+              <Play className="w-5 h-5 text-black fill-black ml-0.5" />
+            </button>
+          )}
+        </div>
+
+        {/* Tabs */}
+        <div
+          className="flex gap-2 px-4 pb-3 flex-shrink-0 overflow-x-auto"
+          style={{ scrollbarWidth: "none" }}
+        >
+          {tabs.map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className="flex-shrink-0 px-4 py-1.5 rounded-full text-xs font-semibold transition-all"
+              style={{
+                background: activeTab === tab ? "#1DB954" : "rgba(255,255,255,0.1)",
+                color: activeTab === tab ? "#000" : "rgba(255,255,255,0.6)",
+              }}
+            >
+              {tab}
+              {tab !== "All" && subSongs[tab] && (
+                <span className="ml-1 opacity-60">({subSongs[tab].length})</span>
+              )}
+              {tab === "All" && allSongs.length > 0 && (
+                <span className="ml-1 opacity-60">({allSongs.length})</span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* Songs */}
+        <div className="flex-1 overflow-y-auto" style={{ WebkitOverflowScrolling: "touch" }}>
+          {loading && displaySongs.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
+              <div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white/70 animate-spin" />
+              <p className="text-sm text-white/40">Loading {label} songs…</p>
+            </div>
+          ) : activeTab !== "All" && !subSongs[activeTab] ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
+              <div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white/70 animate-spin" />
+              <p className="text-sm text-white/40">Loading {activeTab} songs…</p>
+            </div>
+          ) : (
+            <div className="space-y-0.5 px-2 pb-40">
+              {displaySongs.map((song) => (
+                <SongRow key={song.id} song={song} queue={displaySongs} onRequireAuth={onRequireAuth} />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <MiniPlayer onRequireAuth={onRequireAuth} />
+    </div>
+  );
+}
+
+// ─── AlbumRow — horizontal scrollable row of album cards WITH count label ─────
 
 function AlbumRow({
   title,
@@ -407,12 +624,14 @@ function AlbumRow({
   loading,
   onOpen,
   roundCovers = false,
+  showCount = false,
 }: {
   title: string;
   albums: AlbumData[];
   loading: boolean;
   onOpen: (a: AlbumData) => void;
   roundCovers?: boolean;
+  showCount?: boolean;
 }) {
   const { playSong } = usePlayer();
 
@@ -431,7 +650,6 @@ function AlbumRow({
                   borderRadius: roundCovers ? "50%" : 12,
                 }}
               />
-              {/* No count skeleton — just title skeleton */}
               <div className="h-3 w-24 rounded mb-1" style={{ background: "rgba(255,255,255,0.07)" }} />
             </div>
           ))}
@@ -443,7 +661,6 @@ function AlbumRow({
         >
           {albums.map((album) => (
             <div key={album.title} className="flex-shrink-0" style={{ width: 150 }}>
-              {/* Cover art */}
               <div
                 className="relative overflow-hidden mb-2 cursor-pointer active:scale-95 transition-transform"
                 style={{
@@ -470,7 +687,6 @@ function AlbumRow({
                     <Disc3 className="w-10 h-10" style={{ color: "rgba(255,255,255,0.2)" }} />
                   </div>
                 )}
-                {/* Play button — only for non-round covers */}
                 {!roundCovers && album.songs.length > 0 && (
                   <button
                     onClick={(e) => {
@@ -483,12 +699,26 @@ function AlbumRow({
                     <Play className="w-4 h-4 text-black fill-black ml-0.5" />
                   </button>
                 )}
+                {/* Song count badge on cover */}
+                {showCount && album.songs.length > 0 && (
+                  <div
+                    className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-xs font-bold"
+                    style={{ background: "rgba(0,0,0,0.7)", color: "rgba(255,255,255,0.9)" }}
+                  >
+                    {album.songs.length}+
+                  </div>
+                )}
               </div>
 
-              {/* Title only — NO count label */}
               <p className="text-sm font-semibold text-white truncate leading-tight text-center">
                 {album.title}
               </p>
+              {/* Song count below title for non-round covers */}
+              {showCount && !roundCovers && (
+                <p className="text-xs text-center mt-0.5" style={{ color: "rgba(255,255,255,0.35)" }}>
+                  {album.songs.length} songs
+                </p>
+              )}
             </div>
           ))}
         </div>
@@ -590,12 +820,13 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
   const [artistAlbums, setArtistAlbums] = useState<AlbumData[]>([]);
   const [albumsLoading, setAlbumsLoading] = useState(true);
 
-  // openAlbum now also stores type + query for correct song fetching
   const [openAlbum, setOpenAlbum] = useState<{
     album: AlbumData;
     albumType: string;
     albumQuery: string;
   } | null>(null);
+
+  const [openLanguage, setOpenLanguage] = useState<typeof LANGUAGE_CATEGORIES[0] | null>(null);
 
   const loadedRef = useRef(false);
   const globalSeenRef = useRef(new Set<string>());
@@ -611,7 +842,6 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
   };
 
   const handleOpenAlbum = (album: AlbumData) => {
-    // Find original entry to get type + query
     const entry = ALL_ALBUM_ENTRIES.find((e) => e.title === album.title);
     setOpenAlbum({
       album,
@@ -672,13 +902,11 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
     const { filmEntries, artistEntries } = getTodaysAlbums();
 
     async function loadAlbums() {
-      // Quick fetch for covers only (3 songs per album is enough for cover art)
       const filmSettled = await Promise.allSettled(
         filmEntries.map(async ({ title, query, type }) => {
           try {
             const res = await api.searchSongs(query, 1, 10);
             let songs = extractResults(res).map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
-            // For movie: filter to movie-relevant songs for the card
             if (type === "movie") {
               const filtered = songs.filter((s: Song) =>
                 s.movie?.toLowerCase().includes(title.toLowerCase()) ||
@@ -744,6 +972,17 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
           albumType={openAlbum.albumType}
           albumQuery={openAlbum.albumQuery}
           onClose={() => setOpenAlbum(null)}
+          onRequireAuth={handleRequireAuth}
+        />
+      )}
+
+      {/* ── Language category modal ── */}
+      {openLanguage && (
+        <LanguageCategoryModal
+          label={openLanguage.label}
+          mainQueries={openLanguage.queries}
+          subCategories={openLanguage.subCategories}
+          onClose={() => setOpenLanguage(null)}
           onRequireAuth={handleRequireAuth}
         />
       )}
@@ -824,15 +1063,46 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
         )}
       </div>
 
-      {/* ── Featured Movie & Hero Albums (daily rotating, no count) ── */}
+      {/* ── Browse by Language ── */}
+      <div className="mb-6 px-4">
+        <h2 className="text-base font-bold text-white mb-3">Browse by Language</h2>
+        <div className="flex gap-3 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+          {LANGUAGE_CATEGORIES.map((lang) => (
+            <button
+              key={lang.label}
+              onClick={() => setOpenLanguage(lang)}
+              className="flex-shrink-0 flex flex-col items-center gap-1.5 active:scale-95 transition-transform"
+            >
+              <div
+                className="w-20 h-20 rounded-2xl flex items-center justify-center shadow-lg"
+                style={{
+                  background: lang.label === "Hindi"
+                    ? "linear-gradient(135deg,#FF6B35,#F7C59F)"
+                    : lang.label === "Telugu"
+                    ? "linear-gradient(135deg,#1DB954,#1ed760)"
+                    : "linear-gradient(135deg,#e91e63,#ff5722)",
+                }}
+              >
+                <span className="text-2xl">
+                  {lang.label === "Hindi" ? "🎵" : lang.label === "Telugu" ? "🎶" : "🎸"}
+                </span>
+              </div>
+              <span className="text-xs font-semibold text-white">{lang.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Featured Movie & Hero Albums (with song count) ── */}
       <AlbumRow
         title="Featured Albums"
         albums={filmAlbums}
         loading={albumsLoading}
         onOpen={handleOpenAlbum}
+        showCount={true}
       />
 
-      {/* ── Popular Artists (daily rotating, no count) ── */}
+      {/* ── Popular Artists ── */}
       <AlbumRow
         title="Popular Artists"
         albums={artistAlbums}

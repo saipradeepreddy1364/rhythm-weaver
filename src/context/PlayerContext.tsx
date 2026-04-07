@@ -36,6 +36,54 @@ const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
 const RECENTLY_PLAYED_KEY = "rw_recently_played";
 const RECENTLY_PLAYED_TS_KEY = "rw_recent_ts";
 const FAVORITES_KEY = "rw_favorites";
+// Key to track which song IDs were played today or in last 10 hours
+const PLAYED_HISTORY_KEY = "rw_played_history";
+
+/** Returns epoch ms at start of today */
+function todayStart(): number {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+/** Load play history: { [songId]: timestamp } */
+function loadPlayHistory(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(PLAYED_HISTORY_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Prune entries older than 10 hours and persist */
+function pruneAndSaveHistory(history: Record<string, number>): Record<string, number> {
+  const cutoff = Date.now() - 10 * 60 * 60 * 1000;
+  const pruned: Record<string, number> = {};
+  for (const [id, ts] of Object.entries(history)) {
+    if (ts >= cutoff) pruned[id] = ts;
+  }
+  localStorage.setItem(PLAYED_HISTORY_KEY, JSON.stringify(pruned));
+  return pruned;
+}
+
+/** Pick next song from queue avoiding recently played; wraps around if all played */
+function pickNext(
+  queue: Song[],
+  currentIdx: number,
+  playHistory: Record<string, number>
+): number {
+  if (queue.length === 0) return 0;
+  // Simple forward pass: try indices after current
+  const len = queue.length;
+  // First pass: find next unplayed song
+  for (let offset = 1; offset <= len; offset++) {
+    const idx = (currentIdx + offset) % len;
+    if (!playHistory[queue[idx].id]) return idx;
+  }
+  // All played — just go to next index normally (reset behavior)
+  return (currentIdx + 1) % len;
+}
 
 export function PlayerProvider({ children }: { children: ReactNode }) {
   const [currentSong, setCurrentSong] = useState<Song | null>(null);
@@ -52,6 +100,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const queueRef = useRef<Song[]>([]);
   const queueIndexRef = useRef(0);
+  const playHistoryRef = useRef<Record<string, number>>(loadPlayHistory());
 
   useEffect(() => { queueRef.current = queue; }, [queue]);
   useEffect(() => { queueIndexRef.current = queueIndex; }, [queueIndex]);
@@ -90,17 +139,41 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  /** Mark song as played in 10-hour history */
+  const markPlayed = useCallback((songId: string) => {
+    playHistoryRef.current = pruneAndSaveHistory({
+      ...playHistoryRef.current,
+      [songId]: Date.now(),
+    });
+  }, []);
+
+  /** Update MediaSession metadata for lock screen */
+  const updateMediaSession = useCallback((song: Song, playing: boolean) => {
+    if (!("mediaSession" in navigator)) return;
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: song.title,
+      artist: song.artist,
+      album: song.movie || song.album || "",
+      artwork: song.albumArt
+        ? [{ src: song.albumArt, sizes: "512x512", type: "image/jpeg" }]
+        : [],
+    });
+    navigator.mediaSession.playbackState = playing ? "playing" : "paused";
+  }, []);
+
   const nextSongInternal = useCallback(() => {
     const q = queueRef.current;
     const idx = queueIndexRef.current;
     if (q.length === 0) return;
-    const nextIdx = (idx + 1) % q.length;
+    const history = pruneAndSaveHistory(playHistoryRef.current);
+    const nextIdx = pickNext(q, idx, history);
     queueIndexRef.current = nextIdx;
     setQueueIndex(nextIdx);
     setCurrentSong(q[nextIdx]);
     setIsPlaying(true);
     addToRecentlyPlayedInternal(q[nextIdx]);
-  }, [addToRecentlyPlayedInternal]);
+    markPlayed(q[nextIdx].id);
+  }, [addToRecentlyPlayedInternal, markPlayed]);
 
   // Setup audio element ONCE
   useEffect(() => {
@@ -144,7 +217,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     };
   }, [nextSongInternal]);
 
-  // When currentSong changes: load + play
+  // When currentSong changes: load + play + update MediaSession
   useEffect(() => {
     if (!currentSong || !audioRef.current) return;
     const audio = audioRef.current;
@@ -156,6 +229,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       console.error("Autoplay blocked:", err);
       setIsPlaying(false);
     });
+    updateMediaSession(currentSong, true);
   }, [currentSong?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle play/pause toggle
@@ -166,12 +240,58 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     } else {
       audioRef.current.pause();
     }
+    if (currentSong) updateMediaSession(currentSong, isPlaying);
   }, [isPlaying]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Volume changes
   useEffect(() => {
     if (audioRef.current) audioRef.current.volume = volume;
   }, [volume]);
+
+  // Register MediaSession action handlers ONCE
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+
+    navigator.mediaSession.setActionHandler("play", () => {
+      setIsPlaying(true);
+      audioRef.current?.play().catch(() => {});
+    });
+    navigator.mediaSession.setActionHandler("pause", () => {
+      setIsPlaying(false);
+      audioRef.current?.pause();
+    });
+    navigator.mediaSession.setActionHandler("previoustrack", () => {
+      const q = queueRef.current;
+      const idx = queueIndexRef.current;
+      if (q.length === 0) return;
+      const prevIdx = (idx - 1 + q.length) % q.length;
+      queueIndexRef.current = prevIdx;
+      setQueueIndex(prevIdx);
+      setCurrentSong(q[prevIdx]);
+      setIsPlaying(true);
+      addToRecentlyPlayedInternal(q[prevIdx]);
+      markPlayed(q[prevIdx].id);
+    });
+    navigator.mediaSession.setActionHandler("nexttrack", () => {
+      nextSongInternal();
+    });
+    navigator.mediaSession.setActionHandler("seekto", (details) => {
+      if (details.seekTime != null && audioRef.current) {
+        audioRef.current.currentTime = details.seekTime;
+        setProgressState(details.seekTime);
+      }
+    });
+
+    return () => {
+      try {
+        navigator.mediaSession.setActionHandler("play", null);
+        navigator.mediaSession.setActionHandler("pause", null);
+        navigator.mediaSession.setActionHandler("previoustrack", null);
+        navigator.mediaSession.setActionHandler("nexttrack", null);
+        navigator.mediaSession.setActionHandler("seekto", null);
+      } catch { /* ignore */ }
+    };
+  }, [nextSongInternal, addToRecentlyPlayedInternal, markPlayed]);
 
   const playSong = useCallback(
     (song: Song, songQueue?: Song[]) => {
@@ -185,17 +305,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setCurrentSong(song);
       setIsPlaying(true);
       addToRecentlyPlayedInternal(song);
+      markPlayed(song.id);
     },
-    [addToRecentlyPlayedInternal]
+    [addToRecentlyPlayedInternal, markPlayed]
   );
 
-  /**
-   * addToQueue: inserts song right after the current index so it plays next.
-   * If no song is playing, it starts playing immediately.
-   */
   const addToQueue = useCallback((song: Song) => {
     if (!queueRef.current.length || !currentSong) {
-      // Nothing playing — just start it
       const q = [song];
       queueRef.current = q;
       queueIndexRef.current = 0;
@@ -203,6 +319,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setQueueIndex(0);
       setCurrentSong(song);
       setIsPlaying(true);
+      markPlayed(song.id);
       return;
     }
     setQueue((prev) => {
@@ -212,7 +329,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       queueRef.current = next;
       return next;
     });
-  }, [currentSong]);
+  }, [currentSong, markPlayed]);
 
   const togglePlay = useCallback(() => {
     setIsPlaying((p) => !p);
@@ -226,13 +343,20 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const q = queueRef.current;
     const idx = queueIndexRef.current;
     if (q.length === 0) return;
+    // If progress > 3s, restart current song instead of going back
+    if (audioRef.current && audioRef.current.currentTime > 3) {
+      audioRef.current.currentTime = 0;
+      setProgressState(0);
+      return;
+    }
     const prevIdx = (idx - 1 + q.length) % q.length;
     queueIndexRef.current = prevIdx;
     setQueueIndex(prevIdx);
     setCurrentSong(q[prevIdx]);
     setIsPlaying(true);
     addToRecentlyPlayedInternal(q[prevIdx]);
-  }, [addToRecentlyPlayedInternal]);
+    markPlayed(q[prevIdx].id);
+  }, [addToRecentlyPlayedInternal, markPlayed]);
 
   const setProgress = useCallback((value: number) => {
     if (audioRef.current) {

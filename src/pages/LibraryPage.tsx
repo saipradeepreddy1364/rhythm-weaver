@@ -20,6 +20,7 @@ import { useLibrary } from "@/context/LibraryContext";
 import { usePlayer } from "@/context/PlayerContext";
 import { SongRow } from "@/components/SongRow";
 import { AuthModal } from "@/components/AuthModal";
+import { MiniPlayer } from "@/components/MiniPlayer";
 import type { Song } from "@/data/songs";
 
 interface LibraryPageProps {
@@ -117,6 +118,8 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
           Sign In
         </button>
         <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} />
+        {/* MiniPlayer even on logged-out state */}
+        <MiniPlayer onRequireAuth={handleRequireAuth} />
       </div>
     );
   }
@@ -216,6 +219,9 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
             </div>
           )}
         </div>
+
+        {/* MiniPlayer in playlist view */}
+        <MiniPlayer onRequireAuth={handleRequireAuth} />
       </div>
     );
   }
@@ -536,6 +542,8 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
         )}
       </div>
 
+      {/* MiniPlayer always visible at bottom */}
+      <MiniPlayer onRequireAuth={handleRequireAuth} />
       <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} />
     </div>
   );
