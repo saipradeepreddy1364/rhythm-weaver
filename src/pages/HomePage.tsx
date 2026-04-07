@@ -7,7 +7,7 @@ import { useAuth } from "@/context/AuthContext";
 import { Music2, User, LogOut, ChevronDown, ChevronUp } from "lucide-react";
 import { AuthModal } from "@/components/AuthModal";
 
-// ─── Daily rotation seed ──────────────────────────────────────────────────────
+// ─── Daily rotation ───────────────────────────────────────────────────────────
 
 function todaysSeed(): number {
   const d = new Date();
@@ -18,7 +18,7 @@ function pickQuery(pool: string[], sectionOffset: number): string {
   return pool[(todaysSeed() + sectionOffset) % pool.length];
 }
 
-// ─── Query pools ──────────────────────────────────────────────────────────────
+// ─── Query pools (8 per section = different query every day for 8 days) ───────
 
 const HINDI_QUERIES = [
   "trending hindi songs 2025",
@@ -134,18 +134,32 @@ const SECTION_DEFS = [
   { title: "Trending Malayalam", pool: MALAYALAM_QUERIES, seed: 10 },
 ];
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Fetch helpers ────────────────────────────────────────────────────────────
 
-async function fetchSection(query: string, limit = 25): Promise<Song[]> {
-  try {
-    const res = await api.searchSongs(query, 1, limit);
-    const items = extractResults(res);
-    return items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
-  } catch {
-    return [];
-  }
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Fetch one section with one automatic retry on failure.
+ * Returns [] if both attempts fail — never throws.
+ */
+async function fetchSection(query: string, limit = 25): Promise<Song[]> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      if (attempt > 0) await sleep(1500); // wait before retry
+      const res = await api.searchSongs(query, 1, limit);
+      const items = extractResults(res);
+      const songs = items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
+      if (songs.length > 0) return songs;
+    } catch {
+      // swallow — retry or return []
+    }
+  }
+  return [];
+}
+
+/** Remove songs already in `seen`; mutates `seen`. */
 function dedup(songs: Song[], seen: Set<string>): Song[] {
   const out: Song[] = [];
   for (const s of songs) {
@@ -175,10 +189,9 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
   const { recentlyPlayed } = usePlayer();
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
-
-  // Sections arrive one-by-one as each fetch resolves
   const [sections, setSections] = useState<SectionData[]>([]);
   const globalSeenRef = useRef(new Set<string>());
+  const cancelledRef = useRef(false);
 
   const handleRequireAuth = () => {
     if (onRequireAuth) onRequireAuth();
@@ -191,30 +204,70 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
   };
 
   useEffect(() => {
+    cancelledRef.current = false;
     globalSeenRef.current = new Set<string>();
+    setSections([]);
 
-    // Fire all fetches simultaneously; each one pushes its section the moment it resolves.
-    // Sections will appear in the order they finish (fastest API response first).
-    SECTION_DEFS.forEach(({ title, pool, seed }) => {
-      fetchSection(pickQuery(pool, seed), 25).then((songs) => {
-        const unique = dedup(songs, globalSeenRef.current);
-        if (unique.length === 0) return;
-        setSections((prev) => {
-          // Keep sections in the original defined order even if they arrive out-of-order
-          const updated = [
-            ...prev.filter((s) => s.title !== title),
-            { title, songs: unique },
-          ];
-          updated.sort(
-            (a, b) =>
-              SECTION_DEFS.findIndex((d) => d.title === a.title) -
-              SECTION_DEFS.findIndex((d) => d.title === b.title)
-          );
-          return updated;
+    /**
+     * Send requests in batches of 2, with a 400 ms gap between batches.
+     * This prevents the upstream JioSaavn API from getting slammed with
+     * 10 simultaneous connections right after the Render cold-start wakes.
+     *
+     * Each batch fires its 2 fetches in parallel, then we wait before
+     * the next batch — so the total wall-clock time stays reasonable
+     * while keeping the upstream connection count low.
+     */
+    const BATCH_SIZE = 2;
+    const BATCH_DELAY_MS = 400;
+
+    async function loadInBatches() {
+      for (let i = 0; i < SECTION_DEFS.length; i += BATCH_SIZE) {
+        if (cancelledRef.current) return;
+
+        const batch = SECTION_DEFS.slice(i, i + BATCH_SIZE);
+
+        // Fire batch in parallel
+        const results = await Promise.all(
+          batch.map(({ pool, seed }) =>
+            fetchSection(pickQuery(pool, seed), 25)
+          )
+        );
+
+        if (cancelledRef.current) return;
+
+        // Push each result that has songs
+        results.forEach((songs, idx) => {
+          const { title } = batch[idx];
+          const unique = dedup(songs, globalSeenRef.current);
+          if (unique.length === 0) return;
+          setSections((prev) => {
+            const updated = [
+              ...prev.filter((s) => s.title !== title),
+              { title, songs: unique },
+            ];
+            // Keep sections in original defined order
+            updated.sort(
+              (a, b) =>
+                SECTION_DEFS.findIndex((d) => d.title === a.title) -
+                SECTION_DEFS.findIndex((d) => d.title === b.title)
+            );
+            return updated;
+          });
         });
-      });
-    });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+        // Wait before next batch (skip delay after last batch)
+        if (i + BATCH_SIZE < SECTION_DEFS.length) {
+          await sleep(BATCH_DELAY_MS);
+        }
+      }
+    }
+
+    loadInBatches();
+
+    return () => {
+      cancelledRef.current = true;
+    };
+  }, []);
 
   const quickPickSongs = sections[0]?.songs.slice(0, 6) ?? [];
 
@@ -289,7 +342,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
         </div>
       </div>
 
-      {/* ── Quick Picks (skeleton until first section loads) ── */}
+      {/* ── Quick Picks ── */}
       <div className="px-4 pt-4 mb-6">
         <h2 className="text-base font-bold text-white mb-3">Quick Picks</h2>
         {quickPickSongs.length > 0 ? (
@@ -299,7 +352,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
             ))}
           </div>
         ) : (
-          /* Skeleton tiles while first section is still loading */
+          /* Skeleton until first section arrives */
           <div className="grid grid-cols-2 gap-2">
             {Array.from({ length: 6 }).map((_, i) => (
               <div
@@ -312,7 +365,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
                   style={{ background: "rgba(255,255,255,0.07)" }}
                 />
                 <div
-                  className="flex-1 h-3 rounded"
+                  className="flex-1 h-3 rounded mr-2"
                   style={{ background: "rgba(255,255,255,0.06)" }}
                 />
               </div>
@@ -335,9 +388,9 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
         </SimpleSection>
       )}
 
-      {/* ── Dynamic sections — appear one by one as they load ── */}
+      {/* ── Song sections (appear progressively as batches resolve) ── */}
       {sections.length === 0 ? (
-        /* Show skeleton rows while waiting for the first section */
+        /* Skeleton rows while first batch is still in-flight */
         <div className="px-4 mb-5">
           <div
             className="h-4 w-36 rounded mb-4"
@@ -417,13 +470,9 @@ function CollapsibleSection({
           style={{ color: "rgba(255,255,255,0.4)" }}
         >
           {expanded ? (
-            <>
-              <ChevronUp className="w-3.5 h-3.5" /> Show less
-            </>
+            <><ChevronUp className="w-3.5 h-3.5" /> Show less</>
           ) : (
-            <>
-              <ChevronDown className="w-3.5 h-3.5" /> Show {songs.length - PREVIEW} more
-            </>
+            <><ChevronDown className="w-3.5 h-3.5" /> Show {songs.length - PREVIEW} more</>
           )}
         </button>
       )}
