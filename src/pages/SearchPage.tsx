@@ -426,8 +426,8 @@ function LanguageAlbumModal({
       const queries = getLanguageQueries(language);
 
       for (const q of queries) {
-        // Each query: paginate up to 8 pages (8 × 50 = 400 per query)
-        for (let page = 1; page <= 8; page++) {
+        // Each query: paginate up to 20 pages (20 × 50 = 1000 per query) for thousands of songs
+        for (let page = 1; page <= 20; page++) {
           try {
             if (page > 1) await sleep(200);
             const res = await api.searchSongs(q, page, 50);
@@ -1201,6 +1201,28 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
     loading: boolean;
   } | null>(null);
 
+  // ── Recent searches (persisted in localStorage) ──────────────────────────
+  const [recentSearches, setRecentSearches] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("recentSearches") || "[]");
+    } catch { return []; }
+  });
+
+  const saveRecentSearch = (q: string) => {
+    const trimmed = q.trim();
+    if (!trimmed) return;
+    setRecentSearches((prev) => {
+      const updated = [trimmed, ...prev.filter((s) => s !== trimmed)].slice(0, 10);
+      try { localStorage.setItem("recentSearches", JSON.stringify(updated)); } catch { /**/ }
+      return updated;
+    });
+  };
+
+  const clearRecentSearches = () => {
+    setRecentSearches([]);
+    try { localStorage.removeItem("recentSearches"); } catch { /**/ }
+  };
+
   const inputRef     = useRef<HTMLInputElement>(null);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -1270,6 +1292,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
     // ── Language detection ──
     const detectedLanguage = detectLanguageSearch(trimmed);
     if (detectedLanguage) {
+      saveRecentSearch(trimmed);
       setActiveLanguage(detectedLanguage);
       setSearched(false);
       return;
@@ -1284,11 +1307,11 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
       setActiveArtist(null);
       setActiveLanguage(null);
       setPage(1);
+      saveRecentSearch(trimmed);
 
-      // Fetch many pages (up to 20) in background, progressively merging results
       // Each search call gets a unique shuffle salt so repeated identical queries
-      // still produce different orderings (different page start).
-      const searchSalt = Date.now(); // unique per search invocation
+      // always produce a different ordering — no song is permanently pinned.
+      const searchSalt = Date.now() + Math.floor(Math.random() * 999983);
 
       const fetchAllPages = async () => {
         const seen = new Set<string>();
@@ -1312,29 +1335,31 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
             if (fresh.length > 0) {
               accumulated = [...accumulated, ...fresh];
 
-              // ── Order songs: exact title match first, then album songs, then artists ──
+              // ── Order songs: exact title match first, then partial title,
+              //    then album/movie songs, then artist songs, then rest ──
               const lq = trimmed.toLowerCase();
-              const exactTitle   = accumulated.filter((s) => s.title.toLowerCase() === lq);
-              const titleMatch   = accumulated.filter((s) => s.title.toLowerCase() !== lq && s.title.toLowerCase().includes(lq));
-              const albumMatch   = accumulated.filter((s) =>
+              const exactTitle  = accumulated.filter((s) => s.title.toLowerCase() === lq);
+              const titleMatch  = accumulated.filter((s) => s.title.toLowerCase() !== lq && s.title.toLowerCase().includes(lq));
+              const albumMatch  = accumulated.filter((s) =>
                 !s.title.toLowerCase().includes(lq) &&
                 (s.album?.toLowerCase().includes(lq) || s.movie?.toLowerCase().includes(lq))
               );
-              const artistMatch  = accumulated.filter((s) =>
+              const artistMatch = accumulated.filter((s) =>
                 !s.title.toLowerCase().includes(lq) &&
                 !(s.album?.toLowerCase().includes(lq) || s.movie?.toLowerCase().includes(lq)) &&
                 s.artist?.toLowerCase().includes(lq)
               );
-              const rest         = accumulated.filter((s) =>
+              const rest        = accumulated.filter((s) =>
                 !s.title.toLowerCase().includes(lq) &&
                 !(s.album?.toLowerCase().includes(lq) || s.movie?.toLowerCase().includes(lq)) &&
                 !s.artist?.toLowerCase().includes(lq)
               );
 
-              // Shuffle within each group using searchSalt so every search differs
+              // Shuffle EVERY group (including title matches) with unique salt
+              // so same query → different ordering every time
               const saltedShuffle = <T,>(arr: T[]): T[] => {
                 const out = [...arr];
-                let seed = searchSalt;
+                let seed = searchSalt + arr.length * 7919;
                 for (let i = out.length - 1; i > 0; i--) {
                   seed = (seed * 1664525 + 1013904223) & 0xffffffff;
                   const j = Math.abs(seed) % (i + 1);
@@ -1343,9 +1368,12 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                 return out;
               };
 
+              // Sections order: exact match (shuffled among themselves) → partial title →
+              // album songs → artist songs → rest
+              // This means song name first, then movie album, then artist.
               const ordered = [
-                ...exactTitle,
-                ...titleMatch,
+                ...saltedShuffle(exactTitle),
+                ...saltedShuffle(titleMatch),
                 ...saltedShuffle(albumMatch),
                 ...saltedShuffle(artistMatch),
                 ...saltedShuffle(rest),
@@ -1511,20 +1539,62 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
         </div>
       </div>
 
-      {/* ── Browse categories ── */}
+      {/* ── Empty state: recent searches or prompt ── */}
       {!searched && !query && (
         <div className="px-4 pt-4">
-          <p className="text-base font-bold text-white mb-4">Browse Categories</p>
-          <div className="grid grid-cols-2 gap-4">
-            {BROWSE_CATEGORIES.map(({ label, query: catQuery }) => (
-              <CategoryCard
-                key={label}
-                label={label}
-                query={catQuery}
-                onSelect={handleCategorySelect}
-              />
-            ))}
-          </div>
+          {recentSearches.length > 0 ? (
+            <>
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-base font-bold text-white">Recent Searches</p>
+                <button
+                  onClick={clearRecentSearches}
+                  className="text-xs font-semibold"
+                  style={{ color: "rgba(255,255,255,0.35)" }}
+                >
+                  Clear all
+                </button>
+              </div>
+              <div className="space-y-2">
+                {recentSearches.map((term) => (
+                  <button
+                    key={term}
+                    onClick={() => setQuery(term)}
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl active:scale-[0.98] transition-transform text-left"
+                    style={{ background: "rgba(255,255,255,0.06)" }}
+                  >
+                    <Search className="w-4 h-4 flex-shrink-0" style={{ color: "rgba(255,255,255,0.35)" }} />
+                    <span className="text-sm font-medium text-white truncate flex-1">{term}</span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const updated = recentSearches.filter((s) => s !== term);
+                        setRecentSearches(updated);
+                        try { localStorage.setItem("recentSearches", JSON.stringify(updated)); } catch { /**/ }
+                      }}
+                      className="ml-2 flex-shrink-0 p-1"
+                    >
+                      <X className="w-3.5 h-3.5" style={{ color: "rgba(255,255,255,0.25)" }} />
+                    </button>
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-24 gap-4">
+              <div
+                className="w-16 h-16 rounded-full flex items-center justify-center"
+                style={{ background: "rgba(255,255,255,0.06)" }}
+              >
+                <Search className="w-7 h-7" style={{ color: "rgba(255,255,255,0.25)" }} />
+              </div>
+              <div className="text-center">
+                <p className="text-base font-semibold text-white/60">Search for anything</p>
+                <p className="text-sm mt-1" style={{ color: "rgba(255,255,255,0.3)" }}>
+                  Songs, artists, movies, languages…
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

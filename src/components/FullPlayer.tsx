@@ -57,6 +57,10 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
     showPlayer,
     setShowPlayer,
     addToQueue,
+    shuffle,
+    repeat,
+    toggleShuffle,
+    cycleRepeat,
   } = usePlayer();
 
   const [showLyrics, setShowLyrics] = useState(false);
@@ -336,8 +340,15 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
 
         {/* ── Playback Controls ── */}
         <div className="flex items-center justify-between mb-4 flex-shrink-0">
-          <button className="p-3 active:scale-90 transition-transform" style={{ color: "rgba(255,255,255,0.5)" }}>
+          <button
+            onClick={toggleShuffle}
+            className="p-3 active:scale-90 transition-transform relative"
+            style={{ color: shuffle ? "#1DB954" : "rgba(255,255,255,0.5)" }}
+          >
             <Shuffle className="w-5 h-5" />
+            {shuffle && (
+              <span className="absolute bottom-2 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-green-400" />
+            )}
           </button>
           <button onClick={prevSong} className="p-3 text-white active:scale-90 transition-transform">
             <SkipBack className="w-7 h-7 fill-current" />
@@ -355,8 +366,21 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           <button onClick={nextSong} className="p-3 text-white active:scale-90 transition-transform">
             <SkipForward className="w-7 h-7 fill-current" />
           </button>
-          <button className="p-3 active:scale-90 transition-transform" style={{ color: "rgba(255,255,255,0.5)" }}>
+          <button
+            onClick={cycleRepeat}
+            className="p-3 active:scale-90 transition-transform relative"
+            style={{ color: repeat !== "off" ? "#1DB954" : "rgba(255,255,255,0.5)" }}
+          >
             <Repeat className="w-5 h-5" />
+            {repeat === "one" && (
+              <span
+                className="absolute top-2 right-2 text-[8px] font-bold leading-none"
+                style={{ color: "#1DB954" }}
+              >1</span>
+            )}
+            {repeat !== "off" && (
+              <span className="absolute bottom-2 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-green-400" />
+            )}
           </button>
         </div>
 

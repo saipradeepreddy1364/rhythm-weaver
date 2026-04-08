@@ -19,6 +19,8 @@ interface PlayerContextType {
   volume: number;
   showPlayer: boolean;
   recentlyPlayed: Song[];
+  shuffle: boolean;
+  repeat: "off" | "one" | "all";
   playSong: (song: Song, songQueue?: Song[]) => void;
   togglePlay: () => void;
   nextSong: () => void;
@@ -29,6 +31,8 @@ interface PlayerContextType {
   toggleFavorite: (songId: string) => void;
   isFavorite: (songId: string) => boolean;
   addToQueue: (song: Song) => void;
+  toggleShuffle: () => void;
+  cycleRepeat: () => void;
 }
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
@@ -54,9 +58,9 @@ function loadPlayHistory(): Record<string, number> {
   } catch { return {}; }
 }
 
-/** Prune entries older than 10 hours and persist */
+/** Prune entries older than 24 hours and persist */
 function pruneAndSaveHistory(history: Record<string, number>): Record<string, number> {
-  const cutoff = Date.now() - 10 * 60 * 60 * 1000;
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000; // full day
   const pruned: Record<string, number> = {};
   for (const [id, ts] of Object.entries(history)) {
     if (ts >= cutoff) pruned[id] = ts;
@@ -79,7 +83,7 @@ function pickNext(
 ): number {
   if (queue.length === 0) return 0;
   const len = queue.length;
-  const cutoff = Date.now() - 10 * 60 * 60 * 1000;
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000; // avoid songs played any time today
 
   // Build a combined "played recently" set
   const recentlyPlayedIds = new Set<string>();
@@ -110,16 +114,22 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [showPlayer, setShowPlayer]   = useState(false);
   const [recentlyPlayed, setRecentlyPlayed] = useState<Song[]>([]);
   const [favorites, setFavorites]     = useState<string[]>([]);
+  const [shuffle, setShuffle]         = useState(false);
+  const [repeat, setRepeat]           = useState<"off" | "one" | "all">("off");
 
   const audioRef          = useRef<HTMLAudioElement | null>(null);
   const queueRef          = useRef<Song[]>([]);
   const queueIndexRef     = useRef(0);
   const playHistoryRef    = useRef<Record<string, number>>(loadPlayHistory());
+  const shuffleRef        = useRef(false);
+  const repeatRef         = useRef<"off" | "one" | "all">("off");
   // Keep recent timestamps in a ref so pickNext can access them without stale closure
   const recentTimestampsRef = useRef<Record<string, number>>(loadRecentTimestamps());
 
   useEffect(() => { queueRef.current = queue; }, [queue]);
   useEffect(() => { queueIndexRef.current = queueIndex; }, [queueIndex]);
+  useEffect(() => { shuffleRef.current = shuffle; }, [shuffle]);
+  useEffect(() => { repeatRef.current = repeat; }, [repeat]);
 
   // Load favorites
   useEffect(() => {
@@ -157,18 +167,35 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  /** Update MediaSession metadata for lock screen */
-  const updateMediaSession = useCallback((song: Song, playing: boolean) => {
+  /** Update MediaSession metadata + position state for lock screen */
+  const updateMediaSession = useCallback((song: Song, playing: boolean, pos = 0, dur = 0) => {
     if (!("mediaSession" in navigator)) return;
     navigator.mediaSession.metadata = new MediaMetadata({
       title:   song.title,
       artist:  song.artist,
       album:   song.movie || song.album || "",
       artwork: song.albumArt
-        ? [{ src: song.albumArt, sizes: "512x512", type: "image/jpeg" }]
+        ? [
+            { src: song.albumArt, sizes: "96x96",   type: "image/jpeg" },
+            { src: song.albumArt, sizes: "128x128",  type: "image/jpeg" },
+            { src: song.albumArt, sizes: "192x192",  type: "image/jpeg" },
+            { src: song.albumArt, sizes: "256x256",  type: "image/jpeg" },
+            { src: song.albumArt, sizes: "384x384",  type: "image/jpeg" },
+            { src: song.albumArt, sizes: "512x512",  type: "image/jpeg" },
+          ]
         : [],
     });
     navigator.mediaSession.playbackState = playing ? "playing" : "paused";
+    // setPositionState lets the OS show a seek bar and enables next/prev on lock screen
+    if (dur > 0 && isFinite(dur)) {
+      try {
+        navigator.mediaSession.setPositionState({
+          duration: dur,
+          playbackRate: 1,
+          position: Math.min(pos, dur),
+        });
+      } catch { /**/ }
+    }
   }, []);
 
   const nextSongInternal = useCallback(() => {
@@ -176,11 +203,36 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const idx = queueIndexRef.current;
     if (q.length === 0) return;
 
-    // Prune stale entries first
-    const history = pruneAndSaveHistory(playHistoryRef.current);
-    playHistoryRef.current = history;
+    // Repeat-one: restart current song
+    if (repeatRef.current === "one") {
+      if (audioRef.current) {
+        audioRef.current.currentTime = 0;
+        audioRef.current.play().catch(() => {});
+      }
+      setProgressState(0);
+      return;
+    }
 
-    const nextIdx = pickNext(q, idx, history, recentTimestampsRef.current);
+    let nextIdx: number;
+    if (shuffleRef.current) {
+      // Random next song (not the same as current)
+      if (q.length === 1) { nextIdx = 0; }
+      else {
+        do { nextIdx = Math.floor(Math.random() * q.length); }
+        while (nextIdx === idx);
+      }
+    } else {
+      // Prune stale entries first
+      const history = pruneAndSaveHistory(playHistoryRef.current);
+      playHistoryRef.current = history;
+      nextIdx = pickNext(q, idx, history, recentTimestampsRef.current);
+    }
+
+    // Repeat-all: wrap around silently (pickNext already does this, but be explicit)
+    if (!shuffleRef.current && repeatRef.current === "off" && nextIdx <= idx && q.length > 1) {
+      // allow wrap — pickNext returns 0 when all played, that's fine
+    }
+
     queueIndexRef.current = nextIdx;
     setQueueIndex(nextIdx);
     setCurrentSong(q[nextIdx]);
@@ -196,11 +248,31 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     audio.volume = 0.7;
     audio.preload = "auto";
 
-    const handleTimeUpdate     = () => { if (!isNaN(audio.currentTime)) setProgressState(audio.currentTime); };
+    const handleTimeUpdate     = () => {
+      if (!isNaN(audio.currentTime)) {
+        setProgressState(audio.currentTime);
+        // Keep lock screen seek bar in sync (throttle: every ~1s is fine)
+        if ("mediaSession" in navigator && !isNaN(audio.duration) && isFinite(audio.duration) && audio.duration > 0) {
+          try {
+            navigator.mediaSession.setPositionState({
+              duration: audio.duration,
+              playbackRate: audio.playbackRate || 1,
+              position: Math.min(audio.currentTime, audio.duration),
+            });
+          } catch { /**/ }
+        }
+      }
+    };
     const handleDurationChange = () => { if (!isNaN(audio.duration) && isFinite(audio.duration)) setDuration(audio.duration); };
     const handleEnded          = () => { nextSongInternal(); };
-    const handlePlay           = () => setIsPlaying(true);
-    const handlePause          = () => setIsPlaying(false);
+    const handlePlay           = () => {
+      setIsPlaying(true);
+      if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing";
+    };
+    const handlePause          = () => {
+      setIsPlaying(false);
+      if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
+    };
     const handleError          = () => {
       console.error("Audio playback error — skipping to next");
       setTimeout(() => nextSongInternal(), 800);
@@ -237,10 +309,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       console.error("Autoplay blocked:", err);
       setIsPlaying(false);
     });
-    updateMediaSession(currentSong, true);
+    updateMediaSession(currentSong, true, 0, 0);
   }, [currentSong?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Handle play/pause toggle
+  // Handle play/pause toggle — also update MediaSession playback state
   useEffect(() => {
     if (!audioRef.current || !currentSong) return;
     if (isPlaying) {
@@ -248,7 +320,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     } else {
       audioRef.current.pause();
     }
-    if (currentSong) updateMediaSession(currentSong, isPlaying);
+    if (currentSong) {
+      const dur = audioRef.current.duration;
+      const pos = audioRef.current.currentTime;
+      updateMediaSession(currentSong, isPlaying, pos, dur);
+    }
   }, [isPlaying]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Volume changes
@@ -259,18 +335,33 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   // Register MediaSession action handlers ONCE
   useEffect(() => {
     if (!("mediaSession" in navigator)) return;
+
     navigator.mediaSession.setActionHandler("play", () => {
       setIsPlaying(true);
       audioRef.current?.play().catch(() => {});
+      navigator.mediaSession.playbackState = "playing";
     });
     navigator.mediaSession.setActionHandler("pause", () => {
       setIsPlaying(false);
       audioRef.current?.pause();
+      navigator.mediaSession.playbackState = "paused";
+    });
+    navigator.mediaSession.setActionHandler("stop", () => {
+      setIsPlaying(false);
+      audioRef.current?.pause();
+      navigator.mediaSession.playbackState = "paused";
     });
     navigator.mediaSession.setActionHandler("previoustrack", () => {
       const q   = queueRef.current;
       const idx = queueIndexRef.current;
       if (q.length === 0) return;
+      // If >3 s into song, restart; otherwise go to previous
+      if (audioRef.current && audioRef.current.currentTime > 3) {
+        audioRef.current.currentTime = 0;
+        setProgressState(0);
+        navigator.mediaSession.playbackState = "playing";
+        return;
+      }
       const prevIdx = (idx - 1 + q.length) % q.length;
       queueIndexRef.current = prevIdx;
       setQueueIndex(prevIdx);
@@ -278,21 +369,48 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setIsPlaying(true);
       addToRecentlyPlayedInternal(q[prevIdx]);
       markPlayed(q[prevIdx].id);
+      navigator.mediaSession.playbackState = "playing";
     });
-    navigator.mediaSession.setActionHandler("nexttrack",  () => { nextSongInternal(); });
+    navigator.mediaSession.setActionHandler("nexttrack", () => {
+      nextSongInternal();
+      navigator.mediaSession.playbackState = "playing";
+    });
     navigator.mediaSession.setActionHandler("seekto", (details) => {
       if (details.seekTime != null && audioRef.current) {
         audioRef.current.currentTime = details.seekTime;
         setProgressState(details.seekTime);
+        try {
+          const dur = audioRef.current.duration;
+          if (dur > 0 && isFinite(dur)) {
+            navigator.mediaSession.setPositionState({
+              duration: dur,
+              playbackRate: 1,
+              position: Math.min(details.seekTime, dur),
+            });
+          }
+        } catch { /**/ }
       }
     });
+    navigator.mediaSession.setActionHandler("seekbackward", (details) => {
+      if (audioRef.current) {
+        const skip = details.seekOffset || 10;
+        audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - skip);
+        setProgressState(audioRef.current.currentTime);
+      }
+    });
+    navigator.mediaSession.setActionHandler("seekforward", (details) => {
+      if (audioRef.current) {
+        const skip = details.seekOffset || 10;
+        const dur  = audioRef.current.duration;
+        audioRef.current.currentTime = Math.min(isFinite(dur) ? dur : Infinity, audioRef.current.currentTime + skip);
+        setProgressState(audioRef.current.currentTime);
+      }
+    });
+
     return () => {
       try {
-        navigator.mediaSession.setActionHandler("play",          null);
-        navigator.mediaSession.setActionHandler("pause",         null);
-        navigator.mediaSession.setActionHandler("previoustrack", null);
-        navigator.mediaSession.setActionHandler("nexttrack",     null);
-        navigator.mediaSession.setActionHandler("seekto",        null);
+        (["play","pause","stop","previoustrack","nexttrack","seekto","seekbackward","seekforward"] as MediaSessionAction[])
+          .forEach((a) => { try { navigator.mediaSession.setActionHandler(a, null); } catch { /**/ } });
       } catch { /**/ }
     };
   }, [nextSongInternal, addToRecentlyPlayedInternal, markPlayed]);
@@ -377,14 +495,23 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     [favorites]
   );
 
+  const toggleShuffle = useCallback(() => {
+    setShuffle((v) => !v);
+  }, []);
+
+  const cycleRepeat = useCallback(() => {
+    setRepeat((v) => v === "off" ? "all" : v === "all" ? "one" : "off");
+  }, []);
+
   return (
     <PlayerContext.Provider
       value={{
         currentSong, isPlaying, queue, queueIndex, progress, duration,
-        volume, showPlayer, recentlyPlayed,
+        volume, showPlayer, recentlyPlayed, shuffle, repeat,
         playSong, togglePlay, nextSong, prevSong,
         setProgress, setVolume, setShowPlayer,
         toggleFavorite, isFavorite, addToQueue,
+        toggleShuffle, cycleRepeat,
       }}
     >
       {children}

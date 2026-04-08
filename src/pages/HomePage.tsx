@@ -16,15 +16,17 @@ function todaysSeed(): number {
   return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
 }
 
-function minuteSeed(): number {
+function thirtySecSeed(): number {
   const d = new Date();
-  // unique per day + hour + minute
+  // unique per 30-second block → Quick Picks rotate every 30 s
+  const block = Math.floor(d.getSeconds() / 30);
   return (
-    d.getFullYear() * 100000000 +
-    (d.getMonth() + 1) * 1000000 +
-    d.getDate() * 10000 +
-    d.getHours() * 100 +
-    d.getMinutes()
+    d.getFullYear() * 10000000000 +
+    (d.getMonth() + 1) * 100000000 +
+    d.getDate() * 1000000 +
+    d.getHours() * 10000 +
+    d.getMinutes() * 100 +
+    block
   );
 }
 
@@ -109,6 +111,7 @@ const MALAYALAM_QUERIES = [
 // ─── ALL album + artist entries ───────────────────────────────────────────────
 
 const ALL_ALBUM_ENTRIES = [
+  // ── MOVIES (50+) ──────────────────────────────────────────────────────────
   { title: "Kalki 2898 AD",          query: "Kalki 2898 AD songs",                    type: "movie" },
   { title: "Animal",                 query: "Animal movie songs bollywood",            type: "movie" },
   { title: "Jawan",                  query: "Jawan movie songs shahrukh",              type: "movie" },
@@ -131,7 +134,44 @@ const ALL_ALBUM_ENTRIES = [
   { title: "KGF Chapter 2",          query: "KGF Chapter 2 songs Kannada",            type: "movie" },
   { title: "Mirzapur Soundtrack",    query: "Mirzapur web series songs",              type: "movie" },
   { title: "Merry Christmas",        query: "Merry Christmas movie songs 2024",        type: "movie" },
+  { title: "Baahubali 2",            query: "Baahubali 2 The Conclusion songs",        type: "movie" },
+  { title: "Dilwale Dulhania",       query: "Dilwale Dulhania Le Jayenge songs",       type: "movie" },
+  { title: "3 Idiots",               query: "3 Idiots movie songs bollywood",          type: "movie" },
+  { title: "Kabir Singh",            query: "Kabir Singh movie songs",                 type: "movie" },
+  { title: "Brahmastra",             query: "Brahmastra movie songs 2022",             type: "movie" },
+  { title: "Adipurush",              query: "Adipurush movie songs Telugu Hindi",      type: "movie" },
+  { title: "Vikram",                 query: "Vikram Tamil movie songs Kamal",          type: "movie" },
+  { title: "Varisu",                 query: "Varisu Tamil songs Vijay 2023",           type: "movie" },
+  { title: "Ponniyin Selvan 2",      query: "Ponniyin Selvan 2 songs AR Rahman",       type: "movie" },
+  { title: "Drishyam 2",             query: "Drishyam 2 movie songs",                  type: "movie" },
+  { title: "Ek Tha Tiger",           query: "Ek Tha Tiger songs Salman",               type: "movie" },
+  { title: "War",                    query: "War movie songs Hrithik Tiger 2019",       type: "movie" },
+  { title: "Uri",                    query: "Uri The Surgical Strike songs",            type: "movie" },
+  { title: "Bhediya",                query: "Bhediya movie songs 2022",                type: "movie" },
+  { title: "Laal Singh Chaddha",     query: "Laal Singh Chaddha songs Aamir",         type: "movie" },
+  { title: "Gehraiyaan",             query: "Gehraiyaan movie songs Deepika",          type: "movie" },
+  { title: "Shershaah",              query: "Shershaah movie songs Sidharth",          type: "movie" },
+  { title: "Jugjugg Jeeyo",          query: "JugJugg Jeeyo movie songs 2022",         type: "movie" },
+  { title: "Satyaprem Ki Katha",     query: "Satyaprem Ki Katha songs 2023",           type: "movie" },
+  { title: "Adipurush",              query: "Adipurush Prabhas songs Telugu Hindi",    type: "movie" },
+  { title: "Kisi Ka Bhai",           query: "Kisi Ka Bhai Kisi Ki Jaan songs",         type: "movie" },
+  { title: "Dasara",                 query: "Dasara Telugu movie songs Nani 2023",     type: "movie" },
+  { title: "Skanda",                 query: "Skanda Telugu movie songs Ram Pothineni", type: "movie" },
+  { title: "Lucky Baskhar",          query: "Lucky Baskhar Telugu songs 2024",         type: "movie" },
+  { title: "Devara Part 1",          query: "Devara Part 1 songs NTR Janhvi",         type: "movie" },
+  { title: "GOAT",                   query: "GOAT Tamil movie songs Vijay 2024",       type: "movie" },
+  { title: "Thangalaan",             query: "Thangalaan Tamil songs Chiyaan Vikram",  type: "movie" },
+  { title: "Indian 2",               query: "Indian 2 Tamil songs Kamal Haasan",       type: "movie" },
+  { title: "Coolie",                 query: "Coolie Tamil songs Rajinikanth 2025",     type: "movie" },
+  { title: "Raayan",                 query: "Raayan Tamil songs Dhanush 2024",         type: "movie" },
+  { title: "Pushpa 1",               query: "Pushpa The Rise Telugu songs",            type: "movie" },
+  { title: "Arjun Reddy",            query: "Arjun Reddy Telugu songs",                type: "movie" },
+  { title: "Geetha Govindam",        query: "Geetha Govindam Telugu songs Allu Arjun",type: "movie" },
+  { title: "Ala Vaikunthapurramuloo",query: "Ala Vaikunthapurramuloo songs Telugu",   type: "movie" },
+  { title: "Sye Raa",                query: "Sye Raa Narasimha Reddy songs",          type: "movie" },
+  { title: "Saaho",                  query: "Saaho Telugu Hindi songs Prabhas",        type: "movie" },
 
+  // ── ARTISTS (30+) ─────────────────────────────────────────────────────────
   { title: "Arijit Singh Hits",      query: "Arijit Singh best songs",                type: "artist" },
   { title: "AR Rahman Classics",     query: "AR Rahman hit songs",                    type: "artist" },
   { title: "Shreya Ghoshal",         query: "Shreya Ghoshal best songs",              type: "artist" },
@@ -146,7 +186,24 @@ const ALL_ALBUM_ENTRIES = [
   { title: "Mohammed Rafi",          query: "Mohammed Rafi classic hit songs",        type: "artist" },
   { title: "Asha Bhosle",            query: "Asha Bhosle best songs",                 type: "artist" },
   { title: "SP Balasubrahmanyam",    query: "SP Balasubrahmanyam hit songs telugu",   type: "artist" },
+  { title: "Sid Sriram",             query: "Sid Sriram best songs Telugu Tamil",     type: "artist" },
+  { title: "Anirudh Ravichander",    query: "Anirudh Ravichander best songs",         type: "artist" },
+  { title: "Thaman S",               query: "SS Thaman best Telugu songs",            type: "artist" },
+  { title: "Pritam Hits",            query: "Pritam Chakraborty best songs",          type: "artist" },
+  { title: "Vishal-Shekhar",         query: "Vishal Shekhar hit songs bollywood",     type: "artist" },
+  { title: "Shankar Ehsaan Loy",     query: "Shankar Ehsaan Loy best songs",          type: "artist" },
+  { title: "Yuvan Shankar Raja",     query: "Yuvan Shankar Raja best songs",          type: "artist" },
+  { title: "Ilaiyaraaja Classics",   query: "Ilaiyaraaja best songs Tamil Telugu",    type: "artist" },
+  { title: "Sunidhi Chauhan",        query: "Sunidhi Chauhan best hit songs",         type: "artist" },
+  { title: "Udit Narayan",           query: "Udit Narayan 90s hit songs",             type: "artist" },
+  { title: "Armaan Malik",           query: "Armaan Malik best songs",                type: "artist" },
+  { title: "Darshan Raval",          query: "Darshan Raval best songs",               type: "artist" },
+  { title: "B Praak",                query: "B Praak best songs",                     type: "artist" },
+  { title: "Guru Randhawa",          query: "Guru Randhawa top songs",                type: "artist" },
+  { title: "Tony Kakkar",            query: "Tony Kakkar best songs",                 type: "artist" },
+  { title: "Jasleen Royal",          query: "Jasleen Royal best songs",               type: "artist" },
 
+  // ── HEROES / ACTORS (20+) ─────────────────────────────────────────────────
   { title: "Prabhas Hits",           query: "Prabhas songs all movies",               type: "hero" },
   { title: "Allu Arjun Hits",        query: "Allu Arjun songs all movies",            type: "hero" },
   { title: "Jr NTR Hits",            query: "Jr NTR songs all movies",                type: "hero" },
@@ -159,6 +216,16 @@ const ALL_ALBUM_ENTRIES = [
   { title: "Hrithik Roshan Hits",    query: "Hrithik Roshan songs all movies",        type: "hero" },
   { title: "Yash Hits",              query: "Yash KGF songs all movies",              type: "hero" },
   { title: "Mahesh Babu Hits",       query: "Mahesh Babu songs all movies",           type: "hero" },
+  { title: "Nani Hits",              query: "Nani Telugu songs all movies",           type: "hero" },
+  { title: "Dhanush Hits",           query: "Dhanush songs Tamil Telugu all movies",  type: "hero" },
+  { title: "Suriya Hits",            query: "Suriya Tamil songs all movies",          type: "hero" },
+  { title: "Kamal Haasan Hits",      query: "Kamal Haasan songs all movies",          type: "hero" },
+  { title: "Aamir Khan Hits",        query: "Aamir Khan songs all movies bollywood",  type: "hero" },
+  { title: "Ranbir Kapoor Hits",     query: "Ranbir Kapoor songs all movies",         type: "hero" },
+  { title: "Ranveer Singh Hits",     query: "Ranveer Singh songs bollywood all",      type: "hero" },
+  { title: "Kartik Aaryan Hits",     query: "Kartik Aaryan songs all movies 2024",   type: "hero" },
+  { title: "Akshay Kumar Hits",      query: "Akshay Kumar songs all movies",          type: "hero" },
+  { title: "Tiger Shroff Hits",      query: "Tiger Shroff songs all movies",          type: "hero" },
 ];
 
 const FILM_HERO_POOL = ALL_ALBUM_ENTRIES.filter((e) => e.type === "movie" || e.type === "hero");
@@ -166,11 +233,13 @@ const ARTIST_POOL    = ALL_ALBUM_ENTRIES.filter((e) => e.type === "artist");
 
 function getTodaysAlbums() {
   const seed = todaysSeed();
+  // Shuffle the entire pool daily — every day a different order is shown.
+  // No slicing: show ALL entries so the user always sees new content each day.
   const shuffledFilm   = seededShuffle(FILM_HERO_POOL, seed);
   const shuffledArtist = seededShuffle(ARTIST_POOL, seed + 9999);
   return {
-    filmEntries:   shuffledFilm.slice(0, 10),
-    artistEntries: shuffledArtist.slice(0, 8),
+    filmEntries:   shuffledFilm,   // all movie/hero entries, different order each day
+    artistEntries: shuffledArtist, // all artist entries, different order each day
   };
 }
 
@@ -875,18 +944,64 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
     const { filmEntries, artistEntries } = getTodaysAlbums();
 
     async function loadAlbums() {
+      // Helper: fetch all songs for a given entry across multiple pages
+      async function fetchAlbumSongs(
+        title: string,
+        query: string,
+        type: string,
+        targetCount = 200
+      ): Promise<Song[]> {
+        const seen = new Set<string>();
+        const all: Song[] = [];
+        const pageSize = 50;
+        const maxPages = Math.ceil(targetCount / pageSize);
+
+        // For artists/heroes also try extra query variants to find more songs
+        const queryList: string[] =
+          type === "artist" || type === "hero"
+            ? [
+                query,
+                `${title.replace(" Hits", "")} songs`,
+                `${title.replace(" Hits", "")} all songs`,
+                `${title.replace(" Classics", "")} hit songs`,
+              ]
+            : [query];
+
+        for (const q of queryList) {
+          for (let page = 1; page <= maxPages; page++) {
+            try {
+              if (page > 1 || q !== queryList[0]) await sleep(200);
+              const res = await api.searchSongs(q, page, pageSize);
+              const items = extractResults(res);
+              let songs = items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
+
+              if (type === "movie") {
+                const filtered = songs.filter((s: Song) =>
+                  s.movie?.toLowerCase().includes(title.toLowerCase()) ||
+                  s.album?.toLowerCase().includes(title.toLowerCase())
+                );
+                if (filtered.length >= 2) songs = filtered;
+              }
+
+              for (const s of songs) {
+                if (s.id && !seen.has(s.id)) {
+                  seen.add(s.id);
+                  all.push(s);
+                }
+              }
+              if (items.length < pageSize) break;
+              if (all.length >= targetCount) break;
+            } catch { break; }
+          }
+          if (all.length >= targetCount) break;
+        }
+        return all;
+      }
+
       const filmSettled = await Promise.allSettled(
         filmEntries.map(async ({ title, query, type }) => {
           try {
-            const res = await api.searchSongs(query, 1, 10);
-            let songs = extractResults(res).map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
-            if (type === "movie") {
-              const filtered = songs.filter((s: Song) =>
-                s.movie?.toLowerCase().includes(title.toLowerCase()) ||
-                s.album?.toLowerCase().includes(title.toLowerCase())
-              );
-              if (filtered.length >= 2) songs = filtered;
-            }
+            const songs = await fetchAlbumSongs(title, query, type, type === "movie" ? 50 : 200);
             if (songs.length < 1) return null;
             return { title, coverArt: songs[0].albumArt || "", songs, type } as AlbumData;
           } catch {
@@ -898,8 +1013,8 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
       const artistSettled = await Promise.allSettled(
         artistEntries.map(async ({ title, query, type }) => {
           try {
-            const res = await api.searchSongs(query, 1, 10);
-            const songs = extractResults(res).map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
+            // Artists: fetch up to 300 songs across all career
+            const songs = await fetchAlbumSongs(title, query, type, 300);
             if (songs.length < 1) return null;
             return { title, coverArt: songs[0].albumArt || "", songs, type } as AlbumData;
           } catch {
@@ -928,10 +1043,10 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
   }, []);
 
   // ── Per-minute rotating quick picks ─────────────────────────────────────────
-  const [minuteTick, setMinuteTick] = useState(minuteSeed());
+  const [minuteTick, setMinuteTick] = useState(thirtySecSeed());
   useEffect(() => {
-    // Refresh every minute so Quick Picks rotate
-    const id = setInterval(() => setMinuteTick(minuteSeed()), 60_000);
+    // Refresh every 30 seconds so Quick Picks rotate
+    const id = setInterval(() => setMinuteTick(thirtySecSeed()), 30_000);
     return () => clearInterval(id);
   }, []);
 
