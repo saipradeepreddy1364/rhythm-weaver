@@ -1284,56 +1284,125 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
       setActiveArtist(null);
       setActiveLanguage(null);
       setPage(1);
-    } else {
-      setLoadingMore(true);
-    }
 
-    api
-      .searchSongs(trimmed, pg, PAGE_SIZE)
-      .then((res) => {
-        const results = extractResults(res).map(mapApiSong).filter((s: Song) => s.audioUrl);
-        if (pg === 1) {
-          // ── Artist detection: if the trimmed query closely matches a top artist name,
-          //    auto-open ArtistModal so they see 1000s of that artist's songs first ──
-          const grouped = groupIntoArtists(results);
-          const topArtist = grouped[0];
-          if (
-            topArtist &&
-            topArtist.songCount >= 3 &&
-            topArtist.name.toLowerCase().includes(trimmed.toLowerCase())
-          ) {
-            setActiveArtist(topArtist);
-            setSongs(results);
-            setAlbums(groupIntoAlbums(results));
-            setArtists(grouped);
+      // Fetch many pages (up to 20) in background, progressively merging results
+      // Each search call gets a unique shuffle salt so repeated identical queries
+      // still produce different orderings (different page start).
+      const searchSalt = Date.now(); // unique per search invocation
+
+      const fetchAllPages = async () => {
+        const seen = new Set<string>();
+        let accumulated: Song[] = [];
+        const PAGE_LIMIT = 20; // up to 20 pages = 1000 songs
+
+        for (let page = 1; page <= PAGE_LIMIT; page++) {
+          try {
+            if (page > 1) await sleep(200);
+            const res     = await api.searchSongs(trimmed, page, PAGE_SIZE);
+            const results = extractResults(res).map(mapApiSong).filter((s: Song) => s.audioUrl);
+
+            const fresh: Song[] = [];
+            for (const s of results) {
+              if (s.id && !seen.has(s.id)) {
+                seen.add(s.id);
+                fresh.push(s);
+              }
+            }
+
+            if (fresh.length > 0) {
+              accumulated = [...accumulated, ...fresh];
+
+              // ── Order songs: exact title match first, then album songs, then artists ──
+              const lq = trimmed.toLowerCase();
+              const exactTitle   = accumulated.filter((s) => s.title.toLowerCase() === lq);
+              const titleMatch   = accumulated.filter((s) => s.title.toLowerCase() !== lq && s.title.toLowerCase().includes(lq));
+              const albumMatch   = accumulated.filter((s) =>
+                !s.title.toLowerCase().includes(lq) &&
+                (s.album?.toLowerCase().includes(lq) || s.movie?.toLowerCase().includes(lq))
+              );
+              const artistMatch  = accumulated.filter((s) =>
+                !s.title.toLowerCase().includes(lq) &&
+                !(s.album?.toLowerCase().includes(lq) || s.movie?.toLowerCase().includes(lq)) &&
+                s.artist?.toLowerCase().includes(lq)
+              );
+              const rest         = accumulated.filter((s) =>
+                !s.title.toLowerCase().includes(lq) &&
+                !(s.album?.toLowerCase().includes(lq) || s.movie?.toLowerCase().includes(lq)) &&
+                !s.artist?.toLowerCase().includes(lq)
+              );
+
+              // Shuffle within each group using searchSalt so every search differs
+              const saltedShuffle = <T,>(arr: T[]): T[] => {
+                const out = [...arr];
+                let seed = searchSalt;
+                for (let i = out.length - 1; i > 0; i--) {
+                  seed = (seed * 1664525 + 1013904223) & 0xffffffff;
+                  const j = Math.abs(seed) % (i + 1);
+                  [out[i], out[j]] = [out[j], out[i]];
+                }
+                return out;
+              };
+
+              const ordered = [
+                ...exactTitle,
+                ...titleMatch,
+                ...saltedShuffle(albumMatch),
+                ...saltedShuffle(artistMatch),
+                ...saltedShuffle(rest),
+              ];
+
+              setSongs(ordered);
+              setAlbums(groupIntoAlbums(ordered));
+              setArtists(groupIntoArtists(ordered));
+
+              // Auto-open ArtistModal if artist name exactly matches query
+              if (page === 1) {
+                const grouped = groupIntoArtists(results);
+                const topArtist = grouped[0];
+                if (
+                  topArtist &&
+                  topArtist.songCount >= 3 &&
+                  topArtist.name.toLowerCase().includes(trimmed.toLowerCase())
+                ) {
+                  setActiveArtist(topArtist);
+                }
+              }
+            }
+
             setLoading(false);
-            return;
-          }
-          setSongs(results);
-          setAlbums(groupIntoAlbums(results));
-          setArtists(grouped);
-        } else {
+
+            // Stop early if API has no more results
+            if (results.length < PAGE_SIZE) break;
+          } catch { break; }
+        }
+
+        setHasMore(false);
+        setLoading(false);
+        setLoadingMore(false);
+      };
+
+      fetchAllPages();
+    } else {
+      // Legacy load-more (kept for manual "load more" button, though auto-fetch covers it)
+      setLoadingMore(true);
+      api
+        .searchSongs(trimmed, pg, PAGE_SIZE)
+        .then((res) => {
+          const results = extractResults(res).map(mapApiSong).filter((s: Song) => s.audioUrl);
           setSongs((prev) => {
             const merged = [...prev, ...results];
             setAlbums(groupIntoAlbums(merged));
             setArtists(groupIntoArtists(merged));
             return merged;
           });
-        }
-        setHasMore(results.length >= PAGE_SIZE);
-      })
-      .catch(() => {
-        if (pg === 1) {
-          setSongs([]);
-          setAlbums([]);
-          setArtists([]);
-        }
-        setHasMore(false);
-      })
-      .finally(() => {
-        setLoading(false);
-        setLoadingMore(false);
-      });
+          setHasMore(results.length >= PAGE_SIZE);
+        })
+        .catch(() => setHasMore(false))
+        .finally(() => {
+          setLoading(false);
+          setLoadingMore(false);
+        });
+    }
   }, []);
 
   // Debounce: 150 ms for near-instant results on each keystroke

@@ -8,11 +8,24 @@ import { Music2, User, LogOut, ChevronDown, ChevronUp, Play, Disc3, ArrowLeft } 
 import { AuthModal } from "@/components/AuthModal";
 import { MiniPlayer } from "@/components/MiniPlayer";
 
-// ─── Daily seed (changes every day) ──────────────────────────────────────────
+// ─── Seed helpers ─────────────────────────────────────────────────────────────
+// minuteSeed() changes every minute → triggers re-shuffle of Quick Picks every 60 s
 
 function todaysSeed(): number {
   const d = new Date();
   return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+}
+
+function minuteSeed(): number {
+  const d = new Date();
+  // unique per day + hour + minute
+  return (
+    d.getFullYear() * 100000000 +
+    (d.getMonth() + 1) * 1000000 +
+    d.getDate() * 10000 +
+    d.getHours() * 100 +
+    d.getMinutes()
+  );
 }
 
 function seededShuffle<T>(arr: T[], seed: number): T[] {
@@ -174,40 +187,7 @@ const SECTION_DEFS = [
   { title: "Trending Malayalam", pool: MALAYALAM_QUERIES, seed: 10 },
 ];
 
-// ─── Language category queries for full song lists ────────────────────────────
-
-const LANGUAGE_CATEGORIES = [
-  {
-    label: "Hindi",
-    queries: ["top hindi songs 2025", "hindi hits 2025", "bollywood songs 2025", "latest hindi film songs 2025"],
-    subCategories: [
-      { label: "Romantic", query: "hindi romantic songs 2025" },
-      { label: "Party/Dance", query: "hindi dance party songs 2025" },
-      { label: "Devotional", query: "hindi devotional songs 2025" },
-      { label: "Retro 90s", query: "90s hindi songs superhit" },
-    ]
-  },
-  {
-    label: "Telugu",
-    queries: ["top telugu songs 2025", "tollywood hits 2025", "telugu film songs 2025", "new telugu songs 2025"],
-    subCategories: [
-      { label: "Romantic", query: "telugu romantic songs 2025" },
-      { label: "Item Songs", query: "telugu item songs hit" },
-      { label: "Devotional", query: "telugu devotional songs" },
-      { label: "Old Hits", query: "old telugu songs evergreen" },
-    ]
-  },
-  {
-    label: "Tamil",
-    queries: ["top tamil songs 2025", "kollywood hits 2025", "tamil film songs 2025", "new tamil songs 2025"],
-    subCategories: [
-      { label: "Romantic", query: "tamil romantic songs 2025" },
-      { label: "Folk", query: "tamil folk songs hit" },
-      { label: "Devotional", query: "tamil devotional songs" },
-      { label: "Old Hits", query: "old tamil songs evergreen" },
-    ]
-  },
-];
+// ─── Language categories removed (buttons removed from home screen) ───────────
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -819,7 +799,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
     albumQuery: string;
   } | null>(null);
 
-  const [openLanguage, setOpenLanguage] = useState<typeof LANGUAGE_CATEGORIES[0] | null>(null);
+  const [openLanguage, setOpenLanguage] = useState<null>(null); // kept for type compat, not used
 
   const loadedRef = useRef(false);
   const globalSeenRef = useRef(new Set<string>());
@@ -947,12 +927,18 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
     return () => { unmounted = true; };
   }, []);
 
-  // ── Daily-rotating quick picks ───────────────────────────────────────────────
+  // ── Per-minute rotating quick picks ─────────────────────────────────────────
+  const [minuteTick, setMinuteTick] = useState(minuteSeed());
+  useEffect(() => {
+    // Refresh every minute so Quick Picks rotate
+    const id = setInterval(() => setMinuteTick(minuteSeed()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
   const quickPickSongs = (() => {
     const pool = sections.flatMap((s) => s.songs);
     if (pool.length === 0) return [];
-    const seed = todaysSeed();
-    return seededShuffle(pool, seed).slice(0, 12);
+    return seededShuffle(pool, minuteTick).slice(0, 12);
   })();
 
   return (
@@ -969,16 +955,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
         />
       )}
 
-      {/* ── Language category modal ── */}
-      {openLanguage && (
-        <LanguageCategoryModal
-          label={openLanguage.label}
-          mainQueries={openLanguage.queries}
-          subCategories={openLanguage.subCategories}
-          onClose={() => setOpenLanguage(null)}
-          onRequireAuth={handleRequireAuth}
-        />
-      )}
+      {/* ── Language category modal removed ── */}
 
       {/* ── Header ── */}
       <div
