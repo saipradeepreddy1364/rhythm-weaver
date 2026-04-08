@@ -899,14 +899,36 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
     globalSeenRef.current = new Set<string>();
     setSections([]);
 
-    const BATCH_SIZE = 2;
-    const BATCH_DELAY_MS = 500;
     let unmounted = false;
 
     async function loadInBatches() {
-      for (let i = 0; i < SECTION_DEFS.length; i += BATCH_SIZE) {
+      // Phase 1: load first 4 sections all at once for fast initial display
+      const INITIAL = 4;
+      const firstResults = await Promise.all(
+        SECTION_DEFS.slice(0, INITIAL).map(({ pool, seed }) =>
+          fetchSection(pickQuery(pool, seed), 25)
+        )
+      );
+      if (unmounted) return;
+      firstResults.forEach((songs, idx) => {
+        const { title } = SECTION_DEFS[idx];
+        const unique = dedup(songs, globalSeenRef.current);
+        if (unique.length === 0) return;
+        setSections((prev) => {
+          const updated = [...prev.filter((s) => s.title !== title), { title, songs: unique }];
+          updated.sort((a, b) =>
+            SECTION_DEFS.findIndex((d) => d.title === a.title) -
+            SECTION_DEFS.findIndex((d) => d.title === b.title)
+          );
+          return updated;
+        });
+      });
+
+      // Phase 2: load remaining sections in background with small delay
+      for (let i = INITIAL; i < SECTION_DEFS.length; i += 2) {
         if (unmounted) return;
-        const batch = SECTION_DEFS.slice(i, i + BATCH_SIZE);
+        await sleep(600);
+        const batch = SECTION_DEFS.slice(i, i + 2);
         const results = await Promise.all(
           batch.map(({ pool, seed }) => fetchSection(pickQuery(pool, seed), 25))
         );
@@ -916,19 +938,14 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
           const unique = dedup(songs, globalSeenRef.current);
           if (unique.length === 0) return;
           setSections((prev) => {
-            const updated = [
-              ...prev.filter((s) => s.title !== title),
-              { title, songs: unique },
-            ];
-            updated.sort(
-              (a, b) =>
-                SECTION_DEFS.findIndex((d) => d.title === a.title) -
-                SECTION_DEFS.findIndex((d) => d.title === b.title)
+            const updated = [...prev.filter((s) => s.title !== title), { title, songs: unique }];
+            updated.sort((a, b) =>
+              SECTION_DEFS.findIndex((d) => d.title === a.title) -
+              SECTION_DEFS.findIndex((d) => d.title === b.title)
             );
             return updated;
           });
         });
-        if (i + BATCH_SIZE < SECTION_DEFS.length) await sleep(BATCH_DELAY_MS);
       }
     }
 
@@ -943,99 +960,172 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
 
     const { filmEntries, artistEntries } = getTodaysAlbums();
 
-    async function loadAlbums() {
-      // Helper: fetch all songs for a given entry across multiple pages
-      async function fetchAlbumSongs(
-        title: string,
-        query: string,
-        type: string,
-        targetCount = 200
-      ): Promise<Song[]> {
-        const seen = new Set<string>();
-        const all: Song[] = [];
-        const pageSize = 50;
-        const maxPages = Math.ceil(targetCount / pageSize);
-
-        // For artists/heroes also try extra query variants to find more songs
-        const queryList: string[] =
-          type === "artist" || type === "hero"
-            ? [
-                query,
-                `${title.replace(" Hits", "")} songs`,
-                `${title.replace(" Hits", "")} all songs`,
-                `${title.replace(" Classics", "")} hit songs`,
-              ]
-            : [query];
-
-        for (const q of queryList) {
-          for (let page = 1; page <= maxPages; page++) {
-            try {
-              if (page > 1 || q !== queryList[0]) await sleep(200);
-              const res = await api.searchSongs(q, page, pageSize);
-              const items = extractResults(res);
-              let songs = items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
-
-              if (type === "movie") {
-                const filtered = songs.filter((s: Song) =>
-                  s.movie?.toLowerCase().includes(title.toLowerCase()) ||
-                  s.album?.toLowerCase().includes(title.toLowerCase())
-                );
-                if (filtered.length >= 2) songs = filtered;
-              }
-
-              for (const s of songs) {
-                if (s.id && !seen.has(s.id)) {
-                  seen.add(s.id);
-                  all.push(s);
-                }
-              }
-              if (items.length < pageSize) break;
-              if (all.length >= targetCount) break;
-            } catch { break; }
-          }
-          if (all.length >= targetCount) break;
+    // Quick fetch: just 1 page (50 songs) for fast initial display
+    async function fetchAlbumSongsQuick(
+      title: string,
+      query: string,
+      type: string,
+    ): Promise<Song[]> {
+      try {
+        const res = await api.searchSongs(query, 1, 50);
+        const items = extractResults(res);
+        let songs = items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
+        if (type === "movie") {
+          const filtered = songs.filter((s: Song) =>
+            s.movie?.toLowerCase().includes(title.toLowerCase()) ||
+            s.album?.toLowerCase().includes(title.toLowerCase())
+          );
+          if (filtered.length >= 2) songs = filtered;
         }
-        return all;
-      }
+        return songs;
+      } catch { return []; }
+    }
 
-      const filmSettled = await Promise.allSettled(
-        filmEntries.map(async ({ title, query, type }) => {
+    // Full fetch: multiple pages for complete song list (runs in background)
+    async function fetchAlbumSongsFull(
+      title: string,
+      query: string,
+      type: string,
+      targetCount = 200
+    ): Promise<Song[]> {
+      const seen = new Set<string>();
+      const all: Song[] = [];
+      const pageSize = 50;
+      const maxPages = Math.ceil(targetCount / pageSize);
+
+      const queryList: string[] =
+        type === "artist" || type === "hero"
+          ? [
+              query,
+              `${title.replace(" Hits", "")} songs`,
+              `${title.replace(" Hits", "")} all songs`,
+            ]
+          : [query];
+
+      for (const q of queryList) {
+        for (let page = 1; page <= maxPages; page++) {
           try {
-            const songs = await fetchAlbumSongs(title, query, type, type === "movie" ? 50 : 200);
-            if (songs.length < 1) return null;
-            return { title, coverArt: songs[0].albumArt || "", songs, type } as AlbumData;
-          } catch {
-            return null;
-          }
+            if (page > 1 || q !== queryList[0]) await sleep(300);
+            const res = await api.searchSongs(q, page, pageSize);
+            const items = extractResults(res);
+            let songs = items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
+            if (type === "movie") {
+              const filtered = songs.filter((s: Song) =>
+                s.movie?.toLowerCase().includes(title.toLowerCase()) ||
+                s.album?.toLowerCase().includes(title.toLowerCase())
+              );
+              if (filtered.length >= 2) songs = filtered;
+            }
+            for (const s of songs) {
+              if (s.id && !seen.has(s.id)) { seen.add(s.id); all.push(s); }
+            }
+            if (items.length < pageSize) break;
+            if (all.length >= targetCount) break;
+          } catch { break; }
+        }
+        if (all.length >= targetCount) break;
+      }
+      return all;
+    }
+
+    async function loadAlbums() {
+      // ── PHASE 1: Load first 6 film + 4 artist albums quickly (1 API call each) ──
+      const INITIAL_FILM   = 6;
+      const INITIAL_ARTIST = 4;
+
+      const initialFilmResults = await Promise.allSettled(
+        filmEntries.slice(0, INITIAL_FILM).map(async ({ title, query, type }) => {
+          const songs = await fetchAlbumSongsQuick(title, query, type);
+          if (songs.length < 1) return null;
+          return { title, coverArt: songs[0].albumArt || "", songs, type } as AlbumData;
         })
       );
-
-      const artistSettled = await Promise.allSettled(
-        artistEntries.map(async ({ title, query, type }) => {
-          try {
-            // Artists: fetch up to 300 songs across all career
-            const songs = await fetchAlbumSongs(title, query, type, 300);
-            if (songs.length < 1) return null;
-            return { title, coverArt: songs[0].albumArt || "", songs, type } as AlbumData;
-          } catch {
-            return null;
-          }
+      const initialArtistResults = await Promise.allSettled(
+        artistEntries.slice(0, INITIAL_ARTIST).map(async ({ title, query, type }) => {
+          const songs = await fetchAlbumSongsQuick(title, query, type);
+          if (songs.length < 1) return null;
+          return { title, coverArt: songs[0].albumArt || "", songs, type } as AlbumData;
         })
       );
 
       if (unmounted) return;
 
-      const filmResult = filmSettled
+      // Show immediately — fast first paint
+      const initialFilm = initialFilmResults
+        .map((r) => (r.status === "fulfilled" ? r.value : null))
+        .filter((a): a is AlbumData => a !== null);
+      const initialArtist = initialArtistResults
         .map((r) => (r.status === "fulfilled" ? r.value : null))
         .filter((a): a is AlbumData => a !== null);
 
-      const artistResult = artistSettled
-        .map((r) => (r.status === "fulfilled" ? r.value : null))
-        .filter((a): a is AlbumData => a !== null);
+      setFilmAlbums(initialFilm);
+      setArtistAlbums(initialArtist);
+      setAlbumsLoading(false); // ← UI unlocks here, fast!
 
-      setFilmAlbums(filmResult);
-      setArtistAlbums(artistResult);
-      setAlbumsLoading(false);
+      // ── PHASE 2: Load remaining albums in background, append as they arrive ──
+      const remainingFilm   = filmEntries.slice(INITIAL_FILM);
+      const remainingArtist = artistEntries.slice(INITIAL_ARTIST);
+
+      // Load remaining film albums in small concurrent batches
+      const BATCH = 4;
+      for (let i = 0; i < remainingFilm.length; i += BATCH) {
+        if (unmounted) return;
+        await sleep(800); // don't hammer the API
+        const batch = remainingFilm.slice(i, i + BATCH);
+        const results = await Promise.allSettled(
+          batch.map(async ({ title, query, type }) => {
+            const songs = await fetchAlbumSongsQuick(title, query, type);
+            if (songs.length < 1) return null;
+            return { title, coverArt: songs[0].albumArt || "", songs, type } as AlbumData;
+          })
+        );
+        if (unmounted) return;
+        const valid = results
+          .map((r) => (r.status === "fulfilled" ? r.value : null))
+          .filter((a): a is AlbumData => a !== null);
+        if (valid.length > 0) setFilmAlbums((prev) => [...prev, ...valid]);
+      }
+
+      for (let i = 0; i < remainingArtist.length; i += BATCH) {
+        if (unmounted) return;
+        await sleep(800);
+        const batch = remainingArtist.slice(i, i + BATCH);
+        const results = await Promise.allSettled(
+          batch.map(async ({ title, query, type }) => {
+            const songs = await fetchAlbumSongsQuick(title, query, type);
+            if (songs.length < 1) return null;
+            return { title, coverArt: songs[0].albumArt || "", songs, type } as AlbumData;
+          })
+        );
+        if (unmounted) return;
+        const valid = results
+          .map((r) => (r.status === "fulfilled" ? r.value : null))
+          .filter((a): a is AlbumData => a !== null);
+        if (valid.length > 0) setArtistAlbums((prev) => [...prev, ...valid]);
+      }
+
+      // ── PHASE 3: Silently upgrade initial albums with full song counts ──
+      await sleep(2000);
+      for (const { title, query, type } of filmEntries.slice(0, INITIAL_FILM)) {
+        if (unmounted) return;
+        const songs = await fetchAlbumSongsFull(title, query, type, type === "movie" ? 50 : 200);
+        if (songs.length > 0) {
+          setFilmAlbums((prev) =>
+            prev.map((a) => a.title === title ? { ...a, songs, coverArt: songs[0].albumArt || a.coverArt } : a)
+          );
+        }
+        await sleep(300);
+      }
+      for (const { title, query, type } of artistEntries.slice(0, INITIAL_ARTIST)) {
+        if (unmounted) return;
+        const songs = await fetchAlbumSongsFull(title, query, type, 300);
+        if (songs.length > 0) {
+          setArtistAlbums((prev) =>
+            prev.map((a) => a.title === title ? { ...a, songs, coverArt: songs[0].albumArt || a.coverArt } : a)
+          );
+        }
+        await sleep(300);
+      }
     }
 
     loadAlbums();
