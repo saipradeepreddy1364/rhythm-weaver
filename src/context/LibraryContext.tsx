@@ -43,8 +43,8 @@ interface LibraryContextType {
 
 // ─── Storage keys ──────────────────────────────────────────────────────────────
 
-const LIKED_KEY = "rw_liked_songs_v2";
-const PLAYLISTS_KEY = "rw_playlists_v2";
+const LIKED_KEY           = "rw_liked_songs_v2";
+const PLAYLISTS_KEY       = "rw_playlists_v2";
 const RECENTLY_PLAYED_KEY = "rw_recently_played";
 const RECENTLY_PLAYED_TS_KEY = "rw_recent_ts";
 
@@ -80,13 +80,27 @@ function generateId(): string {
   return `local_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
+// ─── Map backend liked song DTO → Song shape ───────────────────────────────────
+function backendDtoToSong(dto: any): Song {
+  return {
+    id:       dto.songId,
+    title:    dto.songTitle || dto.songId,
+    artist:   dto.artist    || "",
+    albumArt: dto.songImage || dto.albumArt || "",
+    audioUrl: dto.audioUrl  || "",
+    duration: dto.duration  || 0,
+    album:    dto.album     || "",
+    movie:    dto.movie     || "",
+  } as Song;
+}
+
 // ─── Context ───────────────────────────────────────────────────────────────────
 
 const LibraryContext = createContext<LibraryContextType | undefined>(undefined);
 
 export function LibraryProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
-  const [likedSongs, setLikedSongs] = useState<Song[]>([]);
+  const [likedSongs, setLikedSongs]         = useState<Song[]>([]);
   const [recentlyPlayed, setRecentlyPlayed] = useState<Song[]>([]);
   const [storedPlaylists, setStoredPlaylists] = useState<StoredPlaylist[]>([]);
 
@@ -102,6 +116,40 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // ── When user logs in: fetch liked songs from backend and merge ──────────────
+
+  useEffect(() => {
+    if (!user) return;
+
+    api.getLikedSongs().then((res) => {
+      // Backend returns { success, data: [ { songId, songTitle, songImage, ... } ] }
+      const raw: any[] = Array.isArray(res)
+        ? res
+        : Array.isArray(res?.data)
+          ? res.data
+          : [];
+
+      if (raw.length === 0) return;
+
+      const serverSongs: Song[] = raw.map(backendDtoToSong);
+
+      setLikedSongs((local) => {
+        // Merge: server is the source of truth for IDs, but local may have
+        // richer song objects (full audioUrl, artist etc.) — prefer local if present
+        const localMap = new Map(local.map((s) => [s.id, s]));
+        const merged = serverSongs.map((s) => localMap.get(s.id) ?? s);
+
+        // Also keep any local songs not yet synced to server
+        local.forEach((s) => {
+          if (!merged.find((m) => m.id === s.id)) merged.push(s);
+        });
+
+        saveLikedToStorage(merged);
+        return merged;
+      });
+    }).catch(() => { /* network error — keep local */ });
+  }, [user?.id]); // re-run when user changes (login/logout)
+
   // ── Keep storage in sync whenever state changes ──────────────────────────────
 
   useEffect(() => {
@@ -115,8 +163,26 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   // ── Public reload helpers (used by LibraryPage) ──────────────────────────────
 
   const loadLikedSongs = useCallback(() => {
-    setLikedSongs(loadLikedFromStorage());
-  }, []);
+    if (user) {
+      // Re-fetch from backend when user is logged in
+      api.getLikedSongs().then((res) => {
+        const raw: any[] = Array.isArray(res)
+          ? res
+          : Array.isArray(res?.data)
+            ? res.data
+            : [];
+        if (raw.length > 0) {
+          const songs = raw.map(backendDtoToSong);
+          setLikedSongs(songs);
+          saveLikedToStorage(songs);
+        }
+      }).catch(() => {
+        setLikedSongs(loadLikedFromStorage());
+      });
+    } else {
+      setLikedSongs(loadLikedFromStorage());
+    }
+  }, [user]);
 
   const loadPlaylists = useCallback(() => {
     setStoredPlaylists(loadPlaylistsFromStorage());
@@ -163,7 +229,8 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       } else {
         setLikedSongs((prev) => [song, ...prev]);
         if (user) {
-          api.likeSong(song.id).catch(console.error);
+          // Pass title + image so backend can store full song info
+          api.likeSong(song.id, song.title, song.albumArt).catch(console.error);
         }
       }
     },
@@ -218,7 +285,6 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       setStoredPlaylists((prev) =>
         prev.map((p) => {
           if (p.id !== playlistId) return p;
-          // Don't add duplicates
           if (p.songs.some((s) => s.id === song.id)) return p;
           return { ...p, songs: [...p.songs, song] };
         })

@@ -165,10 +165,23 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const handleVisibility = async () => {
       if (document.visibilityState === "visible" && intendToPlayRef.current) {
         await requestWakeLock();
-        // If audio stalled while screen was off, resume it
         const audio = audioRef.current;
-        if (audio && audio.paused && intendToPlayRef.current) {
-          try { await audio.play(); } catch { /**/ }
+        if (!audio) return;
+
+        if (audio.paused) {
+          try {
+            await audio.play();
+          } catch {
+            // Android sometimes kills the src on background — reload and resume
+            const pos = audio.currentTime;
+            const src = audio.src;
+            if (src) {
+              audio.src = src;
+              audio.load();
+              audio.currentTime = pos;
+              audio.play().catch(() => {});
+            }
+          }
         }
       }
     };
@@ -276,6 +289,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     // supported on mobile Safari.
     (audio as any).setAttribute?.("playsinline", "true");
     (audio as any).setAttribute?.("webkit-playsinline", "true");
+    (audio as any).setAttribute?.("x-webkit-airplay", "allow");
+    // Required for CORS audio streams to work on mobile
+    audio.crossOrigin = "anonymous";
 
     const clearStallTimer = () => {
       if (stallTimerRef.current) {
