@@ -909,7 +909,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
 
   // CHANGED: Set page title to "Medly 🎵" instead of default "Lovable App"
   useEffect(() => {
-    document.title = "Medly 🎵";
+    document.title = "Medly";
   }, []);
 
   // ── Seed-based cache key: changes daily so stale data auto-expires visually ──
