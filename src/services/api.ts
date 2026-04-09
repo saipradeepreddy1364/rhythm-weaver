@@ -55,22 +55,31 @@ export const api = {
     }
   },
 
-  verifyToken: async (
-    token: string
-  ): Promise<{ valid: boolean; user?: any; networkError?: boolean }> => {
+  verifyToken: async (token: string): Promise<{ valid: boolean; user?: any; networkError?: boolean }> => {
     try {
       const res = await fetch(`${BASE_URL}/auth/verify`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+
+      // 5xx = server/infra error (Render cold start, 502 gateway, etc.)
+      // Not a token rejection — keep session alive
+      if (res.status >= 500) {
+        return { valid: true, networkError: true };
+      }
+
+      // 401/403 = server explicitly rejected the token
+      if (res.status === 401 || res.status === 403) {
+        return { valid: false };
+      }
+
       const json = await res.json();
       const data = json?.data ?? json;
       if (data?.valid === true && data?.user) {
         return { valid: true, user: data.user };
       }
-      // Server explicitly rejected the token
       return { valid: false };
     } catch {
-      // Network error — keep session alive and flag it
+      // True network error (offline, DNS failure) — keep session alive
       return { valid: true, networkError: true };
     }
   },

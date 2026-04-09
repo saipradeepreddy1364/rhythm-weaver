@@ -63,21 +63,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(savedUser);
     setLoading(false);
 
-    // Verify in background — only clear if server EXPLICITLY rejects
+    // Verify in background — only clear if server EXPLICITLY rejects (401/403)
     try {
       const result = await api.verifyToken(token);
 
       if (!result) return; // unexpected falsy — keep session
 
       if (result.valid === false) {
-        // Server explicitly said token is invalid (expired, user deleted, etc.)
+        // Server explicitly rejected token (expired, user deleted, etc.)
         clearAuth();
       } else if (result.valid === true && !result.networkError && result.user) {
-        // Fresh user data from server — update local cache
+        // Refresh user data from server
         setUser(result.user as User);
         localStorage.setItem(USER_KEY, JSON.stringify(result.user));
       }
-      // If networkError === true, do nothing — keep existing session as-is
+      // networkError === true (502, offline, etc.) → do nothing, keep session
     } catch {
       // Unexpected error — keep existing session, don't log out
     }
