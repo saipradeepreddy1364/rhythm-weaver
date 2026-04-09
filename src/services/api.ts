@@ -61,13 +61,10 @@ export const api = {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      // 5xx = server/infra error (Render cold start, 502 gateway, etc.)
-      // Not a token rejection — keep session alive
       if (res.status >= 500) {
         return { valid: true, networkError: true };
       }
 
-      // 401/403 = server explicitly rejected the token
       if (res.status === 401 || res.status === 403) {
         return { valid: false };
       }
@@ -79,7 +76,6 @@ export const api = {
       }
       return { valid: false };
     } catch {
-      // True network error (offline, DNS failure) — keep session alive
       return { valid: true, networkError: true };
     }
   },
@@ -94,26 +90,15 @@ export const api = {
     return res.json();
   },
 
-  // ── Song by ID — used to resolve a fresh audioUrl when it's missing ────────
-  // (JioSaavn URLs are ephemeral; they're not persisted in the backend.
-  //  When a liked song is loaded on a new device the audioUrl will be "".
-  //  Call this to fetch a fresh stream URL before playback.)
+  // ── Get Song By ID — fetches fresh audioUrl for liked songs on new devices ─
 
-  getSongById: async (songId: string): Promise<string> => {
+  getSongById: async (songId: string) => {
     try {
-      const res = await fetch(`${BASE_URL}/songs/${encodeURIComponent(songId)}`);
-      if (!res.ok) return "";
-      const json = await res.json();
-      const data = json?.data ?? json;
-
-      // JioSaavn API returns downloadUrl as an array ordered by quality.
-      // Pick the highest quality (last item) or fall back to any audioUrl field.
-      if (Array.isArray(data?.downloadUrl) && data.downloadUrl.length > 0) {
-        return data.downloadUrl[data.downloadUrl.length - 1]?.url ?? "";
-      }
-      return data?.audioUrl ?? data?.url ?? "";
+      const res = await fetch(`${BASE_URL}/songs/${songId}`);
+      if (!res.ok) throw new Error(`Song HTTP ${res.status}`);
+      return res.json();
     } catch {
-      return "";
+      return { success: false, data: null };
     }
   },
 
@@ -269,6 +254,17 @@ export const api = {
     }
   },
 };
+
+// ─── Helper: extract fresh audioUrl from a JioSaavn song response ─────────────
+// JioSaavn returns downloadUrl as an array sorted low→high quality.
+// We always pick the last entry (highest quality).
+export function extractAudioUrl(data: any): string {
+  if (!data) return "";
+  if (Array.isArray(data.downloadUrl) && data.downloadUrl.length > 0) {
+    return data.downloadUrl[data.downloadUrl.length - 1]?.url || "";
+  }
+  return data.audioUrl || data.url || data.media_url || "";
+}
 
 // ─── Deep recursive array finder ─────────────────────────────────────────────
 function findSongArray(data: any, depth = 0): any[] | null {
