@@ -9,23 +9,22 @@ import { AuthModal } from "@/components/AuthModal";
 import { MiniPlayer } from "@/components/MiniPlayer";
 
 // ─── Seed helpers ─────────────────────────────────────────────────────────────
-// minuteSeed() changes every minute → triggers re-shuffle of Quick Picks every 60 s
+// fiveMinSeed() changes every 5 minutes → triggers re-shuffle of Quick Picks every 5 min
 
 function todaysSeed(): number {
   const d = new Date();
   return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
 }
 
-function thirtySecSeed(): number {
+// CHANGED: was thirtySecSeed (30s blocks) → now fiveMinSeed (5-minute blocks)
+function fiveMinSeed(): number {
   const d = new Date();
-  // unique per 30-second block → Quick Picks rotate every 30 s
-  const block = Math.floor(d.getSeconds() / 30);
+  const block = Math.floor(d.getMinutes() / 5); // unique per 5-minute block
   return (
     d.getFullYear() * 10000000000 +
     (d.getMonth() + 1) * 100000000 +
     d.getDate() * 1000000 +
     d.getHours() * 10000 +
-    d.getMinutes() * 100 +
     block
   );
 }
@@ -153,7 +152,6 @@ const ALL_ALBUM_ENTRIES = [
   { title: "Shershaah",              query: "Shershaah movie songs Sidharth",          type: "movie" },
   { title: "Jugjugg Jeeyo",          query: "JugJugg Jeeyo movie songs 2022",         type: "movie" },
   { title: "Satyaprem Ki Katha",     query: "Satyaprem Ki Katha songs 2023",           type: "movie" },
-  { title: "Adipurush",              query: "Adipurush Prabhas songs Telugu Hindi",    type: "movie" },
   { title: "Kisi Ka Bhai",           query: "Kisi Ka Bhai Kisi Ki Jaan songs",         type: "movie" },
   { title: "Dasara",                 query: "Dasara Telugu movie songs Nani 2023",     type: "movie" },
   { title: "Skanda",                 query: "Skanda Telugu movie songs Ram Pothineni", type: "movie" },
@@ -228,17 +226,48 @@ const ALL_ALBUM_ENTRIES = [
   { title: "Tiger Shroff Hits",      query: "Tiger Shroff songs all movies",          type: "hero" },
 ];
 
+// ─── CHANGED: Hindi & Telugu 2025 new releases pool (for Featured Albums) ─────
+
+const HINDI_TELUGU_2025_FILMS = [
+  // ── 2025 Hindi releases ───────────────────────────────────────────────────
+  { title: "Chhaava",                query: "Chhaava Hindi movie songs 2025",          type: "movie" },
+  { title: "Sky Force",              query: "Sky Force Hindi movie songs 2025",        type: "movie" },
+  { title: "Emergency",              query: "Emergency Hindi movie songs 2025",        type: "movie" },
+  { title: "Loveyapa",               query: "Loveyapa Hindi movie songs 2025",         type: "movie" },
+  { title: "Azaad",                  query: "Azaad Hindi movie songs 2025",            type: "movie" },
+  { title: "Fateh",                  query: "Fateh Sonu Sood Hindi movie songs 2025",  type: "movie" },
+  { title: "Baby John",              query: "Baby John Hindi movie songs 2025",        type: "movie" },
+  { title: "Mufasa",                 query: "Mufasa Hindi dubbed songs 2025",          type: "movie" },
+  { title: "Raid 2",                 query: "Raid 2 Hindi movie songs 2025",           type: "movie" },
+  { title: "Kesari Chapter 2",       query: "Kesari Chapter 2 Hindi songs 2025",       type: "movie" },
+  { title: "Sikandar",               query: "Sikandar Salman Khan songs 2025",         type: "movie" },
+  { title: "War 2",                  query: "War 2 Hrithik songs 2025",                type: "movie" },
+  { title: "Housefull 5",            query: "Housefull 5 Hindi songs 2025",            type: "movie" },
+  { title: "Welcome to the Jungle",  query: "Welcome to the Jungle Hindi songs 2025",  type: "movie" },
+  { title: "Jolly LLB 3",            query: "Jolly LLB 3 Hindi songs 2025",           type: "movie" },
+  // ── 2025 Telugu releases ──────────────────────────────────────────────────
+  { title: "Game Changer",           query: "Game Changer Telugu songs Ram Charan 2025", type: "movie" },
+  { title: "Sankranthiki Vastunnam", query: "Sankranthiki Vastunnam Telugu songs 2025",  type: "movie" },
+  { title: "Daaku Maharaaj",         query: "Daaku Maharaaj Telugu songs Balakrishna 2025", type: "movie" },
+  { title: "Ustaad Bhagat Singh",    query: "Ustaad Bhagat Singh Telugu songs 2025",    type: "movie" },
+  { title: "Robinhood",              query: "Robinhood Telugu movie songs 2025",         type: "movie" },
+  { title: "Pushpa 2 Reloaded",      query: "Pushpa 2 Reloaded Telugu songs 2025",       type: "movie" },
+  { title: "NTR 31",                 query: "NTR 31 Jr NTR Telugu songs 2025",           type: "movie" },
+  { title: "Pawan Kalyan New Film",  query: "OG Pawan Kalyan Telugu songs 2025",          type: "movie" },
+  { title: "Raat Ka Andhera",        query: "Telugu new release songs 2025 superhit",    type: "movie" },
+  { title: "Vidaa Muyarchi",         query: "Vidaa Muyarchi Telugu Hindi songs 2025",    type: "movie" },
+];
+
 const FILM_HERO_POOL = ALL_ALBUM_ENTRIES.filter((e) => e.type === "movie" || e.type === "hero");
 const ARTIST_POOL    = ALL_ALBUM_ENTRIES.filter((e) => e.type === "artist");
 
 function getTodaysAlbums() {
   const seed = todaysSeed();
-  // Shuffle the entire pool daily — every day a different order is shown.
-  // No slicing: show ALL entries so the user always sees new content each day.
-  const shuffledFilm   = seededShuffle(FILM_HERO_POOL, seed);
+  // CHANGED: filmEntries now comes from Hindi+Telugu 2025 new releases pool
+  const shuffledFilm   = seededShuffle([...HINDI_TELUGU_2025_FILMS], seed);
   const shuffledArtist = seededShuffle(ARTIST_POOL, seed + 9999);
   return {
-    filmEntries:   shuffledFilm,   // all movie/hero entries, different order each day
+    filmEntries:   shuffledFilm,   // 2025 Hindi+Telugu new releases, different order each day
     artistEntries: shuffledArtist, // all artist entries, different order each day
   };
 }
@@ -878,6 +907,11 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
 
+  // CHANGED: Set page title to "Medly 🎵" instead of default "Lovable App"
+  useEffect(() => {
+    document.title = "Medly 🎵";
+  }, []);
+
   // ── Seed-based cache key: changes daily so stale data auto-expires visually ──
   const todayCacheKey = `hp_sections_${todaysSeed()}`;
   const albumsCacheKey = `hp_albums_${todaysSeed()}`;
@@ -918,7 +952,10 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
   };
 
   const handleOpenAlbum = (album: AlbumData) => {
-    const entry = ALL_ALBUM_ENTRIES.find((e) => e.title === album.title);
+    // Check both ALL_ALBUM_ENTRIES and HINDI_TELUGU_2025_FILMS
+    const entry =
+      ALL_ALBUM_ENTRIES.find((e) => e.title === album.title) ||
+      HINDI_TELUGU_2025_FILMS.find((e) => e.title === album.title);
     setOpenAlbum({
       album,
       albumType: entry?.type ?? "movie",
@@ -998,6 +1035,21 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
     loadInBatches();
     return () => { unmounted = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Per-5-minute rotating quick picks ───────────────────────────────────────
+  // CHANGED: was thirtySecSeed / 30_000ms → now fiveMinSeed / 300_000ms (5 minutes)
+  const [minuteTick, setMinuteTick] = useState(fiveMinSeed());
+  useEffect(() => {
+    // Refresh every 5 minutes so Quick Picks rotate slowly
+    const id = setInterval(() => setMinuteTick(fiveMinSeed()), 300_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const quickPickSongs = (() => {
+    const pool = sections.flatMap((s) => s.songs);
+    if (pool.length === 0) return [];
+    return seededShuffle(pool, minuteTick).slice(0, 12);
+  })();
 
   // ── Load today's daily-rotating albums ──────────────────────────────────────
   useEffect(() => {
@@ -1085,9 +1137,9 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
     }
 
     async function loadAlbums() {
-      // ── PHASE 1: Load first 6 film + 4 artist albums quickly (1 API call each) ──
-      const INITIAL_FILM   = 6;
-      const INITIAL_ARTIST = 4;
+      // CHANGED: Load 20 film albums initially (was 6), 25 artist albums initially (was 4)
+      const INITIAL_FILM   = 20;
+      const INITIAL_ARTIST = 25;
 
       const initialFilmResults = await Promise.allSettled(
         filmEntries.slice(0, INITIAL_FILM).map(async ({ title, query, type }) => {
@@ -1199,20 +1251,6 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
     return () => { unmounted = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Per-minute rotating quick picks ─────────────────────────────────────────
-  const [minuteTick, setMinuteTick] = useState(thirtySecSeed());
-  useEffect(() => {
-    // Refresh every 30 seconds so Quick Picks rotate
-    const id = setInterval(() => setMinuteTick(thirtySecSeed()), 30_000);
-    return () => clearInterval(id);
-  }, []);
-
-  const quickPickSongs = (() => {
-    const pool = sections.flatMap((s) => s.songs);
-    if (pool.length === 0) return [];
-    return seededShuffle(pool, minuteTick).slice(0, 12);
-  })();
-
   return (
     <div className="w-full" style={{ background: "#121212", paddingBottom: "9rem" }}>
 
@@ -1280,7 +1318,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
         </div>
       </div>
 
-      {/* ── Quick Picks (daily rotating) ── */}
+      {/* ── Quick Picks (5-min rotating) ── */}
       <div className="px-4 pt-4 mb-6">
         <h2 className="text-base font-bold text-white mb-3">Quick Picks</h2>
         {quickPickSongs.length > 0 ? (
@@ -1305,9 +1343,9 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
         )}
       </div>
 
-      {/* ── Featured Movie & Hero Albums (with song count) ── */}
+      {/* ── Featured New Releases (Hindi & Telugu 2025) with song count ── */}
       <AlbumRow
-        title="Featured Albums"
+        title="New Releases 2025"
         albums={filmAlbums}
         loading={albumsLoading}
         onOpen={handleOpenAlbum}
