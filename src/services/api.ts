@@ -107,7 +107,7 @@ export const api = {
     }
   },
 
-  likeSong: async (songId: string) => {
+  likeSong: async (songId: string, songTitle?: string, songImage?: string) => {
     try {
       const res = await fetch(`${BASE_URL}/user/like`, {
         method: "POST",
@@ -115,7 +115,7 @@ export const api = {
           "Content-Type": "application/json",
           Authorization: `Bearer ${getToken() ?? ""}`,
         },
-        body: JSON.stringify({ songId }),
+        body: JSON.stringify({ songId, songTitle: songTitle ?? "", songImage: songImage ?? "" }),
       });
       return res.json();
     } catch {
