@@ -17,7 +17,7 @@ import {
 import { AuthModal } from "@/components/AuthModal";
 import { MiniPlayer } from "@/components/MiniPlayer";
 
-// ─── Dynamic current year — auto-updates every year ──────────────────────────
+// ─── Dynamic current year ─────────────────────────────────────────────────────
 const CURRENT_YEAR = new Date().getFullYear();
 const PREV_YEAR    = CURRENT_YEAR - 1;
 
@@ -28,7 +28,6 @@ function todaysSeed(): number {
   return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
 }
 
-/** Changes every 1 minute — used for Quick Picks rotation */
 function oneMinSeed(): number {
   const d = new Date();
   return (
@@ -55,7 +54,7 @@ function pickQuery(pool: string[], sectionOffset: number): string {
   return pool[(todaysSeed() + sectionOffset) % pool.length];
 }
 
-// ─── Query pools — fully dynamic using CURRENT_YEAR ──────────────────────────
+// ─── Query pools ──────────────────────────────────────────────────────────────
 
 const HINDI_QUERIES = [
   `trending hindi songs ${CURRENT_YEAR}`,
@@ -167,7 +166,6 @@ const MALAYALAM_QUERIES = [
   "super hit malayalam songs",
 ];
 
-// ─── Current-year hit query pools (for dedicated Hindi & Telugu sections) ─────
 const HINDI_YEAR_QUERIES = [
   `new hindi film songs ${CURRENT_YEAR}`,
   `hindi movie songs ${CURRENT_YEAR}`,
@@ -190,11 +188,8 @@ const TELUGU_YEAR_QUERIES = [
   `top telugu film ${CURRENT_YEAR}`,
 ];
 
-// ─── Film discovery query pools — large pool so daily rotation gives variety ──
-// Each day todaysSeed() selects a different subset via seededShuffle, ensuring
-// a completely different set of movies appears every day.
+// ─── Film discovery queries ───────────────────────────────────────────────────
 const FILM_DISCOVERY_QUERIES_POOL = [
-  // Hindi / Bollywood
   `new hindi film songs ${CURRENT_YEAR}`,
   `latest bollywood movie ${CURRENT_YEAR}`,
   `hindi movie release ${CURRENT_YEAR}`,
@@ -207,7 +202,6 @@ const FILM_DISCOVERY_QUERIES_POOL = [
   `hindi action movie songs ${CURRENT_YEAR}`,
   `hindi romantic movie ${CURRENT_YEAR}`,
   `bollywood drama songs ${CURRENT_YEAR}`,
-  // Telugu / Tollywood
   `new telugu film songs ${CURRENT_YEAR}`,
   `latest tollywood movie ${CURRENT_YEAR}`,
   `telugu movie release ${CURRENT_YEAR}`,
@@ -220,15 +214,12 @@ const FILM_DISCOVERY_QUERIES_POOL = [
   `telugu action movie songs ${CURRENT_YEAR}`,
   `telugu romantic movie ${CURRENT_YEAR}`,
   `tollywood drama songs ${CURRENT_YEAR}`,
-  // Tamil / Kollywood
   `new tamil film songs ${CURRENT_YEAR}`,
   `kollywood new movie songs ${CURRENT_YEAR}`,
   `tamil movie release ${CURRENT_YEAR}`,
   `tamil blockbuster ${CURRENT_YEAR}`,
-  // Kannada / Sandalwood
   `new kannada film songs ${CURRENT_YEAR}`,
   `sandalwood new movie songs ${CURRENT_YEAR}`,
-  // Malayalam / Mollywood
   `new malayalam film songs ${CURRENT_YEAR}`,
   `mollywood new movie songs ${CURRENT_YEAR}`,
 ];
@@ -262,7 +253,7 @@ const ARTIST_DISCOVERY_QUERIES = [
   "guru randhawa songs",
 ];
 
-// ─── Section definitions — current-year hits appear first ────────────────────
+// ─── Section definitions ──────────────────────────────────────────────────────
 const SECTION_DEFS = [
   { title: `Hindi Hits ${CURRENT_YEAR}`,  pool: HINDI_YEAR_QUERIES,  seed: 11 },
   { title: `Telugu Hits ${CURRENT_YEAR}`, pool: TELUGU_YEAR_QUERIES, seed: 12 },
@@ -291,15 +282,14 @@ interface AlbumData {
   songs: Song[];
   type: string;
   query?: string;
+  /** For artist albums: whether the full discography has been loaded */
+  songsFullyLoaded?: boolean;
 }
 
 interface HomePageProps {
   onRequireAuth?: () => void;
 }
 
-// ─── Helper: safely read artist name from API response ────────────────────────
-// The raw API may return `primaryArtists` or `singers` fields that are not in
-// the typed Song interface. We cast safely so TypeScript is happy.
 type RawSong = Song & {
   primaryArtists?: string;
   singers?: string;
@@ -378,7 +368,10 @@ function dedup(songs: Song[], seen: Set<string>): Song[] {
   return out;
 }
 
-/** Deeply paginate one query to get ALL available songs with no hard cap. */
+/**
+ * Deeply paginate one query — no hard song cap.
+ * maxPages × 50 songs/page = 3 000 per query call.
+ */
 async function fetchAllPages(
   query: string,
   maxPages = 60,
@@ -413,17 +406,20 @@ async function fetchAllPages(
 
 /**
  * Fetch a COMPLETE artist discography — every song from first to latest.
- * Runs many query variations and paginates deeply (up to 60 pages each = 3000
- * songs per query) so no song is missed, no matter how prolific the artist.
+ * Runs 20 query variations in parallel batches, deeply paginated (up to 60
+ * pages × 50 = 3 000 songs per query). This is called at PAGE LOAD time so
+ * clicking an artist is instant.
  */
-async function fetchAllArtistSongs(artistName: string): Promise<Song[]> {
+async function fetchAllArtistSongs(
+  artistName: string,
+  signal?: AbortSignal
+): Promise<Song[]> {
   const name = artistName
     .replace(/ Hits$/i, "")
     .replace(/ Classics$/i, "")
     .replace(/ Songs$/i, "")
     .trim();
 
-  // Wide variety of query templates to maximise API coverage
   const queries = [
     `${name} songs`,
     `${name} all songs`,
@@ -450,22 +446,28 @@ async function fetchAllArtistSongs(artistName: string): Promise<Song[]> {
   const seen = new Set<string>();
   const all: Song[] = [];
 
-  for (const q of queries) {
-    const batch = await fetchAllPages(q, 60, seen); // 60 pages × 50 = 3 000 per query
-    all.push(...batch);
-    await sleep(300);
+  // Run in parallel batches of 4 for speed
+  const BATCH = 4;
+  for (let i = 0; i < queries.length; i += BATCH) {
+    if (signal?.aborted) break;
+    const batch = queries.slice(i, i + BATCH);
+    const results = await Promise.all(
+      batch.map((q) => fetchAllPages(q, 60, seen).catch(() => [] as Song[]))
+    );
+    for (const r of results) all.push(...r);
+    if (i + BATCH < queries.length) await sleep(150);
   }
 
   return all;
 }
 
 /**
- * Fetch all songs for a movie album — strict filtering so only that film's
- * songs appear, paginating deeply.
+ * Fetch all songs for a movie album — strict title filtering, deep pagination.
  */
 async function fetchAllMovieSongs(
   query: string,
-  albumTitle: string
+  albumTitle: string,
+  signal?: AbortSignal
 ): Promise<Song[]> {
   const seen = new Set<string>();
   const all: Song[] = [];
@@ -473,20 +475,19 @@ async function fetchAllMovieSongs(
   const maxPages = 60;
 
   for (let page = 1; page <= maxPages; page++) {
+    if (signal?.aborted) break;
     try {
       if (page > 1) await sleep(300);
       const res   = await api.searchSongs(query, page, pageSize);
       const items = extractResults(res);
       let songs   = items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
 
-      // Strict filter: keep only songs that actually belong to this movie/album
       const titleLower = albumTitle.toLowerCase();
       const filtered = songs.filter(
         (s: Song) =>
           s.movie?.toLowerCase().includes(titleLower) ||
           s.album?.toLowerCase().includes(titleLower)
       );
-      // Use filtered if we got a meaningful match, otherwise keep all
       if (filtered.length >= 2) songs = filtered;
 
       for (const s of songs) {
@@ -507,23 +508,22 @@ async function fetchAllMovieSongs(
 async function fetchAllSongs(
   query: string,
   albumTitle: string,
-  albumType: string
+  albumType: string,
+  signal?: AbortSignal
 ): Promise<Song[]> {
   if (albumType === "artist" || albumType === "hero") {
-    return fetchAllArtistSongs(albumTitle);
+    return fetchAllArtistSongs(albumTitle, signal);
   }
-  return fetchAllMovieSongs(query, albumTitle);
+  return fetchAllMovieSongs(query, albumTitle, signal);
 }
 
 /**
  * Discover current-year film albums dynamically.
- * Uses a DAILY-ROTATED subset of FILM_DISCOVERY_QUERIES_POOL so a completely
- * different set of movies appears every day — no static list needed.
+ * Daily-rotated subset of queries for variety.
  */
 async function fetchCurrentYearFilmAlbums(
   unmountedRef: React.MutableRefObject<boolean>
 ): Promise<AlbumData[]> {
-  // Pick a daily-rotated subset of 10 queries from the large pool
   const dailyQueries = seededShuffle(FILM_DISCOVERY_QUERIES_POOL, todaysSeed()).slice(0, 10);
 
   const albumMap = new Map<string, { songs: Song[]; query: string }>();
@@ -568,66 +568,120 @@ async function fetchCurrentYearFilmAlbums(
         songs,
         type: "movie",
         query,
+        songsFullyLoaded: false,
       });
     }
   }
 
-  // Sort by song count (richest albums first), then apply daily shuffle for variety
   const sorted  = albums.sort((a, b) => b.songs.length - a.songs.length).slice(0, 60);
   const rotated = seededShuffle(sorted, todaysSeed());
   return rotated.slice(0, 25);
 }
 
 /**
- * Dynamically discover popular artists by searching and grouping results
- * by primary artist name — no static list.
+ * Discover popular artists AND pre-fetch their FULL discographies in parallel.
+ * This runs at page load so clicking an artist card is INSTANT.
  */
-async function fetchDynamicArtists(
-  unmountedRef: React.MutableRefObject<boolean>
+async function fetchDynamicArtistsWithFullSongs(
+  unmountedRef: React.MutableRefObject<boolean>,
+  onArtistReady: (artist: AlbumData) => void
 ): Promise<AlbumData[]> {
+  // ── Step 1: discover artist names via shallow search ────────────────────────
   const artistMap = new Map<string, Song[]>();
   const songSeen  = new Set<string>();
 
-  for (const query of ARTIST_DISCOVERY_QUERIES) {
-    if (unmountedRef.current) break;
-    try {
-      const res   = await api.searchSongs(query, 1, 50);
-      const items = extractResults(res);
-      const songs = items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
+  // Run all discovery queries in parallel for speed
+  const discoveryResults = await Promise.allSettled(
+    ARTIST_DISCOVERY_QUERIES.map((q) =>
+      api.searchSongs(q, 1, 50).then((res) => {
+        const items = extractResults(res);
+        return items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
+      })
+    )
+  );
 
-      for (const song of songs) {
-        // ── FIX ts(2339): access extra API fields safely ──────────────────
-        const artistName = getArtistName(song);
-        if (!artistName || artistName.length < 2) continue;
-        if (!artistMap.has(artistName)) artistMap.set(artistName, []);
-        const arr = artistMap.get(artistName)!;
-        if (song.id && !songSeen.has(song.id)) {
-          songSeen.add(song.id);
-          arr.push(song);
-        }
+  if (unmountedRef.current) return [];
+
+  for (const result of discoveryResults) {
+    if (result.status !== "fulfilled") continue;
+    for (const song of result.value) {
+      const artistName = getArtistName(song);
+      if (!artistName || artistName.length < 2) continue;
+      if (!artistMap.has(artistName)) artistMap.set(artistName, []);
+      const arr = artistMap.get(artistName)!;
+      if (song.id && !songSeen.has(song.id)) {
+        songSeen.add(song.id);
+        arr.push(song);
       }
-    } catch {
-      /* continue */
     }
-    await sleep(200);
   }
 
-  const artists: AlbumData[] = [];
+  // Build initial artist stubs (with only discovery songs for now)
+  const artistStubs: AlbumData[] = [];
   for (const [name, songs] of artistMap.entries()) {
     if (songs.length >= 2) {
-      artists.push({
-        title:    name,
-        coverArt: songs[0].albumArt || "",
+      artistStubs.push({
+        title:            name,
+        coverArt:         songs[0].albumArt || "",
         songs,
-        type:     "artist",
-        query:    `${name} songs`,
+        type:             "artist",
+        query:            `${name} songs`,
+        songsFullyLoaded: false,
       });
     }
   }
-  return artists.sort((a, b) => b.songs.length - a.songs.length).slice(0, 30);
+
+  const topArtists = artistStubs
+    .sort((a, b) => b.songs.length - a.songs.length)
+    .slice(0, 30);
+
+  // ── Step 2: fetch FULL discographies for all artists in parallel batches ───
+  // Batch of 3 artists at a time to avoid rate limits while staying fast
+  const BATCH = 3;
+  const finalArtists: AlbumData[] = [...topArtists]; // mutable copy
+
+  for (let i = 0; i < topArtists.length; i += BATCH) {
+    if (unmountedRef.current) break;
+    const batch = topArtists.slice(i, i + BATCH);
+
+    const results = await Promise.allSettled(
+      batch.map((artist) => fetchAllArtistSongs(artist.title))
+    );
+
+    for (let j = 0; j < batch.length; j++) {
+      if (unmountedRef.current) break;
+      const result = results[j];
+      const idx    = i + j;
+
+      if (result.status === "fulfilled" && result.value.length > 0) {
+        finalArtists[idx] = {
+          ...finalArtists[idx],
+          songs:            result.value,
+          coverArt:         result.value[0].albumArt || finalArtists[idx].coverArt,
+          songsFullyLoaded: true,
+        };
+      } else {
+        finalArtists[idx] = {
+          ...finalArtists[idx],
+          songsFullyLoaded: true,
+        };
+      }
+
+      // Notify as each artist finishes — UI updates incrementally
+      if (!unmountedRef.current) {
+        onArtistReady({ ...finalArtists[idx] });
+      }
+    }
+
+    if (i + BATCH < topArtists.length) await sleep(100);
+  }
+
+  return finalArtists;
 }
 
 // ─── Album Detail Modal ───────────────────────────────────────────────────────
+// Songs are pre-loaded at page load for artists.
+// For movies, we still fetch on open (they are quick).
 
 function AlbumModal({
   album,
@@ -636,24 +690,46 @@ function AlbumModal({
   onClose,
   onRequireAuth,
 }: {
-  album: AlbumData;
-  albumType: string;
-  albumQuery: string;
-  onClose: () => void;
+  album:        AlbumData;
+  albumType:    string;
+  albumQuery:   string;
+  onClose:      () => void;
   onRequireAuth: () => void;
 }) {
-  const { playSong } = usePlayer();
-  const [songs, setSongs]             = useState<Song[]>(album.songs);
-  const [loadingMore, setLoadingMore] = useState(true);
+  const { playSong }                      = usePlayer();
+  const [songs, setSongs]                 = useState<Song[]>(album.songs);
+  const [loadingMore, setLoadingMore]     = useState(
+    // For artists: only show loading if not already fully loaded
+    albumType === "artist" || albumType === "hero"
+      ? !album.songsFullyLoaded
+      : true
+  );
 
   useEffect(() => {
+    // For artist albums that are already fully loaded, skip the fetch
+    if ((albumType === "artist" || albumType === "hero") && album.songsFullyLoaded) {
+      setSongs(album.songs);
+      setLoadingMore(false);
+      return;
+    }
+
+    // For movie albums, always fetch full songs on open
+    // For artists not yet fully loaded (edge case), fetch now
+    const controller = new AbortController();
     setLoadingMore(true);
-    fetchAllSongs(albumQuery, album.title, albumType)
+
+    fetchAllSongs(albumQuery, album.title, albumType, controller.signal)
       .then((fetched) => {
-        if (fetched.length > 0) setSongs(fetched);
-        setLoadingMore(false);
+        if (!controller.signal.aborted) {
+          if (fetched.length > 0) setSongs(fetched);
+          setLoadingMore(false);
+        }
       })
-      .catch(() => setLoadingMore(false));
+      .catch(() => {
+        if (!controller.signal.aborted) setLoadingMore(false);
+      });
+
+    return () => controller.abort();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const typeLabel =
@@ -699,7 +775,7 @@ function AlbumModal({
             <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>
               {typeLabel}
               {loadingMore
-                ? " · Fetching all songs…"
+                ? ` · ${songs.length > 0 ? `${songs.length} songs (loading more…)` : "Loading songs…"}`
                 : songs.length > 0
                 ? ` · ${songs.length} songs`
                 : ""}
@@ -768,7 +844,7 @@ function AlbumModal({
               <div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white/70 animate-spin" />
               <p className="text-sm text-white/40">
                 {albumType === "artist" || albumType === "hero"
-                  ? "Fetching full discography…"
+                  ? "Loading discography…"
                   : "Loading songs…"}
               </p>
             </div>
@@ -786,7 +862,7 @@ function AlbumModal({
                 <div className="flex items-center justify-center py-6 gap-2">
                   <div className="w-5 h-5 rounded-full border-2 border-white/20 border-t-white/60 animate-spin" />
                   <span className="text-xs text-white/40">
-                    Fetching more songs… ({songs.length} so far)
+                    Loading more songs… ({songs.length} so far)
                   </span>
                 </div>
               )}
@@ -809,11 +885,11 @@ function LanguageCategoryModal({
   onClose,
   onRequireAuth,
 }: {
-  label: string;
-  mainQueries: string[];
-  subCategories: { label: string; query: string }[];
-  onClose: () => void;
-  onRequireAuth: () => void;
+  label:          string;
+  mainQueries:    string[];
+  subCategories:  { label: string; query: string }[];
+  onClose:        () => void;
+  onRequireAuth:  () => void;
 }) {
   const { playSong }                      = usePlayer();
   const [allSongs, setAllSongs]           = useState<Song[]>([]);
@@ -944,10 +1020,10 @@ function AlbumRow({
   roundCovers = false,
   showCount   = false,
 }: {
-  title:       string;
-  albums:      AlbumData[];
-  loading:     boolean;
-  onOpen:      (a: AlbumData) => void;
+  title:        string;
+  albums:       AlbumData[];
+  loading:      boolean;
+  onOpen:       (a: AlbumData) => void;
   roundCovers?: boolean;
   showCount?:   boolean;
 }) {
@@ -1026,8 +1102,15 @@ function AlbumRow({
                     className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-xs font-bold"
                     style={{ background: "rgba(0,0,0,0.7)", color: "rgba(255,255,255,0.9)" }}
                   >
-                    {album.songs.length}+
+                    {album.songsFullyLoaded ? album.songs.length : `${album.songs.length}+`}
                   </div>
+                )}
+                {/* Loading indicator for artist cards whose full fetch is in progress */}
+                {roundCovers && !album.songsFullyLoaded && (
+                  <div
+                    className="absolute bottom-1 right-1 w-5 h-5 rounded-full border-2 border-white/20 border-t-white/70 animate-spin"
+                    style={{ background: "rgba(0,0,0,0.5)" }}
+                  />
                 )}
               </div>
               <p className="text-sm font-semibold text-white truncate leading-tight text-center">
@@ -1038,7 +1121,7 @@ function AlbumRow({
                   className="text-xs text-center mt-0.5"
                   style={{ color: "rgba(255,255,255,0.35)" }}
                 >
-                  {album.songs.length} songs
+                  {album.songsFullyLoaded ? `${album.songs.length} songs` : `${album.songs.length}+ songs`}
                 </p>
               )}
             </div>
@@ -1334,7 +1417,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
   // ── Quick Picks — rotate every 1 minute ───────────────────────────────────
   const [minuteTick, setMinuteTick] = useState(oneMinSeed());
   useEffect(() => {
-    const id = setInterval(() => setMinuteTick(oneMinSeed()), 60_000); // 1 minute
+    const id = setInterval(() => setMinuteTick(oneMinSeed()), 60_000);
     return () => clearInterval(id);
   }, []);
 
@@ -1344,7 +1427,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
     return seededShuffle(pool, minuteTick).slice(0, 12);
   })();
 
-  // ── Load dynamic film & artist albums ─────────────────────────────────────
+  // ── Load film albums + FULL artist discographies at page load ─────────────
   useEffect(() => {
     if (albumsLoadRef.current) return;
     albumsLoadRef.current = true;
@@ -1352,7 +1435,12 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
     const cachedAlbums = cacheGet<{ film: AlbumData[]; artist: AlbumData[] }>(
       albumsCacheKey
     );
-    if (cachedAlbums && cachedAlbums.film.length > 0) {
+    // Use cache only if all artist songs are fully loaded
+    if (
+      cachedAlbums &&
+      cachedAlbums.film.length > 0 &&
+      cachedAlbums.artist.every((a) => a.songsFullyLoaded)
+    ) {
       setFilmAlbums(cachedAlbums.film);
       setArtistAlbums(cachedAlbums.artist);
       setAlbumsLoading(false);
@@ -1362,15 +1450,45 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
     setAlbumsLoading(true);
 
     async function loadDynamic() {
-      const [filmResults, artistResults] = await Promise.all([
-        fetchCurrentYearFilmAlbums(unmountedRef),
-        fetchDynamicArtists(unmountedRef),
-      ]);
+      // ── Load film albums first (fast) ──────────────────────────────────────
+      const filmResults = await fetchCurrentYearFilmAlbums(unmountedRef);
       if (unmountedRef.current) return;
       setFilmAlbums(filmResults);
-      setArtistAlbums(artistResults);
-      setAlbumsLoading(false);
-      cacheSet(albumsCacheKey, { film: filmResults, artist: artistResults });
+      setAlbumsLoading(false); // Hide film skeleton right away
+
+      // ── Discover artists (fast parallel discovery) ─────────────────────────
+      // We display artist stubs immediately and update them as full data arrives
+      let currentArtists: AlbumData[] = [];
+
+      const finalArtists = await fetchDynamicArtistsWithFullSongs(
+        unmountedRef,
+        (updatedArtist) => {
+          if (unmountedRef.current) return;
+          // Replace or append this artist in state as its full data arrives
+          setArtistAlbums((prev) => {
+            const idx = prev.findIndex((a) => a.title === updatedArtist.title);
+            if (idx >= 0) {
+              const next = [...prev];
+              next[idx] = updatedArtist;
+              return next;
+            }
+            return [...prev, updatedArtist];
+          });
+          // Track for final cache
+          const idx = currentArtists.findIndex((a) => a.title === updatedArtist.title);
+          if (idx >= 0) currentArtists[idx] = updatedArtist;
+          else currentArtists.push(updatedArtist);
+        }
+      );
+
+      if (unmountedRef.current) return;
+
+      // Final artist state after all fetches
+      currentArtists = finalArtists;
+      setArtistAlbums(finalArtists);
+
+      // Cache only when all songs are fully loaded
+      cacheSet(albumsCacheKey, { film: filmResults, artist: finalArtists });
     }
 
     loadDynamic();
@@ -1492,11 +1610,11 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
         showCount={true}
       />
 
-      {/* ── Popular Artists — dynamically discovered ── */}
+      {/* ── Popular Artists — full discography pre-loaded at page load ── */}
       <AlbumRow
         title="Popular Artists"
         albums={artistAlbums}
-        loading={albumsLoading}
+        loading={albumsLoading && artistAlbums.length === 0}
         onOpen={handleOpenAlbum}
         roundCovers
       />
@@ -1515,7 +1633,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
         </SimpleSection>
       )}
 
-      {/* ── Song sections — current-year Hindi & Telugu hits appear first ── */}
+      {/* ── Song sections ── */}
       {sections.length === 0 ? (
         <div className="px-4 mb-5">
           <div
