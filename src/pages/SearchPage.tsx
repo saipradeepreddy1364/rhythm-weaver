@@ -762,6 +762,15 @@ function CategoryCard({ label, query, onSelect }: CategoryCardProps) {
 
 // ─── Album Detail Modal — loads ALL songs ─────────────────────────────────────
 
+function shuffleArray<T>(arr: T[]): T[] {
+  const out = [...arr];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
 function AlbumModal({
   album,
   allSongs,
@@ -774,8 +783,10 @@ function AlbumModal({
   onRequireAuth: () => void;
 }) {
   const { playSong }       = usePlayer();
-  const [fullAlbumSongs, setFullAlbumSongs] = useState<Song[]>(album.songs);
+  // Shuffle initial songs on every open so order is always different
+  const [fullAlbumSongs, setFullAlbumSongs] = useState<Song[]>(() => shuffleArray(album.songs));
   const [loadingFull, setLoadingFull]       = useState(true);
+  const [loadedCount, setLoadedCount]       = useState(album.songs.length);
   const fetchedRef                          = useRef(false);
 
   useEffect(() => {
@@ -787,35 +798,57 @@ function AlbumModal({
       const all: Song[] = [...album.songs];
       const pageSize = 50;
 
-      for (let page = 1; page <= 20; page++) {
-        try {
-          if (page > 1) await sleep(300);
-          const res   = await api.searchSongs(album.name, page, pageSize);
-          const items = extractResults(res);
-          const songs = items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
+      // Use multiple query variants to maximise unique song discovery
+      const queryVariants = [
+        album.name,
+        `${album.name} songs`,
+        `${album.name} full album`,
+        `${album.name} all songs`,
+      ];
 
-          const albumSongs = songs.filter(
-            (s: Song) =>
-              s.album?.toLowerCase().includes(album.name.toLowerCase()) ||
-              s.movie?.toLowerCase().includes(album.name.toLowerCase()) ||
-              album.name.toLowerCase().includes(s.album?.toLowerCase() || "") ||
-              album.name.toLowerCase().includes(s.movie?.toLowerCase() || "")
-          );
+      for (const q of queryVariants) {
+        // Up to 40 pages per variant (40 × 50 = 2000 per variant)
+        for (let page = 1; page <= 40; page++) {
+          try {
+            if (page > 1) await sleep(200);
+            const res   = await api.searchSongs(q, page, pageSize);
+            const items = extractResults(res);
+            const songs = items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
 
-          const toAdd = albumSongs.length >= 1 ? albumSongs : songs;
-          for (const s of toAdd) {
-            if (s.id && !seen.has(s.id)) {
-              seen.add(s.id);
-              all.push(s);
+            const albumSongs = songs.filter(
+              (s: Song) =>
+                s.album?.toLowerCase().includes(album.name.toLowerCase()) ||
+                s.movie?.toLowerCase().includes(album.name.toLowerCase()) ||
+                album.name.toLowerCase().includes(s.album?.toLowerCase() || "") ||
+                album.name.toLowerCase().includes(s.movie?.toLowerCase() || "")
+            );
+
+            const toAdd = albumSongs.length >= 1 ? albumSongs : songs;
+            let added = 0;
+            for (const s of toAdd) {
+              if (s.id && !seen.has(s.id)) {
+                seen.add(s.id);
+                all.push(s);
+                added++;
+              }
             }
-          }
 
-          if (items.length < pageSize) break;
-          if (all.length >= 1000) break;
-        } catch { break; }
+            if (added > 0) {
+              // Shuffle on every update so new arrivals are mixed in randomly
+              setFullAlbumSongs(shuffleArray([...all]));
+              setLoadedCount(all.length);
+            }
+
+            if (items.length < pageSize) break;
+            if (all.length >= 3000) break;
+          } catch { break; }
+        }
+        await sleep(120);
+        if (all.length >= 3000) break;
       }
 
-      setFullAlbumSongs(all);
+      setFullAlbumSongs(shuffleArray([...all]));
+      setLoadedCount(all.length);
       setLoadingFull(false);
     };
 
@@ -862,8 +895,8 @@ function AlbumModal({
             <h2 className="text-lg font-bold text-white truncate">{album.name}</h2>
             <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>
               {loadingFull
-                ? "Loading all songs…"
-                : `${fullAlbumSongs.length} song${fullAlbumSongs.length !== 1 ? "s" : ""}`}
+                ? `${loadedCount} songs loaded…`
+                : `${fullAlbumSongs.length} song${fullAlbumSongs.length !== 1 ? "s" : ""} · shuffled`}
               {album.year ? ` · ${album.year}` : ""}
             </p>
           </div>
@@ -914,7 +947,19 @@ function AlbumModal({
             {loadingFull && (
               <div className="flex items-center justify-center py-4 gap-2">
                 <div className="w-5 h-5 rounded-full border-2 border-white/20 border-t-white/60 animate-spin" />
-                <span className="text-xs text-white/40">Fetching all songs…</span>
+                <span className="text-xs text-white/40">
+                  Loading more songs ({loadedCount} so far)…
+                </span>
+              </div>
+            )}
+            {!loadingFull && fullAlbumSongs.length > 0 && (
+              <div className="flex items-center justify-center py-4">
+                <span
+                  className="text-xs px-4 py-1.5 rounded-full"
+                  style={{ background: "rgba(29,185,84,0.12)", color: "#1DB954" }}
+                >
+                  ✓ {fullAlbumSongs.length} songs loaded · order shuffled
+                </span>
               </div>
             )}
           </div>
@@ -1152,7 +1197,23 @@ function groupIntoAlbums(songs: Song[]): Album[] {
     }
     map.get(key)!.songs.push(song);
   });
-  return Array.from(map.values()).sort((a, b) => b.songs.length - a.songs.length);
+  // Sort by song count DESC, then lightly shuffle within same-count groups for variety
+  const sorted = Array.from(map.values()).sort((a, b) => b.songs.length - a.songs.length);
+  // Shuffle albums that have the same song count so order varies each search
+  for (let i = 0; i < sorted.length - 1; ) {
+    let j = i;
+    while (j < sorted.length && sorted[j].songs.length === sorted[i].songs.length) j++;
+    if (j - i > 1) {
+      const slice = sorted.slice(i, j);
+      for (let k = slice.length - 1; k > 0; k--) {
+        const r = Math.floor(Math.random() * (k + 1));
+        [slice[k], slice[r]] = [slice[r], slice[k]];
+      }
+      sorted.splice(i, j - i, ...slice);
+    }
+    i = j;
+  }
+  return sorted;
 }
 
 function groupIntoArtists(songs: Song[]): Artist[] {
