@@ -851,16 +851,50 @@ function QuickPick({ song, queue }: { song: Song; queue: Song[] }) {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
+
+// ─── Cache helpers ────────────────────────────────────────────────────────────
+
+const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
+
+function cacheGet<T>(key: string): T | null {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const { data, ts } = JSON.parse(raw);
+    if (Date.now() - ts > CACHE_TTL_MS) { localStorage.removeItem(key); return null; }
+    return data as T;
+  } catch { return null; }
+}
+
+function cacheSet(key: string, data: unknown) {
+  try { localStorage.setItem(key, JSON.stringify({ data, ts: Date.now() })); } catch { /* quota */ }
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
 export default function HomePage({ onRequireAuth }: HomePageProps) {
   const { user, logout } = useAuth();
   const { recentlyPlayed } = usePlayer();
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
-  const [sections, setSections] = useState<SectionData[]>([]);
 
-  const [filmAlbums, setFilmAlbums] = useState<AlbumData[]>([]);
-  const [artistAlbums, setArtistAlbums] = useState<AlbumData[]>([]);
-  const [albumsLoading, setAlbumsLoading] = useState(true);
+  // ── Seed-based cache key: changes daily so stale data auto-expires visually ──
+  const todayCacheKey = `hp_sections_${todaysSeed()}`;
+  const albumsCacheKey = `hp_albums_${todaysSeed()}`;
+
+  const [sections, setSections] = useState<SectionData[]>(() => cacheGet<SectionData[]>(todayCacheKey) ?? []);
+  const [filmAlbums, setFilmAlbums] = useState<AlbumData[]>(() => {
+    const cached = cacheGet<{ film: AlbumData[]; artist: AlbumData[] }>(albumsCacheKey);
+    return cached?.film ?? [];
+  });
+  const [artistAlbums, setArtistAlbums] = useState<AlbumData[]>(() => {
+    const cached = cacheGet<{ film: AlbumData[]; artist: AlbumData[] }>(albumsCacheKey);
+    return cached?.artist ?? [];
+  });
+  const [albumsLoading, setAlbumsLoading] = useState(() => {
+    const cached = cacheGet<{ film: AlbumData[]; artist: AlbumData[] }>(albumsCacheKey);
+    return !cached || cached.film.length === 0;
+  });
 
   const [openAlbum, setOpenAlbum] = useState<{
     album: AlbumData;
@@ -896,8 +930,19 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
   useEffect(() => {
     if (loadedRef.current) return;
     loadedRef.current = true;
+
+    // If we already have cached sections, skip fetch entirely today
+    const cached = cacheGet<SectionData[]>(todayCacheKey);
+    if (cached && cached.length >= SECTION_DEFS.length) return;
+
     globalSeenRef.current = new Set<string>();
-    setSections([]);
+    // Pre-populate seen set from cached data so dedup still works
+    if (cached) {
+      cached.forEach((s) => s.songs.forEach((song) => song.id && globalSeenRef.current.add(song.id)));
+      setSections(cached);
+    } else {
+      setSections([]);
+    }
 
     let unmounted = false;
 
@@ -910,19 +955,19 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
         )
       );
       if (unmounted) return;
+      let updatedSections: SectionData[] = cached ? [...cached] : [];
       firstResults.forEach((songs, idx) => {
         const { title } = SECTION_DEFS[idx];
         const unique = dedup(songs, globalSeenRef.current);
         if (unique.length === 0) return;
-        setSections((prev) => {
-          const updated = [...prev.filter((s) => s.title !== title), { title, songs: unique }];
-          updated.sort((a, b) =>
-            SECTION_DEFS.findIndex((d) => d.title === a.title) -
-            SECTION_DEFS.findIndex((d) => d.title === b.title)
-          );
-          return updated;
-        });
+        updatedSections = [...updatedSections.filter((s) => s.title !== title), { title, songs: unique }];
+        updatedSections.sort((a, b) =>
+          SECTION_DEFS.findIndex((d) => d.title === a.title) -
+          SECTION_DEFS.findIndex((d) => d.title === b.title)
+        );
       });
+      setSections(updatedSections);
+      cacheSet(todayCacheKey, updatedSections);
 
       // Phase 2: load remaining sections in background with small delay
       for (let i = INITIAL; i < SECTION_DEFS.length; i += 2) {
@@ -943,6 +988,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
               SECTION_DEFS.findIndex((d) => d.title === a.title) -
               SECTION_DEFS.findIndex((d) => d.title === b.title)
             );
+            cacheSet(todayCacheKey, updated);
             return updated;
           });
         });
@@ -956,6 +1002,16 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
   // ── Load today's daily-rotating albums ──────────────────────────────────────
   useEffect(() => {
     let unmounted = false;
+
+    // If we have a valid cache, skip the fetch and show instantly
+    const cachedAlbums = cacheGet<{ film: AlbumData[]; artist: AlbumData[] }>(albumsCacheKey);
+    if (cachedAlbums && cachedAlbums.film.length > 0) {
+      setFilmAlbums(cachedAlbums.film);
+      setArtistAlbums(cachedAlbums.artist);
+      setAlbumsLoading(false);
+      return;
+    }
+
     setAlbumsLoading(true);
 
     const { filmEntries, artistEntries } = getTodaysAlbums();
@@ -1050,7 +1106,6 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
 
       if (unmounted) return;
 
-      // Show immediately — fast first paint
       const initialFilm = initialFilmResults
         .map((r) => (r.status === "fulfilled" ? r.value : null))
         .filter((a): a is AlbumData => a !== null);
@@ -1060,17 +1115,17 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
 
       setFilmAlbums(initialFilm);
       setArtistAlbums(initialArtist);
-      setAlbumsLoading(false); // ← UI unlocks here, fast!
+      setAlbumsLoading(false);
+      cacheSet(albumsCacheKey, { film: initialFilm, artist: initialArtist });
 
       // ── PHASE 2: Load remaining albums in background, append as they arrive ──
       const remainingFilm   = filmEntries.slice(INITIAL_FILM);
       const remainingArtist = artistEntries.slice(INITIAL_ARTIST);
 
-      // Load remaining film albums in small concurrent batches
       const BATCH = 4;
       for (let i = 0; i < remainingFilm.length; i += BATCH) {
         if (unmounted) return;
-        await sleep(800); // don't hammer the API
+        await sleep(800);
         const batch = remainingFilm.slice(i, i + BATCH);
         const results = await Promise.allSettled(
           batch.map(async ({ title, query, type }) => {
@@ -1083,7 +1138,13 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
         const valid = results
           .map((r) => (r.status === "fulfilled" ? r.value : null))
           .filter((a): a is AlbumData => a !== null);
-        if (valid.length > 0) setFilmAlbums((prev) => [...prev, ...valid]);
+        if (valid.length > 0) {
+          setFilmAlbums((prev) => {
+            const updated = [...prev, ...valid];
+            cacheSet(albumsCacheKey, { film: updated, artist: artistAlbums });
+            return updated;
+          });
+        }
       }
 
       for (let i = 0; i < remainingArtist.length; i += BATCH) {
@@ -1101,7 +1162,13 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
         const valid = results
           .map((r) => (r.status === "fulfilled" ? r.value : null))
           .filter((a): a is AlbumData => a !== null);
-        if (valid.length > 0) setArtistAlbums((prev) => [...prev, ...valid]);
+        if (valid.length > 0) {
+          setArtistAlbums((prev) => {
+            const updated = [...prev, ...valid];
+            cacheSet(albumsCacheKey, { film: filmAlbums, artist: updated });
+            return updated;
+          });
+        }
       }
 
       // ── PHASE 3: Silently upgrade initial albums with full song counts ──
@@ -1130,7 +1197,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
 
     loadAlbums();
     return () => { unmounted = true; };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Per-minute rotating quick picks ─────────────────────────────────────────
   const [minuteTick, setMinuteTick] = useState(thirtySecSeed());
