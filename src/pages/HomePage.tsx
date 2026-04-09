@@ -308,7 +308,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function fetchSection(query: string, limit = 25): Promise<Song[]> {
+async function fetchSection(query: string, limit = 50): Promise<Song[]> {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       if (attempt > 0) await sleep(1500);
@@ -615,33 +615,68 @@ function AlbumModal({
   const [loadingMore, setLoadingMore] = useState(!album.fullyLoaded);
 
   useEffect(() => {
-    // Artist albums already fully pre-loaded — render instantly, no fetch needed
     if (album.fullyLoaded) {
       setSongs(album.songs);
       setLoadingMore(false);
       return;
     }
 
-    // Movie albums always fetch on open
-    // Artist albums that weren't pre-loaded (edge case) fetch now
     const controller = new AbortController();
     setLoadingMore(true);
 
-    const fetchPromise =
-      albumType === "artist" || albumType === "hero"
-        ? fetchAllArtistSongs(album.title)
-        : fetchAllMovieSongs(albumQuery, album.title);
+    // For artist/hero: stream songs in as each query resolves
+    if (albumType === "artist" || albumType === "hero") {
+      const name = album.title
+        .replace(/ Hits$/i, "")
+        .replace(/ Classics$/i, "")
+        .replace(/ Songs$/i, "")
+        .trim();
+      const queries = [
+        `${name} songs`, `${name} all songs`, `${name} hit songs`,
+        `${name} best songs`, `${name} latest songs`, `${name} popular songs`,
+        `${name} film songs`, `${name} bollywood songs`, `${name} playback songs`,
+        `${name} new songs ${new Date().getFullYear()}`,
+        `${name} songs collection`, `${name} superhit songs`,
+        `${name} melody songs`, `${name} romantic songs`, `${name} sad songs`,
+        `${name} album songs`, `${name} movie songs`,
+        `${name} old songs`, `${name} devotional songs`, `${name} songs ${new Date().getFullYear() - 1}`,
+      ];
+      const seen = new Set<string>(album.songs.map((s) => s.id));
+      let accumulated = [...album.songs];
 
-    fetchPromise
-      .then((fetched) => {
-        if (!controller.signal.aborted) {
-          if (fetched.length > 0) setSongs(fetched);
-          setLoadingMore(false);
+      (async () => {
+        for (const query of queries) {
+          if (controller.signal.aborted) break;
+          try {
+            for (let pg = 1; pg <= 20; pg++) {
+              if (controller.signal.aborted) break;
+              if (pg > 1) await new Promise(r => setTimeout(r, 200));
+              const res   = await (await import("@/services/api")).api.searchSongs(query, pg, 50);
+              const items = (await import("@/services/api")).extractResults(res);
+              if (items.length === 0) break;
+              const { mapApiSong } = await import("@/data/songs");
+              const newSongs = items.map(mapApiSong).filter((s: Song) => s.audioUrl && s.id && !seen.has(s.id));
+              for (const s of newSongs) { seen.add(s.id); accumulated = [...accumulated, s]; }
+              if (newSongs.length > 0 && !controller.signal.aborted) setSongs([...accumulated]);
+              if (items.length < 50) break;
+            }
+          } catch { /* continue */ }
         }
-      })
-      .catch(() => {
         if (!controller.signal.aborted) setLoadingMore(false);
-      });
+      })();
+    } else {
+      // Movie album: filter by title
+      fetchAllMovieSongs(albumQuery, album.title)
+        .then((fetched) => {
+          if (!controller.signal.aborted) {
+            if (fetched.length > 0) setSongs(fetched);
+            setLoadingMore(false);
+          }
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) setLoadingMore(false);
+        });
+    }
 
     return () => controller.abort();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1175,12 +1210,20 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
     return !c || c.film.length === 0;
   });
 
+  const OPEN_ALBUM_KEY = "rw_open_album";
+
   // ── Open album modal ──────────────────────────────────────────────────────
+  // Restore from sessionStorage so "back to home" from mini player returns here
   const [openAlbum, setOpenAlbum] = useState<{
     album:      AlbumData;
     albumType:  string;
     albumQuery: string;
-  } | null>(null);
+  } | null>(() => {
+    try {
+      const raw = sessionStorage.getItem("rw_open_album");
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  });
 
   // ── Refs ──────────────────────────────────────────────────────────────────
   const loadedRef     = useRef(false);
@@ -1199,11 +1242,18 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
   const handleLogout = async () => { await logout(); setShowUserMenu(false); };
 
   const handleOpenAlbum = (album: AlbumData) => {
-    setOpenAlbum({
+    const state = {
       album,
       albumType:  album.type,
       albumQuery: album.query ?? `${album.title} songs`,
-    });
+    };
+    setOpenAlbum(state);
+    try { sessionStorage.setItem(OPEN_ALBUM_KEY, JSON.stringify(state)); } catch { /**/ }
+  };
+
+  const handleCloseAlbum = () => {
+    setOpenAlbum(null);
+    try { sessionStorage.removeItem(OPEN_ALBUM_KEY); } catch { /**/ }
   };
 
   // ── Load song sections ────────────────────────────────────────────────────
@@ -1227,53 +1277,28 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
     let unmounted = false;
 
     async function loadInBatches() {
-      const INITIAL      = 4;
-      const firstResults = await Promise.all(
-        SECTION_DEFS.slice(0, INITIAL).map(({ pool, seed }) =>
-          fetchSection(pickQuery(pool, seed), 25)
+      // Load ALL sections in parallel with 50 songs each — no staged loading
+      const allResults = await Promise.all(
+        SECTION_DEFS.map(({ pool, seed }) =>
+          fetchSection(pickQuery(pool, seed), 50)
         )
       );
       if (unmounted) return;
 
       let updated: SectionData[] = cached ? [...cached] : [];
-      firstResults.forEach((songs, idx) => {
+      allResults.forEach((songs, idx) => {
         const { title } = SECTION_DEFS[idx];
         const unique    = dedup(songs, globalSeenRef.current);
         if (unique.length === 0) return;
         updated = [...updated.filter((s) => s.title !== title), { title, songs: unique }];
-        updated.sort(
-          (a, b) =>
-            SECTION_DEFS.findIndex((d) => d.title === a.title) -
-            SECTION_DEFS.findIndex((d) => d.title === b.title)
-        );
       });
+      updated.sort(
+        (a, b) =>
+          SECTION_DEFS.findIndex((d) => d.title === a.title) -
+          SECTION_DEFS.findIndex((d) => d.title === b.title)
+      );
       setSections(updated);
       cacheSet(todayCacheKey, updated);
-
-      for (let i = INITIAL; i < SECTION_DEFS.length; i += 2) {
-        if (unmounted) return;
-        await sleep(600);
-        const batch   = SECTION_DEFS.slice(i, i + 2);
-        const results = await Promise.all(
-          batch.map(({ pool, seed }) => fetchSection(pickQuery(pool, seed), 25))
-        );
-        if (unmounted) return;
-        results.forEach((songs, idx) => {
-          const { title } = batch[idx];
-          const unique    = dedup(songs, globalSeenRef.current);
-          if (unique.length === 0) return;
-          setSections((prev) => {
-            const next = [...prev.filter((s) => s.title !== title), { title, songs: unique }];
-            next.sort(
-              (a, b) =>
-                SECTION_DEFS.findIndex((d) => d.title === a.title) -
-                SECTION_DEFS.findIndex((d) => d.title === b.title)
-            );
-            cacheSet(todayCacheKey, next);
-            return next;
-          });
-        });
-      }
     }
 
     loadInBatches();
@@ -1361,7 +1386,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
           album={openAlbum.album}
           albumType={openAlbum.albumType}
           albumQuery={openAlbum.albumQuery}
-          onClose={() => setOpenAlbum(null)}
+          onClose={() => handleCloseAlbum()}
           onRequireAuth={handleRequireAuth}
         />
       )}

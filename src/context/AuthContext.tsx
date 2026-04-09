@@ -86,11 +86,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const response = await api.register(email, password, username);
       if (response.success) {
+        // Auto-login immediately after successful registration
+        // so the user doesn't have to sign in again manually
+        if (response.token && response.user) {
+          localStorage.setItem(SESSION_KEY, response.token);
+          localStorage.setItem(USER_KEY, JSON.stringify(response.user));
+          setUser(response.user);
+        } else {
+          // Backend registered but didn't return token — try logging in
+          const loginErr = await login(email, password);
+          if (loginErr) return null; // registration succeeded even if auto-login failed
+        }
         return null;
       }
-      return response.message || "Registration failed.";
+      return response.message || "Registration failed. Please try again.";
     } catch (err: any) {
-      return err.message || "Registration failed. Please try again.";
+      const msg: string = err?.message || "";
+      if (msg.toLowerCase().includes("already") || msg.toLowerCase().includes("exist")) {
+        return "An account with this email already exists. Please sign in instead.";
+      }
+      return msg || "Registration failed. Please check your connection and try again.";
     }
   };
 
