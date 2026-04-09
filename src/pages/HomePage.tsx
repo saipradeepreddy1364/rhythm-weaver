@@ -188,7 +188,7 @@ const TELUGU_YEAR_QUERIES = [
   `top telugu film ${CURRENT_YEAR}`,
 ];
 
-// ─── Film discovery queries ───────────────────────────────────────────────────
+// ─── Film discovery query pool ────────────────────────────────────────────────
 const FILM_DISCOVERY_QUERIES_POOL = [
   `new hindi film songs ${CURRENT_YEAR}`,
   `latest bollywood movie ${CURRENT_YEAR}`,
@@ -226,10 +226,6 @@ const FILM_DISCOVERY_QUERIES_POOL = [
 
 // ─── Artist discovery queries ─────────────────────────────────────────────────
 const ARTIST_DISCOVERY_QUERIES = [
-  "popular hindi playback singer songs",
-  "top bollywood singer hits",
-  "popular telugu playback singer songs",
-  "best indian singer all time hits",
   "arijit singh songs",
   "shreya ghoshal songs",
   "sonu nigam songs",
@@ -251,6 +247,10 @@ const ARTIST_DISCOVERY_QUERIES = [
   "sunidhi chauhan songs",
   "badshah songs",
   "guru randhawa songs",
+  "jubin nautiyal songs",
+  "vishal mishra songs",
+  "sachet tandon songs",
+  "parampara tandon songs",
 ];
 
 // ─── Section definitions ──────────────────────────────────────────────────────
@@ -277,26 +277,23 @@ interface SectionData {
 }
 
 interface AlbumData {
-  title: string;
-  coverArt: string;
-  songs: Song[];
-  type: string;
-  query?: string;
-  /** For artist albums: whether the full discography has been loaded */
-  songsFullyLoaded?: boolean;
+  title:        string;
+  coverArt:     string;
+  songs:        Song[];
+  type:         string;
+  query?:       string;
+  /** true once the full discography / movie songs have been fetched */
+  fullyLoaded?: boolean;
 }
 
 interface HomePageProps {
   onRequireAuth?: () => void;
 }
 
-type RawSong = Song & {
-  primaryArtists?: string;
-  singers?: string;
-};
+type RawSong = Song & { primaryArtists?: string; singers?: string };
 
 function getArtistName(song: Song): string {
-  const raw = song as RawSong;
+  const raw   = song as RawSong;
   const field =
     raw.primaryArtists ||
     raw.singers ||
@@ -305,7 +302,7 @@ function getArtistName(song: Song): string {
   return field.split(",")[0].trim();
 }
 
-// ─── Fetch helpers ────────────────────────────────────────────────────────────
+// ─── Low-level fetch helpers ──────────────────────────────────────────────────
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -319,17 +316,12 @@ async function fetchSection(query: string, limit = 25): Promise<Song[]> {
       const items = extractResults(res);
       const songs = items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
       if (songs.length > 0) return songs;
-    } catch {
-      /* silent retry */
-    }
+    } catch { /* silent retry */ }
   }
   return [];
 }
 
-async function fetchLanguageSongs(
-  queries: string[],
-  targetPerQuery = 50
-): Promise<Song[]> {
+async function fetchLanguageSongs(queries: string[], targetPerQuery = 50): Promise<Song[]> {
   const seen = new Set<string>();
   const all: Song[] = [];
   for (const query of queries) {
@@ -341,17 +333,11 @@ async function fetchLanguageSongs(
         const songs = items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
         let added = 0;
         for (const s of songs) {
-          if (s.id && !seen.has(s.id)) {
-            seen.add(s.id);
-            all.push(s);
-            added++;
-          }
+          if (s.id && !seen.has(s.id)) { seen.add(s.id); all.push(s); added++; }
         }
         if (items.length < targetPerQuery || added === 0) break;
       }
-    } catch {
-      /* continue */
-    }
+    } catch { /* continue */ }
     await sleep(150);
   }
   return all;
@@ -360,60 +346,42 @@ async function fetchLanguageSongs(
 function dedup(songs: Song[], seen: Set<string>): Song[] {
   const out: Song[] = [];
   for (const s of songs) {
-    if (s.id && !seen.has(s.id)) {
-      seen.add(s.id);
-      out.push(s);
-    }
+    if (s.id && !seen.has(s.id)) { seen.add(s.id); out.push(s); }
   }
   return out;
 }
 
 /**
- * Deeply paginate one query — no hard song cap.
- * maxPages × 50 songs/page = 3 000 per query call.
+ * Paginate one query deeply — no hard cap.
+ * 60 pages × 50 = up to 3 000 unique songs per query.
+ * Pass a shared `seen` Set to deduplicate across sibling queries.
  */
-async function fetchAllPages(
-  query: string,
-  maxPages = 60,
-  seen?: Set<string>
-): Promise<Song[]> {
+async function fetchAllPages(query: string, maxPages = 60, seen?: Set<string>): Promise<Song[]> {
   const localSeen = seen ?? new Set<string>();
   const all: Song[] = [];
-  const pageSize = 50;
   for (let page = 1; page <= maxPages; page++) {
     try {
-      if (page > 1) await sleep(250);
-      const res   = await api.searchSongs(query, page, pageSize);
+      if (page > 1) await sleep(220);
+      const res   = await api.searchSongs(query, page, 50);
       const items = extractResults(res);
       if (items.length === 0) break;
       const songs = items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
       let added = 0;
       for (const s of songs) {
-        if (s.id && !localSeen.has(s.id)) {
-          localSeen.add(s.id);
-          all.push(s);
-          added++;
-        }
+        if (s.id && !localSeen.has(s.id)) { localSeen.add(s.id); all.push(s); added++; }
       }
-      if (items.length < pageSize) break;
-      if (added === 0) break;
-    } catch {
-      break;
-    }
+      if (items.length < 50 || added === 0) break;
+    } catch { break; }
   }
   return all;
 }
 
 /**
- * Fetch a COMPLETE artist discography — every song from first to latest.
- * Runs 20 query variations in parallel batches, deeply paginated (up to 60
- * pages × 50 = 3 000 songs per query). This is called at PAGE LOAD time so
- * clicking an artist is instant.
+ * Fetch COMPLETE artist discography using 20 query variants in parallel batches.
+ * Shared seen-set deduplicates across all variants.
+ * No upper limit on songs returned.
  */
-async function fetchAllArtistSongs(
-  artistName: string,
-  signal?: AbortSignal
-): Promise<Song[]> {
+async function fetchAllArtistSongs(artistName: string): Promise<Song[]> {
   const name = artistName
     .replace(/ Hits$/i, "")
     .replace(/ Classics$/i, "")
@@ -446,88 +414,59 @@ async function fetchAllArtistSongs(
   const seen = new Set<string>();
   const all: Song[] = [];
 
-  // Run in parallel batches of 4 for speed
-  const BATCH = 4;
+  // 5 queries in parallel for maximum speed
+  const BATCH = 5;
   for (let i = 0; i < queries.length; i += BATCH) {
-    if (signal?.aborted) break;
-    const batch = queries.slice(i, i + BATCH);
-    const results = await Promise.all(
-      batch.map((q) => fetchAllPages(q, 60, seen).catch(() => [] as Song[]))
+    const batch   = queries.slice(i, i + BATCH);
+    const results = await Promise.allSettled(
+      batch.map((q) => fetchAllPages(q, 60, seen))
     );
-    for (const r of results) all.push(...r);
-    if (i + BATCH < queries.length) await sleep(150);
+    for (const r of results) {
+      if (r.status === "fulfilled") all.push(...r.value);
+    }
+    if (i + BATCH < queries.length) await sleep(100);
   }
 
   return all;
 }
 
 /**
- * Fetch all songs for a movie album — strict title filtering, deep pagination.
+ * Fetch all songs for a movie album with strict title filtering.
  */
-async function fetchAllMovieSongs(
-  query: string,
-  albumTitle: string,
-  signal?: AbortSignal
-): Promise<Song[]> {
-  const seen = new Set<string>();
+async function fetchAllMovieSongs(query: string, albumTitle: string): Promise<Song[]> {
+  const seen       = new Set<string>();
   const all: Song[] = [];
-  const pageSize = 50;
-  const maxPages = 60;
+  const titleLower = albumTitle.toLowerCase();
 
-  for (let page = 1; page <= maxPages; page++) {
-    if (signal?.aborted) break;
+  for (let page = 1; page <= 60; page++) {
     try {
-      if (page > 1) await sleep(300);
-      const res   = await api.searchSongs(query, page, pageSize);
+      if (page > 1) await sleep(280);
+      const res   = await api.searchSongs(query, page, 50);
       const items = extractResults(res);
       let songs   = items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
-
-      const titleLower = albumTitle.toLowerCase();
       const filtered = songs.filter(
         (s: Song) =>
           s.movie?.toLowerCase().includes(titleLower) ||
           s.album?.toLowerCase().includes(titleLower)
       );
       if (filtered.length >= 2) songs = filtered;
-
       for (const s of songs) {
-        if (s.id && !seen.has(s.id)) {
-          seen.add(s.id);
-          all.push(s);
-        }
+        if (s.id && !seen.has(s.id)) { seen.add(s.id); all.push(s); }
       }
-      if (items.length < pageSize) break;
-    } catch {
-      break;
-    }
+      if (items.length < 50) break;
+    } catch { break; }
   }
   return all;
 }
 
-/** Dispatcher: choose the right deep-fetch strategy by album type. */
-async function fetchAllSongs(
-  query: string,
-  albumTitle: string,
-  albumType: string,
-  signal?: AbortSignal
-): Promise<Song[]> {
-  if (albumType === "artist" || albumType === "hero") {
-    return fetchAllArtistSongs(albumTitle, signal);
-  }
-  return fetchAllMovieSongs(query, albumTitle, signal);
-}
+// ─── Film albums discovery ────────────────────────────────────────────────────
 
-/**
- * Discover current-year film albums dynamically.
- * Daily-rotated subset of queries for variety.
- */
 async function fetchCurrentYearFilmAlbums(
-  unmountedRef: React.MutableRefObject<boolean>
+  unmountedRef: React.MutableRefObject<boolean>,
 ): Promise<AlbumData[]> {
   const dailyQueries = seededShuffle(FILM_DISCOVERY_QUERIES_POOL, todaysSeed()).slice(0, 10);
-
-  const albumMap = new Map<string, { songs: Song[]; query: string }>();
-  const seen     = new Set<string>();
+  const albumMap     = new Map<string, { songs: Song[]; query: string }>();
+  const seen         = new Set<string>();
 
   for (const query of dailyQueries) {
     if (unmountedRef.current) break;
@@ -538,38 +477,23 @@ async function fetchCurrentYearFilmAlbums(
         const res   = await api.searchSongs(query, pg, 50);
         const items = extractResults(res);
         const songs = items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
-
         for (const song of songs) {
           const key = (song.movie || song.album || "").trim();
           if (!key || key.length < 3) continue;
-          if (!albumMap.has(key)) {
-            albumMap.set(key, { songs: [], query: `${key} songs` });
-          }
+          if (!albumMap.has(key)) albumMap.set(key, { songs: [], query: `${key} songs` });
           const entry = albumMap.get(key)!;
-          if (song.id && !seen.has(song.id)) {
-            seen.add(song.id);
-            entry.songs.push(song);
-          }
+          if (song.id && !seen.has(song.id)) { seen.add(song.id); entry.songs.push(song); }
         }
         if (items.length < 50) break;
       }
-    } catch {
-      /* continue */
-    }
+    } catch { /* continue */ }
     await sleep(200);
   }
 
   const albums: AlbumData[] = [];
   for (const [title, { songs, query }] of albumMap.entries()) {
     if (songs.length >= 1) {
-      albums.push({
-        title,
-        coverArt: songs[0].albumArt || "",
-        songs,
-        type: "movie",
-        query,
-        songsFullyLoaded: false,
-      });
+      albums.push({ title, coverArt: songs[0].albumArt || "", songs, type: "movie", query, fullyLoaded: false });
     }
   }
 
@@ -578,110 +502,100 @@ async function fetchCurrentYearFilmAlbums(
   return rotated.slice(0, 25);
 }
 
+// ─── Artist albums — discover + full pre-load ─────────────────────────────────
 /**
- * Discover popular artists AND pre-fetch their FULL discographies in parallel.
- * This runs at page load so clicking an artist card is INSTANT.
+ * Two-phase load:
+ *   Phase 1 — Discover artist names via parallel API calls, emit stubs instantly.
+ *   Phase 2 — For each artist, fetch ALL songs (deep pagination, parallel queries).
+ *             Emit updated card as each artist finishes.
+ *
+ * `onArtistUpdated` is called in BOTH phases so the UI is never empty.
  */
-async function fetchDynamicArtistsWithFullSongs(
-  unmountedRef: React.MutableRefObject<boolean>,
-  onArtistReady: (artist: AlbumData) => void
-): Promise<AlbumData[]> {
-  // ── Step 1: discover artist names via shallow search ────────────────────────
-  const artistMap = new Map<string, Song[]>();
+async function loadArtistAlbums(
+  unmountedRef:    React.MutableRefObject<boolean>,
+  onArtistUpdated: (artist: AlbumData) => void,
+): Promise<void> {
+  // ── Phase 1: parallel discovery ──────────────────────────────────────────
+  const artistMap = new Map<string, { songs: Song[]; coverArt: string }>();
   const songSeen  = new Set<string>();
 
-  // Run all discovery queries in parallel for speed
   const discoveryResults = await Promise.allSettled(
     ARTIST_DISCOVERY_QUERIES.map((q) =>
-      api.searchSongs(q, 1, 50).then((res) => {
-        const items = extractResults(res);
-        return items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
-      })
+      api.searchSongs(q, 1, 50).then((res) =>
+        extractResults(res).map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl))
+      )
     )
   );
 
-  if (unmountedRef.current) return [];
+  if (unmountedRef.current) return;
 
   for (const result of discoveryResults) {
     if (result.status !== "fulfilled") continue;
     for (const song of result.value) {
-      const artistName = getArtistName(song);
-      if (!artistName || artistName.length < 2) continue;
-      if (!artistMap.has(artistName)) artistMap.set(artistName, []);
-      const arr = artistMap.get(artistName)!;
-      if (song.id && !songSeen.has(song.id)) {
-        songSeen.add(song.id);
-        arr.push(song);
-      }
+      const name = getArtistName(song);
+      if (!name || name.length < 2) continue;
+      if (!artistMap.has(name)) artistMap.set(name, { songs: [], coverArt: "" });
+      const entry = artistMap.get(name)!;
+      if (!entry.coverArt && song.albumArt) entry.coverArt = song.albumArt;
+      if (song.id && !songSeen.has(song.id)) { songSeen.add(song.id); entry.songs.push(song); }
     }
   }
 
-  // Build initial artist stubs (with only discovery songs for now)
-  const artistStubs: AlbumData[] = [];
-  for (const [name, songs] of artistMap.entries()) {
-    if (songs.length >= 2) {
-      artistStubs.push({
-        title:            name,
-        coverArt:         songs[0].albumArt || "",
-        songs,
-        type:             "artist",
-        query:            `${name} songs`,
-        songsFullyLoaded: false,
-      });
-    }
+  if (unmountedRef.current) return;
+
+  // Pick top 25 artists by discovery song count
+  const topArtists = [...artistMap.entries()]
+    .filter(([, v]) => v.songs.length >= 2)
+    .sort((a, b) => b[1].songs.length - a[1].songs.length)
+    .slice(0, 25);
+
+  // Emit stubs immediately so artist cards appear in the UI right away
+  for (const [name, { songs, coverArt }] of topArtists) {
+    if (unmountedRef.current) return;
+    onArtistUpdated({
+      title:       name,
+      coverArt,
+      songs,
+      type:        "artist",
+      query:       `${name} songs`,
+      fullyLoaded: false,
+    });
   }
 
-  const topArtists = artistStubs
-    .sort((a, b) => b.songs.length - a.songs.length)
-    .slice(0, 30);
-
-  // ── Step 2: fetch FULL discographies for all artists in parallel batches ───
-  // Batch of 3 artists at a time to avoid rate limits while staying fast
+  // ── Phase 2: fetch full discography in batches of 3 ──────────────────────
   const BATCH = 3;
-  const finalArtists: AlbumData[] = [...topArtists]; // mutable copy
-
   for (let i = 0; i < topArtists.length; i += BATCH) {
-    if (unmountedRef.current) break;
-    const batch = topArtists.slice(i, i + BATCH);
+    if (unmountedRef.current) return;
 
+    const batch = topArtists.slice(i, i + BATCH);
     const results = await Promise.allSettled(
-      batch.map((artist) => fetchAllArtistSongs(artist.title))
+      batch.map(([name]) => fetchAllArtistSongs(name))
     );
 
     for (let j = 0; j < batch.length; j++) {
-      if (unmountedRef.current) break;
+      if (unmountedRef.current) return;
+      const [name, { songs: stubSongs, coverArt }] = batch[j];
       const result = results[j];
-      const idx    = i + j;
+      const fullSongs =
+        result.status === "fulfilled" && result.value.length > 0
+          ? result.value
+          : stubSongs; // fall back to discovery songs if fetch failed
 
-      if (result.status === "fulfilled" && result.value.length > 0) {
-        finalArtists[idx] = {
-          ...finalArtists[idx],
-          songs:            result.value,
-          coverArt:         result.value[0].albumArt || finalArtists[idx].coverArt,
-          songsFullyLoaded: true,
-        };
-      } else {
-        finalArtists[idx] = {
-          ...finalArtists[idx],
-          songsFullyLoaded: true,
-        };
-      }
-
-      // Notify as each artist finishes — UI updates incrementally
-      if (!unmountedRef.current) {
-        onArtistReady({ ...finalArtists[idx] });
-      }
+      onArtistUpdated({
+        title:       name,
+        coverArt:    fullSongs[0]?.albumArt || coverArt,
+        songs:       fullSongs,
+        type:        "artist",
+        query:       `${name} songs`,
+        fullyLoaded: true,
+      });
     }
 
     if (i + BATCH < topArtists.length) await sleep(100);
   }
-
-  return finalArtists;
 }
 
 // ─── Album Detail Modal ───────────────────────────────────────────────────────
-// Songs are pre-loaded at page load for artists.
-// For movies, we still fetch on open (they are quick).
 
 function AlbumModal({
   album,
@@ -690,35 +604,35 @@ function AlbumModal({
   onClose,
   onRequireAuth,
 }: {
-  album:        AlbumData;
-  albumType:    string;
-  albumQuery:   string;
-  onClose:      () => void;
+  album:         AlbumData;
+  albumType:     string;
+  albumQuery:    string;
+  onClose:       () => void;
   onRequireAuth: () => void;
 }) {
-  const { playSong }                      = usePlayer();
-  const [songs, setSongs]                 = useState<Song[]>(album.songs);
-  const [loadingMore, setLoadingMore]     = useState(
-    // For artists: only show loading if not already fully loaded
-    albumType === "artist" || albumType === "hero"
-      ? !album.songsFullyLoaded
-      : true
-  );
+  const { playSong }                  = usePlayer();
+  const [songs, setSongs]             = useState<Song[]>(album.songs);
+  const [loadingMore, setLoadingMore] = useState(!album.fullyLoaded);
 
   useEffect(() => {
-    // For artist albums that are already fully loaded, skip the fetch
-    if ((albumType === "artist" || albumType === "hero") && album.songsFullyLoaded) {
+    // Artist albums already fully pre-loaded — render instantly, no fetch needed
+    if (album.fullyLoaded) {
       setSongs(album.songs);
       setLoadingMore(false);
       return;
     }
 
-    // For movie albums, always fetch full songs on open
-    // For artists not yet fully loaded (edge case), fetch now
+    // Movie albums always fetch on open
+    // Artist albums that weren't pre-loaded (edge case) fetch now
     const controller = new AbortController();
     setLoadingMore(true);
 
-    fetchAllSongs(albumQuery, album.title, albumType, controller.signal)
+    const fetchPromise =
+      albumType === "artist" || albumType === "hero"
+        ? fetchAllArtistSongs(album.title)
+        : fetchAllMovieSongs(albumQuery, album.title);
+
+    fetchPromise
       .then((fetched) => {
         if (!controller.signal.aborted) {
           if (fetched.length > 0) setSongs(fetched);
@@ -775,7 +689,9 @@ function AlbumModal({
             <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>
               {typeLabel}
               {loadingMore
-                ? ` · ${songs.length > 0 ? `${songs.length} songs (loading more…)` : "Loading songs…"}`
+                ? songs.length > 0
+                  ? ` · ${songs.length} songs (loading more…)`
+                  : " · Loading songs…"
                 : songs.length > 0
                 ? ` · ${songs.length} songs`
                 : ""}
@@ -827,24 +743,19 @@ function AlbumModal({
               style={{ background: "rgba(29,185,84,0.15)", color: "#1DB954" }}
             >
               <Music2 className="w-3 h-3" />
-              {loadingMore
-                ? `${songs.length} songs (loading more…)`
-                : `${songs.length} songs`}
+              {loadingMore ? `${songs.length} songs (loading more…)` : `${songs.length} songs`}
             </span>
           </div>
         )}
 
         {/* Song list */}
-        <div
-          className="flex-1 overflow-y-auto"
-          style={{ WebkitOverflowScrolling: "touch" }}
-        >
+        <div className="flex-1 overflow-y-auto" style={{ WebkitOverflowScrolling: "touch" }}>
           {loadingMore && songs.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 gap-3">
               <div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white/70 animate-spin" />
               <p className="text-sm text-white/40">
                 {albumType === "artist" || albumType === "hero"
-                  ? "Loading discography…"
+                  ? "Loading full discography…"
                   : "Loading songs…"}
               </p>
             </div>
@@ -862,7 +773,7 @@ function AlbumModal({
                 <div className="flex items-center justify-center py-6 gap-2">
                   <div className="w-5 h-5 rounded-full border-2 border-white/20 border-t-white/60 animate-spin" />
                   <span className="text-xs text-white/40">
-                    Loading more songs… ({songs.length} so far)
+                    Fetching more songs… ({songs.length} so far)
                   </span>
                 </div>
               )}
@@ -885,18 +796,18 @@ function LanguageCategoryModal({
   onClose,
   onRequireAuth,
 }: {
-  label:          string;
-  mainQueries:    string[];
-  subCategories:  { label: string; query: string }[];
-  onClose:        () => void;
-  onRequireAuth:  () => void;
+  label:         string;
+  mainQueries:   string[];
+  subCategories: { label: string; query: string }[];
+  onClose:       () => void;
+  onRequireAuth: () => void;
 }) {
-  const { playSong }                      = usePlayer();
-  const [allSongs, setAllSongs]           = useState<Song[]>([]);
-  const [subSongs, setSubSongs]           = useState<Record<string, Song[]>>({});
-  const [loading, setLoading]             = useState(true);
-  const [activeTab, setActiveTab]         = useState("All");
-  const fetchedRef                        = useRef(false);
+  const { playSong }              = usePlayer();
+  const [allSongs, setAllSongs]   = useState<Song[]>([]);
+  const [subSongs, setSubSongs]   = useState<Record<string, Song[]>>({});
+  const [loading, setLoading]     = useState(true);
+  const [activeTab, setActiveTab] = useState("All");
+  const fetchedRef                = useRef(false);
 
   useEffect(() => {
     if (fetchedRef.current) return;
@@ -924,7 +835,6 @@ function LanguageCategoryModal({
         }}
       />
       <div className="relative flex flex-col h-full overflow-hidden">
-        {/* Header */}
         <div className="flex items-center gap-3 px-4 pt-12 pb-3 flex-shrink-0">
           <button
             onClick={onClose}
@@ -950,7 +860,6 @@ function LanguageCategoryModal({
           )}
         </div>
 
-        {/* Tabs */}
         <div
           className="flex gap-2 px-4 pb-3 flex-shrink-0 overflow-x-auto"
           style={{ scrollbarWidth: "none" }}
@@ -976,11 +885,7 @@ function LanguageCategoryModal({
           ))}
         </div>
 
-        {/* Song list */}
-        <div
-          className="flex-1 overflow-y-auto"
-          style={{ WebkitOverflowScrolling: "touch" }}
-        >
+        <div className="flex-1 overflow-y-auto" style={{ WebkitOverflowScrolling: "touch" }}>
           {loading && displaySongs.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3">
               <div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white/70 animate-spin" />
@@ -1045,20 +950,14 @@ function AlbumRow({
                   borderRadius: roundCovers ? "50%" : 12,
                 }}
               />
-              <div
-                className="h-3 w-24 rounded mb-1"
-                style={{ background: "rgba(255,255,255,0.07)" }}
-              />
+              <div className="h-3 w-24 rounded mb-1" style={{ background: "rgba(255,255,255,0.07)" }} />
             </div>
           ))}
         </div>
       ) : albums.length > 0 ? (
         <div
           className="flex gap-4 px-4 overflow-x-auto"
-          style={{
-            scrollbarWidth:          "none",
-            WebkitOverflowScrolling: "touch",
-          } as React.CSSProperties}
+          style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" } as React.CSSProperties}
         >
           {albums.map((album) => (
             <div key={album.title} className="flex-shrink-0" style={{ width: 150 }}>
@@ -1102,26 +1001,25 @@ function AlbumRow({
                     className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-xs font-bold"
                     style={{ background: "rgba(0,0,0,0.7)", color: "rgba(255,255,255,0.9)" }}
                   >
-                    {album.songsFullyLoaded ? album.songs.length : `${album.songs.length}+`}
+                    {album.fullyLoaded ? album.songs.length : `${album.songs.length}+`}
                   </div>
                 )}
-                {/* Loading indicator for artist cards whose full fetch is in progress */}
-                {roundCovers && !album.songsFullyLoaded && (
+                {/* Small spinner on artist cards while full discography loads in background */}
+                {roundCovers && !album.fullyLoaded && (
                   <div
-                    className="absolute bottom-1 right-1 w-5 h-5 rounded-full border-2 border-white/20 border-t-white/70 animate-spin"
-                    style={{ background: "rgba(0,0,0,0.5)" }}
-                  />
+                    className="absolute bottom-2 right-2 w-5 h-5 rounded-full flex items-center justify-center"
+                    style={{ background: "rgba(0,0,0,0.6)", pointerEvents: "none" }}
+                  >
+                    <div className="w-3 h-3 rounded-full border-2 border-white/30 border-t-white/80 animate-spin" />
+                  </div>
                 )}
               </div>
               <p className="text-sm font-semibold text-white truncate leading-tight text-center">
                 {album.title}
               </p>
               {showCount && !roundCovers && (
-                <p
-                  className="text-xs text-center mt-0.5"
-                  style={{ color: "rgba(255,255,255,0.35)" }}
-                >
-                  {album.songsFullyLoaded ? `${album.songs.length} songs` : `${album.songs.length}+ songs`}
+                <p className="text-xs text-center mt-0.5" style={{ color: "rgba(255,255,255,0.35)" }}>
+                  {album.fullyLoaded ? `${album.songs.length} songs` : `${album.songs.length}+ songs`}
                 </p>
               )}
             </div>
@@ -1162,13 +1060,9 @@ function CollapsibleSection({
           style={{ color: "rgba(255,255,255,0.4)" }}
         >
           {expanded ? (
-            <>
-              <ChevronUp className="w-3.5 h-3.5" /> Show less
-            </>
+            <><ChevronUp className="w-3.5 h-3.5" /> Show less</>
           ) : (
-            <>
-              <ChevronDown className="w-3.5 h-3.5" /> Show {songs.length - PREVIEW} more
-            </>
+            <><ChevronDown className="w-3.5 h-3.5" /> Show {songs.length - PREVIEW} more</>
           )}
         </button>
       )}
@@ -1178,13 +1072,7 @@ function CollapsibleSection({
 
 // ─── SimpleSection ────────────────────────────────────────────────────────────
 
-function SimpleSection({
-  title,
-  children,
-}: {
-  title:    string;
-  children: React.ReactNode;
-}) {
+function SimpleSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="mb-5">
       <h2 className="text-base font-bold text-white mb-2 px-4">{title}</h2>
@@ -1240,22 +1128,15 @@ function cacheGet<T>(key: string): T | null {
     const raw = localStorage.getItem(key);
     if (!raw) return null;
     const { data, ts } = JSON.parse(raw);
-    if (Date.now() - ts > CACHE_TTL_MS) {
-      localStorage.removeItem(key);
-      return null;
-    }
+    if (Date.now() - ts > CACHE_TTL_MS) { localStorage.removeItem(key); return null; }
     return data as T;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 function cacheSet(key: string, data: unknown) {
   try {
     localStorage.setItem(key, JSON.stringify({ data, ts: Date.now() }));
-  } catch {
-    /* storage quota exceeded — silently ignore */
-  }
+  } catch { /* quota exceeded */ }
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -1267,28 +1148,28 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showUserMenu, setShowUserMenu]   = useState(false);
 
-  useEffect(() => {
-    document.title = "Medly";
-  }, []);
+  useEffect(() => { document.title = "Medly"; }, []);
 
-  // Cache keys are date-scoped so they refresh daily automatically
   const todayCacheKey  = `hp_sections_${todaysSeed()}`;
   const albumsCacheKey = `hp_albums_${todaysSeed()}`;
 
-  // ── Sections state (song rows) ────────────────────────────────────────────
+  // ── Sections (song rows) ──────────────────────────────────────────────────
   const [sections, setSections] = useState<SectionData[]>(
     () => cacheGet<SectionData[]>(todayCacheKey) ?? []
   );
 
-  // ── Albums state ──────────────────────────────────────────────────────────
+  // ── Film albums ───────────────────────────────────────────────────────────
   const [filmAlbums, setFilmAlbums] = useState<AlbumData[]>(() => {
     const c = cacheGet<{ film: AlbumData[]; artist: AlbumData[] }>(albumsCacheKey);
     return c?.film ?? [];
   });
+
+  // ── Artist albums — built incrementally by onArtistUpdated ───────────────
   const [artistAlbums, setArtistAlbums] = useState<AlbumData[]>(() => {
     const c = cacheGet<{ film: AlbumData[]; artist: AlbumData[] }>(albumsCacheKey);
     return c?.artist ?? [];
   });
+
   const [albumsLoading, setAlbumsLoading] = useState(() => {
     const c = cacheGet<{ film: AlbumData[]; artist: AlbumData[] }>(albumsCacheKey);
     return !c || c.film.length === 0;
@@ -1307,11 +1188,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
   const unmountedRef  = useRef(false);
   const globalSeenRef = useRef(new Set<string>());
 
-  useEffect(() => {
-    return () => {
-      unmountedRef.current = true;
-    };
-  }, []);
+  useEffect(() => { return () => { unmountedRef.current = true; }; }, []);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   const handleRequireAuth = () => {
@@ -1319,10 +1196,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
     setShowAuthModal(true);
   };
 
-  const handleLogout = async () => {
-    await logout();
-    setShowUserMenu(false);
-  };
+  const handleLogout = async () => { await logout(); setShowUserMenu(false); };
 
   const handleOpenAlbum = (album: AlbumData) => {
     setOpenAlbum({
@@ -1366,10 +1240,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
         const { title } = SECTION_DEFS[idx];
         const unique    = dedup(songs, globalSeenRef.current);
         if (unique.length === 0) return;
-        updated = [
-          ...updated.filter((s) => s.title !== title),
-          { title, songs: unique },
-        ];
+        updated = [...updated.filter((s) => s.title !== title), { title, songs: unique }];
         updated.sort(
           (a, b) =>
             SECTION_DEFS.findIndex((d) => d.title === a.title) -
@@ -1392,10 +1263,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
           const unique    = dedup(songs, globalSeenRef.current);
           if (unique.length === 0) return;
           setSections((prev) => {
-            const next = [
-              ...prev.filter((s) => s.title !== title),
-              { title, songs: unique },
-            ];
+            const next = [...prev.filter((s) => s.title !== title), { title, songs: unique }];
             next.sort(
               (a, b) =>
                 SECTION_DEFS.findIndex((d) => d.title === a.title) -
@@ -1409,12 +1277,10 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
     }
 
     loadInBatches();
-    return () => {
-      unmounted = true;
-    };
+    return () => { unmounted = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Quick Picks — rotate every 1 minute ───────────────────────────────────
+  // ── Quick Picks ───────────────────────────────────────────────────────────
   const [minuteTick, setMinuteTick] = useState(oneMinSeed());
   useEffect(() => {
     const id = setInterval(() => setMinuteTick(oneMinSeed()), 60_000);
@@ -1427,19 +1293,18 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
     return seededShuffle(pool, minuteTick).slice(0, 12);
   })();
 
-  // ── Load film albums + FULL artist discographies at page load ─────────────
+  // ── Load film albums + full artist discographies at page load ─────────────
   useEffect(() => {
     if (albumsLoadRef.current) return;
     albumsLoadRef.current = true;
 
-    const cachedAlbums = cacheGet<{ film: AlbumData[]; artist: AlbumData[] }>(
-      albumsCacheKey
-    );
-    // Use cache only if all artist songs are fully loaded
+    // Only use cache if all artist discographies are already fully loaded
+    const cachedAlbums = cacheGet<{ film: AlbumData[]; artist: AlbumData[] }>(albumsCacheKey);
     if (
       cachedAlbums &&
       cachedAlbums.film.length > 0 &&
-      cachedAlbums.artist.every((a) => a.songsFullyLoaded)
+      cachedAlbums.artist.length > 0 &&
+      cachedAlbums.artist.every((a) => a.fullyLoaded)
     ) {
       setFilmAlbums(cachedAlbums.film);
       setArtistAlbums(cachedAlbums.artist);
@@ -1449,49 +1314,41 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
 
     setAlbumsLoading(true);
 
-    async function loadDynamic() {
-      // ── Load film albums first (fast) ──────────────────────────────────────
+    async function loadAll() {
+      // Film albums load fast — show them right away
       const filmResults = await fetchCurrentYearFilmAlbums(unmountedRef);
       if (unmountedRef.current) return;
       setFilmAlbums(filmResults);
-      setAlbumsLoading(false); // Hide film skeleton right away
+      setAlbumsLoading(false);
 
-      // ── Discover artists (fast parallel discovery) ─────────────────────────
-      // We display artist stubs immediately and update them as full data arrives
-      let currentArtists: AlbumData[] = [];
-
-      const finalArtists = await fetchDynamicArtistsWithFullSongs(
+      // Artist albums:
+      //   onArtistUpdated fires immediately with stub (fullyLoaded: false)
+      //   → artist card appears in UI instantly
+      //   onArtistUpdated fires again with full songs (fullyLoaded: true)
+      //   → song count updates, clicking gives instant full list
+      await loadArtistAlbums(
         unmountedRef,
         (updatedArtist) => {
           if (unmountedRef.current) return;
-          // Replace or append this artist in state as its full data arrives
+
           setArtistAlbums((prev) => {
             const idx = prev.findIndex((a) => a.title === updatedArtist.title);
-            if (idx >= 0) {
-              const next = [...prev];
-              next[idx] = updatedArtist;
-              return next;
+            const next = idx >= 0
+              ? [...prev.slice(0, idx), updatedArtist, ...prev.slice(idx + 1)]
+              : [...prev, updatedArtist];
+
+            // Write cache once ALL artists are fully loaded
+            if (next.length > 0 && next.every((a) => a.fullyLoaded)) {
+              cacheSet(albumsCacheKey, { film: filmResults, artist: next });
             }
-            return [...prev, updatedArtist];
+
+            return next;
           });
-          // Track for final cache
-          const idx = currentArtists.findIndex((a) => a.title === updatedArtist.title);
-          if (idx >= 0) currentArtists[idx] = updatedArtist;
-          else currentArtists.push(updatedArtist);
         }
       );
-
-      if (unmountedRef.current) return;
-
-      // Final artist state after all fetches
-      currentArtists = finalArtists;
-      setArtistAlbums(finalArtists);
-
-      // Cache only when all songs are fully loaded
-      cacheSet(albumsCacheKey, { film: filmResults, artist: finalArtists });
     }
 
-    loadDynamic();
+    loadAll();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -1525,19 +1382,13 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
         </div>
         <div className="relative">
           <button
-            onClick={() =>
-              user ? setShowUserMenu((v) => !v) : setShowAuthModal(true)
-            }
+            onClick={() => user ? setShowUserMenu((v) => !v) : setShowAuthModal(true)}
             className="w-9 h-9 rounded-full flex items-center justify-center transition-all active:scale-95"
             style={{ background: user ? "#1DB954" : "rgba(255,255,255,0.1)" }}
           >
             {user ? (
               <span className="text-sm font-bold text-black">
-                {(
-                  user.username?.charAt(0) ||
-                  user.email?.charAt(0) ||
-                  "U"
-                ).toUpperCase()}
+                {(user.username?.charAt(0) || user.email?.charAt(0) || "U").toUpperCase()}
               </span>
             ) : (
               <User className="w-4 h-4 text-white" />
@@ -1546,16 +1397,9 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
           {showUserMenu && user && (
             <div
               className="absolute right-0 top-full mt-2 w-48 rounded-xl shadow-2xl overflow-hidden"
-              style={{
-                background: "#1a1a1a",
-                border:     "1px solid rgba(255,255,255,0.08)",
-                zIndex:     50,
-              }}
+              style={{ background: "#1a1a1a", border: "1px solid rgba(255,255,255,0.08)", zIndex: 50 }}
             >
-              <div
-                className="px-4 py-3"
-                style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}
-              >
+              <div className="px-4 py-3" style={{ borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
                 <p className="text-sm font-semibold text-white">{user.username}</p>
                 <p className="text-xs text-white/40 mt-0.5">{user.email}</p>
               </div>
@@ -1570,7 +1414,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
         </div>
       </div>
 
-      {/* ── Quick Picks (rotates every 1 minute) ── */}
+      {/* ── Quick Picks ── */}
       <div className="px-4 pt-4 mb-6">
         <h2 className="text-base font-bold text-white mb-3">Quick Picks</h2>
         {quickPickSongs.length > 0 ? (
@@ -1587,21 +1431,15 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
                 className="flex items-center gap-2 rounded-lg overflow-hidden"
                 style={{ background: "rgba(255,255,255,0.05)", height: 48 }}
               >
-                <div
-                  className="w-12 h-12 flex-shrink-0"
-                  style={{ background: "rgba(255,255,255,0.07)" }}
-                />
-                <div
-                  className="flex-1 h-3 rounded mr-2"
-                  style={{ background: "rgba(255,255,255,0.06)" }}
-                />
+                <div className="w-12 h-12 flex-shrink-0" style={{ background: "rgba(255,255,255,0.07)" }} />
+                <div className="flex-1 h-3 rounded mr-2" style={{ background: "rgba(255,255,255,0.06)" }} />
               </div>
             ))}
           </div>
         )}
       </div>
 
-      {/* ── New Releases — dynamically discovered, daily rotating film albums ── */}
+      {/* ── New Releases ── */}
       <AlbumRow
         title={`New Releases ${CURRENT_YEAR}`}
         albums={filmAlbums}
@@ -1610,7 +1448,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
         showCount={true}
       />
 
-      {/* ── Popular Artists — full discography pre-loaded at page load ── */}
+      {/* ── Popular Artists ── */}
       <AlbumRow
         title="Popular Artists"
         albums={artistAlbums}
@@ -1636,29 +1474,17 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
       {/* ── Song sections ── */}
       {sections.length === 0 ? (
         <div className="px-4 mb-5">
-          <div
-            className="h-4 w-36 rounded mb-4"
-            style={{ background: "rgba(255,255,255,0.07)" }}
-          />
+          <div className="h-4 w-36 rounded mb-4" style={{ background: "rgba(255,255,255,0.07)" }} />
           {Array.from({ length: 5 }).map((_, i) => (
             <div
               key={i}
               className="flex items-center gap-3 py-2.5 mb-1 rounded-xl"
               style={{ background: "rgba(255,255,255,0.03)" }}
             >
-              <div
-                className="w-11 h-11 rounded-xl flex-shrink-0"
-                style={{ background: "rgba(255,255,255,0.07)" }}
-              />
+              <div className="w-11 h-11 rounded-xl flex-shrink-0" style={{ background: "rgba(255,255,255,0.07)" }} />
               <div className="flex-1 space-y-1.5">
-                <div
-                  className="h-3 w-40 rounded"
-                  style={{ background: "rgba(255,255,255,0.07)" }}
-                />
-                <div
-                  className="h-2.5 w-28 rounded"
-                  style={{ background: "rgba(255,255,255,0.05)" }}
-                />
+                <div className="h-3 w-40 rounded" style={{ background: "rgba(255,255,255,0.07)" }} />
+                <div className="h-2.5 w-28 rounded" style={{ background: "rgba(255,255,255,0.05)" }} />
               </div>
             </div>
           ))}
