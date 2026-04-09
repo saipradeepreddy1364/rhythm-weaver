@@ -94,6 +94,29 @@ export const api = {
     return res.json();
   },
 
+  // ── Song by ID — used to resolve a fresh audioUrl when it's missing ────────
+  // (JioSaavn URLs are ephemeral; they're not persisted in the backend.
+  //  When a liked song is loaded on a new device the audioUrl will be "".
+  //  Call this to fetch a fresh stream URL before playback.)
+
+  getSongById: async (songId: string): Promise<string> => {
+    try {
+      const res = await fetch(`${BASE_URL}/songs/${encodeURIComponent(songId)}`);
+      if (!res.ok) return "";
+      const json = await res.json();
+      const data = json?.data ?? json;
+
+      // JioSaavn API returns downloadUrl as an array ordered by quality.
+      // Pick the highest quality (last item) or fall back to any audioUrl field.
+      if (Array.isArray(data?.downloadUrl) && data.downloadUrl.length > 0) {
+        return data.downloadUrl[data.downloadUrl.length - 1]?.url ?? "";
+      }
+      return data?.audioUrl ?? data?.url ?? "";
+    } catch {
+      return "";
+    }
+  },
+
   // ── User Library ──────────────────────────────────────────────────────────
 
   getLikedSongs: async () => {

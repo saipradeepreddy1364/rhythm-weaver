@@ -8,6 +8,7 @@ import React, {
   ReactNode,
 } from "react";
 import { Song } from "@/data/songs";
+import { api } from "@/services/api";
 
 interface PlayerContextType {
   currentSong: Song | null;
@@ -91,6 +92,19 @@ function pickNext(
   return (currentIdx + 1) % len;
 }
 
+// ─── Resolve a fresh audioUrl when the stored one is missing/expired ──────────
+// JioSaavn stream URLs are ephemeral — they are never stored in the backend.
+// When a liked song is restored on a new device its audioUrl will be "".
+// This helper fetches a fresh one by song ID before we attempt playback.
+async function resolveAudioUrl(song: Song): Promise<Song> {
+  if (song.audioUrl) return song; // already has a URL — nothing to do
+  try {
+    const freshUrl = await api.getSongById(song.id);
+    if (freshUrl) return { ...song, audioUrl: freshUrl };
+  } catch { /* fall through — return original */ }
+  return song;
+}
+
 export function PlayerProvider({ children }: { children: ReactNode }) {
   const [currentSong, setCurrentSong] = useState<Song | null>(null);
   const [isPlaying, setIsPlaying]     = useState(false);
@@ -113,11 +127,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const repeatRef             = useRef<"off" | "one" | "all">("off");
   const recentTimestampsRef   = useRef<Record<string, number>>(loadRecentTimestamps());
   const wakeLockRef           = useRef<WakeLockSentinel | null>(null);
-  // Tracks whether we intentionally want to be playing (survives interruptions)
   const intendToPlayRef       = useRef(false);
-  // Prevents double-triggering nextSong from both 'ended' and stall recovery
   const songEndingRef         = useRef(false);
-  // Retry counter for stalled audio
   const stallRetryRef         = useRef(0);
   const stallTimerRef         = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -141,16 +152,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (saved) { try { setRecentlyPlayed(JSON.parse(saved)); } catch { /**/ } }
   }, []);
 
-  // ── Wake Lock: keep screen / CPU from sleeping during playback ──────────
+  // ── Wake Lock ─────────────────────────────────────────────────────────────
   const requestWakeLock = useCallback(async () => {
     if (!("wakeLock" in navigator)) return;
     try {
-      if (wakeLockRef.current) return; // already held
+      if (wakeLockRef.current) return;
       wakeLockRef.current = await (navigator as any).wakeLock.request("screen");
       wakeLockRef.current.addEventListener("release", () => {
         wakeLockRef.current = null;
       });
-    } catch { /* not available — ignore */ }
+    } catch { /* not available */ }
   }, []);
 
   const releaseWakeLock = useCallback(() => {
@@ -160,19 +171,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Re-acquire wake lock when page becomes visible again (iOS drops it on lock)
   useEffect(() => {
     const handleVisibility = async () => {
       if (document.visibilityState === "visible" && intendToPlayRef.current) {
         await requestWakeLock();
         const audio = audioRef.current;
         if (!audio) return;
-
         if (audio.paused) {
           try {
             await audio.play();
           } catch {
-            // Android sometimes kills the src on background — reload and resume
             const pos = audio.currentTime;
             const src = audio.src;
             if (src) {
@@ -268,13 +276,26 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       nextIdx = pickNext(q, idx, history, recentTimestampsRef.current);
     }
 
+    const nextSong = q[nextIdx];
     queueIndexRef.current = nextIdx;
     setQueueIndex(nextIdx);
-    setCurrentSong(q[nextIdx]);
-    setIsPlaying(true);
-    intendToPlayRef.current = true;
-    addToRecentlyPlayedInternal(q[nextIdx]);
-    markPlayed(q[nextIdx].id);
+    addToRecentlyPlayedInternal(nextSong);
+    markPlayed(nextSong.id);
+
+    // Resolve audioUrl before committing to state so the playback effect
+    // always receives a song with a valid stream URL.
+    resolveAudioUrl(nextSong).then((resolved) => {
+      // Also patch the queue in-place so future plays of this song work too
+      if (resolved.audioUrl !== nextSong.audioUrl) {
+        queueRef.current = queueRef.current.map((s, i) =>
+          i === nextIdx ? resolved : s
+        );
+        setQueue([...queueRef.current]);
+      }
+      setCurrentSong(resolved);
+      setIsPlaying(true);
+      intendToPlayRef.current = true;
+    });
   }, [addToRecentlyPlayedInternal, markPlayed]);
 
   // ── Setup audio element ONCE ──────────────────────────────────────────────
@@ -284,13 +305,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     audio.volume = 0.7;
     audio.preload = "auto";
 
-    // CRITICAL for iOS: set audio session so it plays through silent mode
-    // and continues in background. This attribute is non-standard but widely
-    // supported on mobile Safari.
     (audio as any).setAttribute?.("playsinline", "true");
     (audio as any).setAttribute?.("webkit-playsinline", "true");
     (audio as any).setAttribute?.("x-webkit-airplay", "allow");
-    // Required for CORS audio streams to work on mobile
     audio.crossOrigin = "anonymous";
 
     const clearStallTimer = () => {
@@ -303,7 +320,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const handleTimeUpdate = () => {
       if (!isNaN(audio.currentTime)) {
         setProgressState(audio.currentTime);
-        stallRetryRef.current = 0; // reset stall counter on progress
+        stallRetryRef.current = 0;
         if ("mediaSession" in navigator && !isNaN(audio.duration) && isFinite(audio.duration) && audio.duration > 0) {
           try {
             navigator.mediaSession.setPositionState({
@@ -334,29 +351,25 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
     };
 
-    // Stall / waiting recovery — most important for mobile background playback
     const handleWaiting = () => {
       clearStallTimer();
       stallTimerRef.current = setTimeout(async () => {
         if (!intendToPlayRef.current || audio.paused === false) return;
         stallRetryRef.current += 1;
         if (stallRetryRef.current > 3) {
-          // Too many stalls on this track — skip to next
           stallRetryRef.current = 0;
           nextSongInternal();
           return;
         }
-        // Try to resume from current position
         try {
           await audio.play();
         } catch {
-          // Reload from same position
           const pos = audio.currentTime;
           audio.load();
           audio.currentTime = pos;
           audio.play().catch(() => {});
         }
-      }, 4000); // wait 4s before acting — normal buffering is usually <2s
+      }, 4000);
     };
 
     const handleCanPlay = () => {
@@ -372,9 +385,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setTimeout(() => nextSongInternal(), 800);
     };
 
-    // iOS/Android: audio interrupted by phone call etc.
     const handleAbort = () => {
-      // Don't auto-skip — user or OS may have paused intentionally
       if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
     };
 
@@ -491,11 +502,20 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           const prevIdx = (idx - 1 + q.length) % q.length;
           queueIndexRef.current = prevIdx;
           setQueueIndex(prevIdx);
-          setCurrentSong(q[prevIdx]);
-          setIsPlaying(true);
-          intendToPlayRef.current = true;
-          addToRecentlyPlayedInternal(q[prevIdx]);
-          markPlayed(q[prevIdx].id);
+          const prevSong = q[prevIdx];
+          addToRecentlyPlayedInternal(prevSong);
+          markPlayed(prevSong.id);
+          resolveAudioUrl(prevSong).then((resolved) => {
+            if (resolved.audioUrl !== prevSong.audioUrl) {
+              queueRef.current = queueRef.current.map((s, i) =>
+                i === prevIdx ? resolved : s
+              );
+              setQueue([...queueRef.current]);
+            }
+            setCurrentSong(resolved);
+            setIsPlaying(true);
+            intendToPlayRef.current = true;
+          });
           navigator.mediaSession.playbackState = "playing";
         });
         navigator.mediaSession.setActionHandler("nexttrack", () => {
@@ -540,11 +560,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        // iOS drops MediaSession handlers on lock screen — re-register
         registerHandlers();
         if (audioRef.current) {
           navigator.mediaSession.playbackState = audioRef.current.paused ? "paused" : "playing";
-          // If we intended to play but audio stopped (common on Android background kill)
           if (intendToPlayRef.current && audioRef.current.paused) {
             audioRef.current.play().catch(() => {});
           }
@@ -562,41 +580,58 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     };
   }, [nextSongInternal, addToRecentlyPlayedInternal, markPlayed, requestWakeLock, releaseWakeLock]);
 
+  // ── playSong: resolve audioUrl BEFORE setting currentSong ────────────────
+  // This is the primary entry point from LikedSongs, Playlists, Search, etc.
+  // Songs from the backend library on a fresh device have audioUrl = "".
+  // We fetch a fresh stream URL first so the playback effect always gets a
+  // valid src, with no silent failure.
   const playSong = useCallback(
-    (song: Song, songQueue?: Song[]) => {
+    async (song: Song, songQueue?: Song[]) => {
       const q       = songQueue || [song];
       const idx     = q.findIndex((s) => s.id === song.id);
       const safeIdx = idx >= 0 ? idx : 0;
-      queueRef.current      = q;
+
+      // Resolve the clicked song immediately
+      const resolved = await resolveAudioUrl(song);
+
+      // Also patch the queue so songs played via next/prev later are already resolved
+      const resolvedQueue = q.map((s, i) =>
+        i === safeIdx ? resolved : s
+      );
+
+      queueRef.current      = resolvedQueue;
       queueIndexRef.current = safeIdx;
-      setQueue(q);
+      setQueue(resolvedQueue);
       setQueueIndex(safeIdx);
-      setCurrentSong(song);
+      setCurrentSong(resolved);
       setIsPlaying(true);
       intendToPlayRef.current = true;
-      addToRecentlyPlayedInternal(song);
-      markPlayed(song.id);
+      addToRecentlyPlayedInternal(resolved);
+      markPlayed(resolved.id);
     },
     [addToRecentlyPlayedInternal, markPlayed]
   );
 
   const addToQueue = useCallback((song: Song) => {
     if (!queueRef.current.length || !currentSong) {
-      const q = [song];
-      queueRef.current      = q;
-      queueIndexRef.current = 0;
-      setQueue(q);
-      setQueueIndex(0);
-      setCurrentSong(song);
-      setIsPlaying(true);
-      intendToPlayRef.current = true;
-      markPlayed(song.id);
+      resolveAudioUrl(song).then((resolved) => {
+        const q = [resolved];
+        queueRef.current      = q;
+        queueIndexRef.current = 0;
+        setQueue(q);
+        setQueueIndex(0);
+        setCurrentSong(resolved);
+        setIsPlaying(true);
+        intendToPlayRef.current = true;
+        markPlayed(resolved.id);
+      });
       return;
     }
+    // Queue for later — resolve lazily (will also be resolved in nextSongInternal)
     setQueue((prev) => {
-      const idx  = queueIndexRef.current;
+      const insertIdx = queueIndexRef.current + 1;
       const next = [...prev];
-      next.splice(idx + 1, 0, song);
+      next.splice(insertIdx, 0, song);
       queueRef.current = next;
       return next;
     });
@@ -618,11 +653,20 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const prevIdx = (idx - 1 + q.length) % q.length;
     queueIndexRef.current = prevIdx;
     setQueueIndex(prevIdx);
-    setCurrentSong(q[prevIdx]);
-    setIsPlaying(true);
-    intendToPlayRef.current = true;
-    addToRecentlyPlayedInternal(q[prevIdx]);
-    markPlayed(q[prevIdx].id);
+    const prev = q[prevIdx];
+    addToRecentlyPlayedInternal(prev);
+    markPlayed(prev.id);
+    resolveAudioUrl(prev).then((resolved) => {
+      if (resolved.audioUrl !== prev.audioUrl) {
+        queueRef.current = queueRef.current.map((s, i) =>
+          i === prevIdx ? resolved : s
+        );
+        setQueue([...queueRef.current]);
+      }
+      setCurrentSong(resolved);
+      setIsPlaying(true);
+      intendToPlayRef.current = true;
+    });
   }, [addToRecentlyPlayedInternal, markPlayed]);
 
   const setProgress = useCallback((value: number) => {
