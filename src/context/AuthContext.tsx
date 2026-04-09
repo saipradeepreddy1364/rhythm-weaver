@@ -19,54 +19,67 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const SESSION_KEY = "rw_session_token";
+const USER_KEY    = "rw_user_data";
 
-// ── Token helpers (sessionStorage only — never persisted to localStorage) ────
-// sessionStorage clears automatically when the browser tab is closed,
-// so stale tokens from deleted accounts can never accumulate.
-const saveToken  = (token: string) => sessionStorage.setItem(SESSION_KEY, token);
-const loadToken  = ()              => sessionStorage.getItem(SESSION_KEY);
-const clearToken = ()              => sessionStorage.removeItem(SESSION_KEY);
+// ── Persistent storage helpers ────────────────────────────────────────────────
+const saveSession = (token: string, user: User) => {
+  localStorage.setItem(SESSION_KEY, token);
+  localStorage.setItem(USER_KEY, JSON.stringify(user));
+};
+
+const loadToken    = () => localStorage.getItem(SESSION_KEY);
+const loadUser     = (): User | null => {
+  try {
+    const raw = localStorage.getItem(USER_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+};
+
+const clearSession = () => {
+  localStorage.removeItem(SESSION_KEY);
+  localStorage.removeItem(USER_KEY);
+};
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Fully clear auth state (call on any invalid/expired token)
   const clearAuth = useCallback(() => {
-    clearToken();
+    clearSession();
     setUser(null);
   }, []);
 
   const checkAuth = useCallback(async () => {
-    const token = loadToken();
+    const token     = loadToken();
+    const savedUser = loadUser();
 
-    if (!token) {
+    if (!token || !savedUser) {
       setUser(null);
       setLoading(false);
       return;
     }
 
-    try {
-      // Always verify with server — no fast-path restore from storage
-      const raw = await api.verifyToken(token);
-      const result = raw as { valid?: boolean; user?: User } | boolean | null;
+    // Restore immediately from localStorage so UI feels instant
+    setUser(savedUser);
+    setLoading(false);
 
-      const isValid = result && typeof result === "object" && result.valid === true;
-      const verifiedUser = isValid && typeof result === "object" ? (result as { user?: User }).user : undefined;
+    // Verify in background — only clear if server explicitly rejects
+    try {
+      const result = await api.verifyToken(token);
+      const res = result as { valid?: boolean; user?: User } | boolean | null;
+
+      const isValid = res && typeof res === "object" && res.valid === true;
 
       if (!isValid) {
-        // Server explicitly rejected the token (expired, user deleted, etc.)
+        // Token rejected by server (deleted user, expired, etc.)
         clearAuth();
-      } else if (verifiedUser) {
-        setUser(verifiedUser);
-      } else {
-        clearAuth();
+      } else if (typeof res === "object" && res.user) {
+        // Refresh user data from server in case it changed
+        setUser(res.user as User);
+        localStorage.setItem(USER_KEY, JSON.stringify(res.user));
       }
     } catch {
-      // Network failure — keep token but don't set user until next successful verify
-      clearAuth();
-    } finally {
-      setLoading(false);
+      // Network error — keep existing session, user stays logged in
     }
   }, [clearAuth]);
 
@@ -78,7 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const response = await api.login(email, password);
       if (response.success && response.token && response.user) {
-        saveToken(response.token);
+        saveSession(response.token, response.user);
         setUser(response.user);
         return null;
       }
@@ -97,12 +110,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const response = await api.register(email, password, username);
       if (response.success) {
         if (response.token && response.user) {
-          saveToken(response.token);
+          saveSession(response.token, response.user);
           setUser(response.user);
         } else {
-          // Backend registered but didn't return token — auto login
           const loginErr = await login(email, password);
-          if (loginErr) return null; // registration succeeded even if auto-login failed
+          if (loginErr) return null;
         }
         return null;
       }
@@ -118,10 +130,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     try {
-      const token = loadToken();
-      if (token) await api.logout();
+      await api.logout();
     } catch {
-      // Ignore errors on logout
+      // Ignore logout errors
     } finally {
       clearAuth();
     }

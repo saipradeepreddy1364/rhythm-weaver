@@ -3,8 +3,8 @@ const BASE_URL =
   (import.meta as any).env?.VITE_API_BACKEND_URL ||
   "https://musicbackend-g2sp.onrender.com/api";
 
-// ─── Token helper — sessionStorage only ──────────────────────────────────────
-const getToken = () => sessionStorage.getItem("rw_session_token");
+// ─── Token helper — localStorage for persistent sessions ─────────────────────
+const getToken = () => localStorage.getItem("rw_session_token");
 
 export const api = {
 
@@ -18,7 +18,6 @@ export const api = {
         body: JSON.stringify({ email, password }),
       });
       const json = await res.json();
-      // Unwrap nested data: { success, data: { token, user, success } }
       return json?.data ?? json;
     } catch {
       return { success: false, message: "Server unavailable." };
@@ -33,9 +32,7 @@ export const api = {
         body: JSON.stringify({ email, password, username }),
       });
       const json = await res.json();
-      // Unwrap nested data: { success, data: { token, user, success } }
       if (json?.data) return json.data;
-      // 400 error shape: { success: false, error: "..." }
       return { success: false, message: json?.error ?? json?.message ?? "Registration failed." };
     } catch {
       return { success: false, message: "Server unavailable." };
@@ -64,14 +61,13 @@ export const api = {
         headers: { Authorization: `Bearer ${token}` },
       });
       const json = await res.json();
-      // Response shape: { success, data: { valid, user } }
       const data = json?.data ?? json;
       if (data?.valid === true && data?.user) {
         return { valid: true, user: data.user };
       }
       return { valid: false };
     } catch {
-      // Network error — don't clear session
+      // Network error — don't clear session, assume still valid
       return { valid: true };
     }
   },
