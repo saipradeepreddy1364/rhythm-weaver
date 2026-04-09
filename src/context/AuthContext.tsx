@@ -63,23 +63,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(savedUser);
     setLoading(false);
 
-    // Verify in background — only clear if server explicitly rejects
+    // Verify in background — only clear if server EXPLICITLY rejects
     try {
       const result = await api.verifyToken(token);
-      const res = result as { valid?: boolean; user?: User } | boolean | null;
 
-      const isValid = res && typeof res === "object" && res.valid === true;
+      if (!result) return; // unexpected falsy — keep session
 
-      if (!isValid) {
-        // Token rejected by server (deleted user, expired, etc.)
+      if (result.valid === false) {
+        // Server explicitly said token is invalid (expired, user deleted, etc.)
         clearAuth();
-      } else if (typeof res === "object" && res.user) {
-        // Refresh user data from server in case it changed
-        setUser(res.user as User);
-        localStorage.setItem(USER_KEY, JSON.stringify(res.user));
+      } else if (result.valid === true && !result.networkError && result.user) {
+        // Fresh user data from server — update local cache
+        setUser(result.user as User);
+        localStorage.setItem(USER_KEY, JSON.stringify(result.user));
       }
+      // If networkError === true, do nothing — keep existing session as-is
     } catch {
-      // Network error — keep existing session, user stays logged in
+      // Unexpected error — keep existing session, don't log out
     }
   }, [clearAuth]);
 

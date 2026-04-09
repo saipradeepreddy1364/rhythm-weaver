@@ -55,7 +55,9 @@ export const api = {
     }
   },
 
-  verifyToken: async (token: string): Promise<{ valid: boolean; user?: any } | false> => {
+  verifyToken: async (
+    token: string
+  ): Promise<{ valid: boolean; user?: any; networkError?: boolean }> => {
     try {
       const res = await fetch(`${BASE_URL}/auth/verify`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -65,10 +67,11 @@ export const api = {
       if (data?.valid === true && data?.user) {
         return { valid: true, user: data.user };
       }
+      // Server explicitly rejected the token
       return { valid: false };
     } catch {
-      // Network error — don't clear session, assume still valid
-      return { valid: true };
+      // Network error — keep session alive and flag it
+      return { valid: true, networkError: true };
     }
   },
 
