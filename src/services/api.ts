@@ -1,17 +1,14 @@
 // ─── Base URL ─────────────────────────────────────────────────────────────────
-// Your Spring Boot backend on Render.
-// It proxies saavn.dev internally, so the frontend never calls saavn.dev directly.
-// Override with VITE_API_BACKEND_URL in your Vercel environment variables.
-
 const BASE_URL =
   (import.meta as any).env?.VITE_API_BACKEND_URL ||
   "https://musicbackend-g2sp.onrender.com/api";
 
+// ─── Token helper — sessionStorage only ──────────────────────────────────────
+const getToken = () => sessionStorage.getItem("rw_session_token");
+
 export const api = {
 
   // ── Auth ────────────────────────────────────────────────────────────────────
-  // Your backend has no auth routes yet — these fail silently.
-  // AuthContext + LibraryContext fall back to localStorage so the app works fine.
 
   login: async (email: string, password: string) => {
     try {
@@ -20,7 +17,9 @@ export const api = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
-      return res.json();
+      const json = await res.json();
+      // Unwrap nested data: { success, data: { token, user, success } }
+      return json?.data ?? json;
     } catch {
       return { success: false, message: "Server unavailable." };
     }
@@ -33,7 +32,11 @@ export const api = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password, username }),
       });
-      return res.json();
+      const json = await res.json();
+      // Unwrap nested data: { success, data: { token, user, success } }
+      if (json?.data) return json.data;
+      // 400 error shape: { success: false, error: "..." }
+      return { success: false, message: json?.error ?? json?.message ?? "Registration failed." };
     } catch {
       return { success: false, message: "Server unavailable." };
     }
@@ -41,7 +44,7 @@ export const api = {
 
   logout: async () => {
     try {
-      const token = localStorage.getItem("rw_session_token");
+      const token = getToken();
       const res = await fetch(`${BASE_URL}/auth/logout`, {
         method: "POST",
         headers: {
@@ -55,22 +58,25 @@ export const api = {
     }
   },
 
-  verifyToken: async (token: string): Promise<boolean> => {
+  verifyToken: async (token: string): Promise<{ valid: boolean; user?: any } | false> => {
     try {
       const res = await fetch(`${BASE_URL}/auth/verify`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const data = await res.json();
-      return data.valid === true;
+      const json = await res.json();
+      // Response shape: { success, data: { valid, user } }
+      const data = json?.data ?? json;
+      if (data?.valid === true && data?.user) {
+        return { valid: true, user: data.user };
+      }
+      return { valid: false };
     } catch {
-      // Network error — keep user logged in, don't clear session
-      return true;
+      // Network error — don't clear session
+      return { valid: true };
     }
   },
 
-  // ── Music Search ─────────────────────────────────────────────────────────────
-  // GET /api/search/songs?query=...&page=...&limit=...
-  // Your SearchController handles this and proxies to saavn.dev internally.
+  // ── Music Search ──────────────────────────────────────────────────────────
 
   searchSongs: async (query: string, page = 1, limit = 50) => {
     const res = await fetch(
@@ -80,16 +86,12 @@ export const api = {
     return res.json();
   },
 
-  // ── User Library ─────────────────────────────────────────────────────────────
-  // These hit backend routes that don't exist yet — they fail silently.
-  // LibraryContext stores everything in localStorage as the source of truth,
-  // so the app works fully offline without these routes.
+  // ── User Library ──────────────────────────────────────────────────────────
 
   getLikedSongs: async () => {
     try {
-      const token = localStorage.getItem("rw_session_token");
       const res = await fetch(`${BASE_URL}/user/liked`, {
-        headers: { Authorization: token ? `Bearer ${token}` : "" },
+        headers: { Authorization: `Bearer ${getToken() ?? ""}` },
       });
       return res.json();
     } catch {
@@ -99,12 +101,11 @@ export const api = {
 
   likeSong: async (songId: string) => {
     try {
-      const token = localStorage.getItem("rw_session_token");
       const res = await fetch(`${BASE_URL}/user/like`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: token ? `Bearer ${token}` : "",
+          Authorization: `Bearer ${getToken() ?? ""}`,
         },
         body: JSON.stringify({ songId }),
       });
@@ -116,12 +117,11 @@ export const api = {
 
   unlikeSong: async (songId: string) => {
     try {
-      const token = localStorage.getItem("rw_session_token");
       const res = await fetch(`${BASE_URL}/user/unlike`, {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
-          Authorization: token ? `Bearer ${token}` : "",
+          Authorization: `Bearer ${getToken() ?? ""}`,
         },
         body: JSON.stringify({ songId }),
       });
@@ -133,9 +133,8 @@ export const api = {
 
   getPlaylists: async () => {
     try {
-      const token = localStorage.getItem("rw_session_token");
       const res = await fetch(`${BASE_URL}/user/playlists`, {
-        headers: { Authorization: token ? `Bearer ${token}` : "" },
+        headers: { Authorization: `Bearer ${getToken() ?? ""}` },
       });
       return res.json();
     } catch {
@@ -145,12 +144,11 @@ export const api = {
 
   createPlaylist: async (name: string) => {
     try {
-      const token = localStorage.getItem("rw_session_token");
       const res = await fetch(`${BASE_URL}/user/playlists`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: token ? `Bearer ${token}` : "",
+          Authorization: `Bearer ${getToken() ?? ""}`,
         },
         body: JSON.stringify({ name }),
       });
@@ -162,12 +160,11 @@ export const api = {
 
   updatePlaylist: async (playlistId: string, name: string) => {
     try {
-      const token = localStorage.getItem("rw_session_token");
       const res = await fetch(`${BASE_URL}/user/playlists/${playlistId}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          Authorization: token ? `Bearer ${token}` : "",
+          Authorization: `Bearer ${getToken() ?? ""}`,
         },
         body: JSON.stringify({ name }),
       });
@@ -179,10 +176,9 @@ export const api = {
 
   deletePlaylist: async (playlistId: string) => {
     try {
-      const token = localStorage.getItem("rw_session_token");
       const res = await fetch(`${BASE_URL}/user/playlists/${playlistId}`, {
         method: "DELETE",
-        headers: { Authorization: token ? `Bearer ${token}` : "" },
+        headers: { Authorization: `Bearer ${getToken() ?? ""}` },
       });
       return res.json();
     } catch {
@@ -192,12 +188,11 @@ export const api = {
 
   addToPlaylist: async (playlistId: string, songId: string) => {
     try {
-      const token = localStorage.getItem("rw_session_token");
       const res = await fetch(`${BASE_URL}/user/playlists/${playlistId}/songs`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: token ? `Bearer ${token}` : "",
+          Authorization: `Bearer ${getToken() ?? ""}`,
         },
         body: JSON.stringify({ songId }),
       });
@@ -209,12 +204,11 @@ export const api = {
 
   removeFromPlaylist: async (playlistId: string, songId: string) => {
     try {
-      const token = localStorage.getItem("rw_session_token");
       const res = await fetch(
         `${BASE_URL}/user/playlists/${playlistId}/songs/${songId}`,
         {
           method: "DELETE",
-          headers: { Authorization: token ? `Bearer ${token}` : "" },
+          headers: { Authorization: `Bearer ${getToken() ?? ""}` },
         }
       );
       return res.json();
@@ -225,9 +219,8 @@ export const api = {
 
   getPlaylistSongs: async (playlistId: string) => {
     try {
-      const token = localStorage.getItem("rw_session_token");
       const res = await fetch(`${BASE_URL}/user/playlists/${playlistId}/songs`, {
-        headers: { Authorization: token ? `Bearer ${token}` : "" },
+        headers: { Authorization: `Bearer ${getToken() ?? ""}` },
       });
       return res.json();
     } catch {
@@ -246,22 +239,14 @@ export const api = {
   },
 };
 
-// ─── Deep recursive array finder ──────────────────────────────────────────────
-/**
- * Finds the first array in a nested object that looks like a list of songs.
- * A "song-like" array has objects containing an `id` field.
- * Falls back to the first array found anywhere in the response.
- */
+// ─── Deep recursive array finder ─────────────────────────────────────────────
 function findSongArray(data: any, depth = 0): any[] | null {
   if (depth > 5) return null;
   if (Array.isArray(data)) {
-    if (data.length > 0 && typeof data[0] === "object" && data[0] !== null) {
-      return data;
-    }
+    if (data.length > 0 && typeof data[0] === "object" && data[0] !== null) return data;
     return data.length > 0 ? data : null;
   }
   if (data && typeof data === "object") {
-    // Priority key order — most common shapes first
     const keys = ["results", "data", "songs", "tracks", "items", "list", "content"];
     for (const key of keys) {
       if (data[key] !== undefined) {
@@ -269,7 +254,6 @@ function findSongArray(data: any, depth = 0): any[] | null {
         if (found && found.length > 0) return found;
       }
     }
-    // Fall back: check every other key
     for (const key of Object.keys(data)) {
       if (keys.includes(key)) continue;
       const found = findSongArray(data[key], depth + 1);
@@ -279,10 +263,6 @@ function findSongArray(data: any, depth = 0): any[] | null {
   return null;
 }
 
-/**
- * Safely extract an array of raw song objects from ANY API response shape.
- * Never throws, always returns a plain array (possibly empty).
- */
 export function extractResults(data: unknown): any[] {
   try {
     if (!data) return [];
