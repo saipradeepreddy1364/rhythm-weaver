@@ -25,18 +25,49 @@ const BACKEND_URL =
   (import.meta as any).env?.VITE_API_BACKEND_URL ||
   "https://musicbackend-g2sp.onrender.com/api";
 
+// Strip HTML tags and decode common HTML entities that JioSaavn returns in lyrics
+function cleanLyricsHtml(raw: string): string {
+  return raw
+    .replace(/<br\s*\/?>/gi, "\n")   // <br> → newline
+    .replace(/<[^>]+>/g, "")         // strip all other tags
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")      // collapse 3+ blank lines → 2
+    .trim();
+}
+
+// Extract lyrics text from any response shape the backend / JioSaavn may return
+function extractLyricsText(data: any): string | null {
+  const candidates = [
+    data?.data?.lyrics,
+    data?.data?.snippet,
+    data?.lyrics,
+    data?.snippet,
+    data?.data,
+    typeof data === "string" ? data : null,
+  ];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim().length > 5) {
+      const cleaned = cleanLyricsHtml(c);
+      if (cleaned.length > 5) return cleaned;
+    }
+  }
+  return null;
+}
+
 async function fetchLyrics(songId: string): Promise<string | null> {
   try {
     const res = await fetch(`${BACKEND_URL}/songs/${songId}/lyrics`);
-    if (res.status === 404 || !res.ok) return null;
+    if (res.status === 404) return null;
+    if (!res.ok) return null;
     const data = await res.json();
-    const text =
-      (typeof data === "string" && data.trim().length > 5 && data.trim()) ||
-      (typeof data?.lyrics === "string" && data.lyrics.trim().length > 5 && data.lyrics.trim()) ||
-      (typeof data?.data?.lyrics === "string" && data.data.lyrics.trim().length > 5 && data.data.lyrics.trim()) ||
-      (typeof data?.data === "string" && data.data.trim().length > 5 && data.data.trim()) ||
-      null;
-    return text;
+    return extractLyricsText(data);
   } catch {
     return null;
   }
@@ -83,22 +114,23 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
 
   useEffect(() => {
     if (showPlayer) setShowLyrics(false);
-  }, [showPlayer]);
+  }, [currentSong?.id]); // reset to Cover tab only when song changes, not on every open
 
+  // Reset lyrics when song changes
   useEffect(() => {
     setLyrics(null);
     setLyricsLoading(false);
   }, [currentSong?.id]);
 
+  // Pre-fetch lyrics as soon as a song is set — so the Lyrics tab opens instantly
   useEffect(() => {
-    if (!currentSong || !showLyrics) return;
-    if (lyrics !== null) return;
+    if (!currentSong) return;
     setLyricsLoading(true);
     fetchLyrics(currentSong.id).then((l) => {
       setLyrics(l ?? "");
       setLyricsLoading(false);
     });
-  }, [currentSong?.id, showLyrics]);
+  }, [currentSong?.id]);
 
   if (!currentSong || !showPlayer) return null;
 
