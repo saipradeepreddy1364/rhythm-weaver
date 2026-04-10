@@ -276,31 +276,36 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   // ── Radio: fetch more songs based on the last-played song's language/artist ──
   // Called automatically when the queue runs out in repeat:off mode.
   const fetchRadioSongs = useCallback(async (seed: Song): Promise<Song[]> => {
-    // Build a query from available metadata — prefer language-aware terms
     const artist = seed.artist || "";
     const movie  = (seed as any).movie || (seed as any).album || "";
-    // Detect language heuristically: Tamil/Telugu/Hindi artists often have
-    // movie names in those scripts, but we can also check for known fields
     const lang   = (seed as any).language || "";
 
-    // Build search query: artist name gives the best "similar songs" results
     let query = artist || movie || "trending songs";
     if (lang) query = `${lang} songs ${artist}`.trim();
     else if (artist) query = `${artist} songs`;
 
     try {
-      // Use the existing api search — most music apps expose a search endpoint
-      const res  = await (api as any).search?.(query) ?? await (api as any).getSongs?.(query);
-      const raw  = Array.isArray(res) ? res : (res?.data ?? res?.results ?? []);
+      // Try multiple possible API method names to be resilient
+      const apiAny = api as any;
+      let res: any;
+      if (typeof apiAny.search === "function") {
+        res = await apiAny.search(query);
+      } else if (typeof apiAny.getSongs === "function") {
+        res = await apiAny.getSongs(query);
+      } else if (typeof apiAny.searchSongs === "function") {
+        res = await apiAny.searchSongs(query);
+      } else if (typeof apiAny.getTrending === "function") {
+        res = await apiAny.getTrending();
+      }
+
+      const raw = Array.isArray(res) ? res : (res?.data ?? res?.results ?? res?.songs ?? []);
       if (!Array.isArray(raw) || raw.length === 0) return [];
 
-      // Map to Song objects (reuse any existing mapper the app already has)
       const { mapApiSong } = await import("@/data/songs").catch(() => ({ mapApiSong: null }));
       const songs: Song[] = raw
         .map((item: any) => (mapApiSong ? mapApiSong(item) : item))
         .filter((s: any): s is Song => !!s && !!s.id);
 
-      // Exclude songs already in the current queue to avoid repeats
       const existingIds = new Set(queueRef.current.map((s) => s.id));
       return songs.filter((s) => !existingIds.has(s.id)).slice(0, 20);
     } catch (err) {
@@ -348,12 +353,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     // "pause" event that fires when src is reassigned, which would otherwise
     // set isPlaying=false and kill continuous playback on locked screens.
     isTransitioningRef.current = true;
+    // Safety: always clear the flag after 2 s even if the play() promise is
+    // never settled (can happen on some locked-screen / background-tab paths).
+    const clearTransition = () => { isTransitioningRef.current = false; };
+    const transitionGuard = setTimeout(clearTransition, 2000);
     audio.src = song.audioUrl;
     audio.load();
     intendToPlayRef.current = true;
     audio.play()
-      .then(() => { isTransitioningRef.current = false; })
+      .then(() => { clearTimeout(transitionGuard); isTransitioningRef.current = false; })
       .catch((err) => {
+        clearTimeout(transitionGuard);
         isTransitioningRef.current = false;
         console.error("[PlayerContext] Direct play failed:", err);
       });
@@ -382,8 +392,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const idx = queueIndexRef.current;
     if (q.length === 0) return;
 
+    // NOTE: Do NOT use setTimeout to reset songEndingRef — iOS throttles timers
+    // aggressively on locked screens (can delay >30 s), which blocks ALL subsequent
+    // ended events.  We reset it in handlePlay() when the next song actually starts.
     songEndingRef.current = true;
-    setTimeout(() => { songEndingRef.current = false; }, 3000);
 
     if (repeatRef.current === "one") {
       const audio = audioRef.current;
@@ -412,12 +424,31 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           fetchRadioSongs(seed).then((radioSongs) => {
             radioFetchingRef.current = false;
             if (radioSongs.length === 0) {
-              // Nothing fetched — stop gracefully
-              songEndingRef.current   = false;
-              intendToPlayRef.current = false;
-              setIsPlaying(false);
+              // Radio fetch failed or returned nothing.
+              // Fall back to replaying the existing queue from the start so
+              // playback never stops cold — this mirrors "repeat:all" for the
+              // end-of-queue case without changing the user's repeat setting.
+              radioFetchingRef.current = false;
               setIsRadioMode(false);
-              if (audioRef.current) audioRef.current.pause();
+              const q2 = queueRef.current;
+              if (q2.length === 0) {
+                songEndingRef.current   = false;
+                intendToPlayRef.current = false;
+                setIsPlaying(false);
+                if (audioRef.current) audioRef.current.pause();
+                return;
+              }
+              // Restart from index 0
+              const firstSong = q2[0];
+              queueIndexRef.current = 0;
+              setQueueIndex(0);
+              setCurrentSong(firstSong);
+              setIsPlaying(true);
+              intendToPlayRef.current = true;
+              addToRecentlyPlayedInternal(firstSong);
+              markPlayed(firstSong.id);
+              lastPlayedSongRef.current = firstSong;
+              playAudioDirectly(firstSong);
               return;
             }
             // Append radio songs to the queue and play the first new one
@@ -543,6 +574,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     };
 
     const handlePlay = () => {
+      // Reset the "song is ending" guard here — audio has verifiably started,
+      // so the next ended event must come from a genuinely new end-of-song.
+      // Using handlePlay (not setTimeout) is safe even on locked screens because
+      // audio play/pause events are fired by the native media pipeline, not JS timers.
+      songEndingRef.current = false;
       setIsPlaying(true);
       if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing";
     };
@@ -550,6 +586,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const handlePause = () => {
       // Ignore the pause that fires when we reassign audio.src during a song transition
       if (isTransitioningRef.current) return;
+      // If we still intend to play (e.g. the browser emitted a spurious pause
+      // during a context re-render triggered by adding a song to liked songs),
+      // attempt to resume immediately rather than updating React state to paused.
+      if (intendToPlayRef.current) {
+        audio.play().catch(() => {
+          // If resume genuinely fails, fall through to the paused state
+          setIsPlaying(false);
+          if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
+        });
+        return;
+      }
       setIsPlaying(false);
       if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
     };
@@ -791,10 +838,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       addToRecentlyPlayedInternal(resolved);
       markPlayed(resolved.id);
 
-      // If the user clicked the SAME song that's already current, the useEffect
-      // on [currentSong?.id] won't re-fire — so restart the audio directly here.
+      // If the user clicked the SAME song that's already current AND audio is
+      // playing, just update the queue reference without interrupting playback.
+      // (This fixes the "like a song while it's playing → pauses" bug: SongRow
+      // passes the new likedSongs array as queue, which triggers playSong with the
+      // same currentSong; we must NOT restart audio in this case.)
       if (currentSong?.id === resolved.id && audioRef.current) {
         const audio = audioRef.current;
+        if (!audio.paused) {
+          // Silently update queue/index so next/prev use the fresh list
+          // without stopping the currently-playing track.
+          return;
+        }
+        // Audio is paused on the same song — restart it from the beginning
         audio.currentTime = 0;
         setProgressState(0);
         intendToPlayRef.current = true;
