@@ -187,7 +187,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
             </p>
             {playlistSongs.length > 0 && (
               <button
-                onClick={() => playSong(playlistSongs[0], playlistSongs)}
+                onClick={() => playSong(playlistSongs[0], playlistSongs, true)}
                 className="flex items-center gap-2 mt-4 px-8 py-3 rounded-full text-sm font-bold text-black transition-all active:scale-95"
                 style={{ background: "#1DB954" }}
               >
@@ -214,6 +214,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                   song={song}
                   queue={playlistSongs}
                   onRequireAuth={handleRequireAuth}
+                  fromLibrary
                 />
               ))}
             </div>
@@ -388,7 +389,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                     {likedSongs.length} songs
                   </p>
                   <button
-                    onClick={() => playSong(likedSongs[0], likedSongs)}
+                    onClick={() => playSong(likedSongs[0], likedSongs, true)}
                     className="flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-bold text-black transition-all active:scale-95"
                     style={{ background: "#1DB954" }}
                   >
@@ -402,6 +403,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                       song={song}
                       queue={likedSongs}
                       onRequireAuth={handleRequireAuth}
+                      fromLibrary
                     />
                   ))}
                 </div>
@@ -426,7 +428,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                     Last 3 days · {recentFiltered.length} songs
                   </p>
                   <button
-                    onClick={() => playSong(recentFiltered[0], recentFiltered)}
+                    onClick={() => playSong(recentFiltered[0], recentFiltered, true)}
                     className="flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-bold text-black transition-all active:scale-95"
                     style={{ background: "#1DB954" }}
                   >
@@ -440,6 +442,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                       song={song}
                       queue={recentFiltered}
                       onRequireAuth={handleRequireAuth}
+                      fromLibrary
                     />
                   ))}
                 </div>
@@ -454,7 +457,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
             {/* Liked Songs shortcut */}
             {likedSongs.length > 0 && (
               <button
-                onClick={() => playSong(likedSongs[0], likedSongs)}
+                onClick={() => playSong(likedSongs[0], likedSongs, true)}
                 className="w-full flex items-center gap-3 py-2 mb-1 active:scale-95 transition-transform"
               >
                 <div

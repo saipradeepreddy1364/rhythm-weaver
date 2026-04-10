@@ -24,7 +24,7 @@ interface PlayerContextType {
   shuffle: boolean;
   repeat: "off" | "one" | "all";
   isRadioMode: boolean;
-  playSong: (song: Song, songQueue?: Song[]) => void;
+  playSong: (song: Song, songQueue?: Song[], fromLibrary?: boolean) => void;
   togglePlay: () => void;
   nextSong: () => void;
   prevSong: () => void;
@@ -152,6 +152,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const stallTimerRef         = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPlayedSongRef     = useRef<Song | null>(null); // seed for radio mode
   const radioFetchingRef      = useRef(false);             // prevent concurrent radio fetches
+  const libraryQueueRef       = useRef(false);             // true when playing from library (liked/recent/playlist) — no auto-repeat, no skip logic
   const [isRadioMode, setIsRadioMode] = useState(false);
 
   useEffect(() => { queueRef.current = queue; }, [queue]);
@@ -409,6 +410,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
     } else if (repeatRef.current === "off") {
       if (idx >= q.length - 1) {
+        // End of queue reached.
+        // For library queues (liked songs, recently played, playlists):
+        // just stop — no radio fetch, no looping.
+        if (libraryQueueRef.current) {
+          songEndingRef.current   = false;
+          intendToPlayRef.current = false;
+          setIsPlaying(false);
+          if (audioRef.current) audioRef.current.pause();
+          return;
+        }
         // End of queue — kick off a radio fetch from the last played song
         const seed = lastPlayedSongRef.current ?? q[idx];
         if (!radioFetchingRef.current && seed) {
@@ -477,13 +488,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
       nextIdx = idx + 1;
     } else {
-      // repeat === "all": smart history-based pick that wraps around.
+      // repeat === "all": for library queues advance linearly (wrap around).
+      // For non-library queues use smart history-based pick so recently-played
+      // songs aren't immediately repeated within a session.
       // Only playHistory (songs played in this queue session) is used —
       // recentTimestamps from the library is deliberately excluded so that
       // liked / recently-played songs the user intentionally chose are never skipped.
-      const history = pruneAndSaveHistory(playHistoryRef.current);
-      playHistoryRef.current = history;
-      nextIdx = pickNext(q, idx, history);
+      if (libraryQueueRef.current) {
+        nextIdx = (idx + 1) % q.length;
+      } else {
+        const history = pruneAndSaveHistory(playHistoryRef.current);
+        playHistoryRef.current = history;
+        nextIdx = pickNext(q, idx, history);
+      }
     }
 
     const candidate = q[nextIdx];
@@ -808,10 +825,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   // ── playSong — resolves audioUrl on the fly if missing ────────────────────
   const playSong = useCallback(
-    async (song: Song, songQueue?: Song[]) => {
+    async (song: Song, songQueue?: Song[], fromLibrary?: boolean) => {
       // Reset radio mode whenever user explicitly picks a song
       setIsRadioMode(false);
       radioFetchingRef.current = false;
+
+      // Track whether this queue came from the library (no auto-repeat/skip at end)
+      libraryQueueRef.current = !!fromLibrary;
 
       // Resolve audioUrl before anything else — core fix for liked songs
       // loaded from the backend on a new device (no localStorage cache)

@@ -9,16 +9,17 @@ interface SongRowProps {
   song: Song;
   queue?: Song[];
   onRequireAuth?: () => void;
+  fromLibrary?: boolean;
 }
 
-export function SongRow({ song, queue, onRequireAuth }: SongRowProps) {
+export function SongRow({ song, queue, onRequireAuth, fromLibrary }: SongRowProps) {
   const { playSong, currentSong, isPlaying, togglePlay, addToQueue } = usePlayer();
   const isActive = currentSong?.id === song.id;
   const [queued, setQueued] = useState(false);
 
   const handleClick = () => {
     if (isActive) togglePlay();
-    else playSong(song, queue);
+    else playSong(song, queue, fromLibrary);
   };
 
   const handleAddToQueue = (e: React.MouseEvent) => {
