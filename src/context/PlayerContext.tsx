@@ -72,28 +72,25 @@ function pruneAndSaveHistory(history: Record<string, number>): Record<string, nu
 function pickNext(
   queue: Song[],
   currentIdx: number,
-  playHistory: Record<string, number>,
-  recentTimestamps: Record<string, number>
+  playHistory: Record<string, number>
 ): number {
   if (queue.length === 0) return 0;
   const len = queue.length;
-  // Use a shorter 1-hour window so songs become "fresh" again sooner
-  // and the user doesn't wait 24 hours before repeat:all loops back naturally
+  // 1-hour window: only skip songs played during this session's queue playback.
+  // We intentionally do NOT merge recentTimestamps (library recently-played) here —
+  // that caused liked/recently-played songs to be auto-skipped when the user
+  // intentionally chose them from the Library page.
   const cutoff = Date.now() - 60 * 60 * 1000;
 
   const recentlyPlayedIds = new Set<string>();
   for (const [id, ts] of Object.entries(playHistory)) {
     if (ts >= cutoff) recentlyPlayedIds.add(id);
   }
-  for (const [id, ts] of Object.entries(recentTimestamps)) {
-    if (ts >= cutoff) recentlyPlayedIds.add(id);
-  }
 
   // Count how many songs in the queue are NOT in recent history
   const unplayedCount = queue.filter((s) => !recentlyPlayedIds.has(s.id)).length;
 
-  // If every song has been played recently, clear the block and just advance linearly
-  // so playback never stalls (full-cycle complete — start over)
+  // If every song has been played recently, just advance linearly (full cycle done)
   if (unplayedCount === 0) {
     return (currentIdx + 1) % len;
   }
@@ -178,23 +175,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (saved) { try { setRecentlyPlayed(JSON.parse(saved)); } catch { /**/ } }
   }, []);
 
-  // ── Wake Lock ──────────────────────────────────────────────────────────────
+  // ── Wake Lock ─────────────────────────────────────────────────────────────
+  // Audio playback continues in the background via MediaSession without holding
+  // a screen wake lock.  Requesting "screen" type would keep the display on
+  // continuously while music is playing — draining the battery unnecessarily.
+  // We therefore leave wake lock unused; the OS music controls handle background
+  // playback natively on both iOS and Android.
   const requestWakeLock = useCallback(async () => {
-    if (!("wakeLock" in navigator)) return;
-    try {
-      if (wakeLockRef.current) return;
-      wakeLockRef.current = await (navigator as any).wakeLock.request("screen");
-      wakeLockRef.current.addEventListener("release", () => {
-        wakeLockRef.current = null;
-      });
-    } catch { /* not available — ignore */ }
+    // No-op: intentionally not acquiring a screen wake lock.
+    // Music continues playing with the screen off through the MediaSession API.
   }, []);
 
   const releaseWakeLock = useCallback(() => {
-    if (wakeLockRef.current) {
-      wakeLockRef.current.release().catch(() => {});
-      wakeLockRef.current = null;
-    }
+    // No-op: nothing to release.
   }, []);
 
   // Re-acquire wake lock when page becomes visible again (iOS drops it on lock)
@@ -484,10 +477,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
       nextIdx = idx + 1;
     } else {
-      // repeat === "all": smart history-based pick that wraps around
+      // repeat === "all": smart history-based pick that wraps around.
+      // Only playHistory (songs played in this queue session) is used —
+      // recentTimestamps from the library is deliberately excluded so that
+      // liked / recently-played songs the user intentionally chose are never skipped.
       const history = pruneAndSaveHistory(playHistoryRef.current);
       playHistoryRef.current = history;
-      nextIdx = pickNext(q, idx, history, recentTimestampsRef.current);
+      nextIdx = pickNext(q, idx, history);
     }
 
     const candidate = q[nextIdx];

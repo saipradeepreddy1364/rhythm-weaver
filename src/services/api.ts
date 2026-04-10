@@ -253,6 +253,20 @@ export const api = {
       return { success: false, data: null };
     }
   },
+
+  // ── Lyrics ────────────────────────────────────────────────────────────────
+  // Maps to GET /songs/{id}/lyrics on the Spring Boot backend (SongController).
+  // Returns { success, data: { lyrics, ... } } or { success: false } if unavailable.
+  getSongLyrics: async (songId: string): Promise<{ success: boolean; data?: { lyrics?: string } }> => {
+    try {
+      const res = await fetch(`${BASE_URL}/songs/${encodeURIComponent(songId)}/lyrics`);
+      if (res.status === 404) return { success: false };
+      if (!res.ok) throw new Error(`Lyrics HTTP ${res.status}`);
+      return res.json();
+    } catch {
+      return { success: false };
+    }
+  },
 };
 
 // ─── Helper: extract fresh audioUrl from a JioSaavn song response ─────────────
