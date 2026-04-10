@@ -9,6 +9,7 @@ import React, {
 } from "react";
 import { Song } from "@/data/songs";
 import { api, extractAudioUrl } from "@/services/api";
+import { useMediaSession } from "./useMediaSession";
 
 interface PlayerContextType {
   currentSong: Song | null;
@@ -723,114 +724,41 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (audioRef.current) audioRef.current.volume = volume;
   }, [volume]);
 
-  // ── MediaSession action handlers ─────────────────────────────────────────
-  useEffect(() => {
-    if (!("mediaSession" in navigator)) return;
-
-    const registerHandlers = () => {
-      try {
-        navigator.mediaSession.setActionHandler("play", () => {
-          intendToPlayRef.current = true;
-          setIsPlaying(true);
-          audioRef.current?.play().catch(() => {});
-          navigator.mediaSession.playbackState = "playing";
-          requestWakeLock();
-        });
-        navigator.mediaSession.setActionHandler("pause", () => {
-          intendToPlayRef.current = false;
-          setIsPlaying(false);
-          audioRef.current?.pause();
-          navigator.mediaSession.playbackState = "paused";
-          releaseWakeLock();
-        });
-        navigator.mediaSession.setActionHandler("stop", () => {
-          intendToPlayRef.current = false;
-          setIsPlaying(false);
-          audioRef.current?.pause();
-          navigator.mediaSession.playbackState = "paused";
-          releaseWakeLock();
-        });
-        navigator.mediaSession.setActionHandler("previoustrack", () => {
-          const q   = queueRef.current;
-          const idx = queueIndexRef.current;
-          if (q.length === 0) return;
-          if (audioRef.current && audioRef.current.currentTime > 3) {
-            audioRef.current.currentTime = 0;
-            setProgressState(0);
-            navigator.mediaSession.playbackState = "playing";
-            return;
-          }
-          const prevIdx = (idx - 1 + q.length) % q.length;
-          queueIndexRef.current = prevIdx;
-          setQueueIndex(prevIdx);
-          setCurrentSong(q[prevIdx]);
-          setIsPlaying(true);
-          intendToPlayRef.current = true;
-          addToRecentlyPlayedInternal(q[prevIdx]);
-          markPlayed(q[prevIdx].id);
-          navigator.mediaSession.playbackState = "playing";
-        });
-        navigator.mediaSession.setActionHandler("nexttrack", () => {
-          nextSongInternal();
-          navigator.mediaSession.playbackState = "playing";
-        });
-        navigator.mediaSession.setActionHandler("seekto", (details) => {
-          if (details.seekTime != null && audioRef.current) {
-            audioRef.current.currentTime = details.seekTime;
-            setProgressState(details.seekTime);
-            try {
-              const dur = audioRef.current.duration;
-              if (dur > 0 && isFinite(dur)) {
-                navigator.mediaSession.setPositionState({
-                  duration: dur,
-                  playbackRate: 1,
-                  position: Math.min(details.seekTime, dur),
-                });
-              }
-            } catch { /**/ }
-          }
-        });
-        navigator.mediaSession.setActionHandler("seekbackward", (details) => {
-          if (audioRef.current) {
-            const skip = details.seekOffset || 10;
-            audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - skip);
-            setProgressState(audioRef.current.currentTime);
-          }
-        });
-        navigator.mediaSession.setActionHandler("seekforward", (details) => {
-          if (audioRef.current) {
-            const skip = details.seekOffset || 10;
-            const dur  = audioRef.current.duration;
-            audioRef.current.currentTime = Math.min(isFinite(dur) ? dur : Infinity, audioRef.current.currentTime + skip);
-            setProgressState(audioRef.current.currentTime);
-          }
-        });
-      } catch { /**/ }
-    };
-
-    registerHandlers();
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        registerHandlers();
-        if (audioRef.current) {
-          navigator.mediaSession.playbackState = audioRef.current.paused ? "paused" : "playing";
-          if (intendToPlayRef.current && audioRef.current.paused) {
-            audioRef.current.play().catch(() => {});
-          }
-        }
+  // ── MediaSession — handled by useMediaSession hook ───────────────────────
+  // All lock-screen controls, metadata, and position state are managed there.
+  // Handlers use refs so they never go stale when the screen is locked.
+  useMediaSession({
+    audioRef,
+    currentSong,
+    isPlaying,
+    playAudioDirectly,
+    nextSong: nextSongInternal,
+    prevSong: () => {
+      const q   = queueRef.current;
+      const idx = queueIndexRef.current;
+      if (q.length === 0) return;
+      if (audioRef.current && audioRef.current.currentTime > 3) {
+        audioRef.current.currentTime = 0;
+        setProgressState(0);
+        return;
       }
-    };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      try {
-        (["play","pause","stop","previoustrack","nexttrack","seekto","seekbackward","seekforward"] as MediaSessionAction[])
-          .forEach((a) => { try { navigator.mediaSession.setActionHandler(a, null); } catch { /**/ } });
-      } catch { /**/ }
-    };
-  }, [nextSongInternal, addToRecentlyPlayedInternal, markPlayed, requestWakeLock, releaseWakeLock]);
+      const prevIdx = (idx - 1 + q.length) % q.length;
+      const candidate = q[prevIdx];
+      if (candidate) {
+        playAudioDirectly(candidate);
+        queueIndexRef.current = prevIdx;
+        setQueueIndex(prevIdx);
+        setCurrentSong(candidate);
+        setIsPlaying(true);
+        intendToPlayRef.current = true;
+        addToRecentlyPlayedInternal(candidate);
+        markPlayed(candidate.id);
+      }
+    },
+    togglePlay,
+    queueRef,
+    queueIndexRef,
+  });
 
   // ── playSong — resolves audioUrl on the fly if missing ────────────────────
   const playSong = useCallback(
