@@ -9,7 +9,7 @@ import React, {
 } from "react";
 import { Song } from "@/data/songs";
 import { api, extractAudioUrl } from "@/services/api";
-import { useMediaSession } from "./useMediaSession";
+import { useMediaSession } from "../components/useMediaSession";
 
 interface PlayerContextType {
   currentSong: Song | null;
@@ -724,6 +724,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (audioRef.current) audioRef.current.volume = volume;
   }, [volume]);
 
+  // ── togglePlay declared HERE — before useMediaSession so it is in scope ──
+  const togglePlay = useCallback(() => { setIsPlaying((p) => !p); }, []);
+
   // ── MediaSession — handled by useMediaSession hook ───────────────────────
   // All lock-screen controls, metadata, and position state are managed there.
   // Handlers use refs so they never go stale when the screen is locked.
@@ -830,8 +833,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       return next;
     });
   }, [currentSong, markPlayed]);
-
-  const togglePlay = useCallback(() => { setIsPlaying((p) => !p); }, []);
 
   const nextSong = useCallback(() => { nextSongInternal(); }, [nextSongInternal]);
 
