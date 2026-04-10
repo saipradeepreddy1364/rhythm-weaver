@@ -1340,7 +1340,8 @@ function QuickPick({ song, queue }: { song: Song; queue: Song[] }) {
 
 // ─── Cache helpers ────────────────────────────────────────────────────────────
 
-const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
+const CACHE_TTL_MS   = 3 * 60 * 60 * 1000; // 3 hours
+const CACHE_STALE_MS = 30 * 60 * 1000;      // 30 min → trigger bg refresh
 
 function cacheGet<T>(key: string): T | null {
   try {
@@ -1352,11 +1353,154 @@ function cacheGet<T>(key: string): T | null {
   } catch { return null; }
 }
 
+function cacheGetWithAge<T>(key: string): { data: T; stale: boolean } | null {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const { data, ts } = JSON.parse(raw);
+    const age = Date.now() - ts;
+    if (age > CACHE_TTL_MS) { localStorage.removeItem(key); return null; }
+    return { data: data as T, stale: age > CACHE_STALE_MS };
+  } catch { return null; }
+}
+
 function cacheSet(key: string, data: unknown) {
   try {
     localStorage.setItem(key, JSON.stringify({ data, ts: Date.now() }));
-  } catch { /* quota exceeded */ }
+  } catch {
+    try {
+      Object.keys(localStorage).filter(k => k.startsWith("hp_")).forEach(k => localStorage.removeItem(k));
+      localStorage.setItem(key, JSON.stringify({ data, ts: Date.now() }));
+    } catch { /* give up */ }
+  }
 }
+
+// ─── Module-level prefetcher ─────────────────────────────────────────────────
+// Instantiated the moment HomePage.tsx is first imported — before any component
+// mounts. Populates localStorage in the background so that when the user
+// navigates to Home the component reads fully-loaded data and renders instantly.
+
+class HomePagePrefetcher {
+  private _sections:     SectionData[] = [];
+  private _filmAlbums:   AlbumData[]   = [];
+  private _artistAlbums: AlbumData[]   = [];
+  private _ready        = false;
+  private _listeners    = new Set<() => void>();
+  private _running      = false;
+
+  private get secKey()  { return `hp_sections_${todaysSeed()}`; }
+  private get albKey()  { return `hp_albums_${todaysSeed()}`;   }
+
+  // ── Public read accessors ──────────────────────────────────────────────────
+  get sections()     { return this._sections;     }
+  get filmAlbums()   { return this._filmAlbums;   }
+  get artistAlbums() { return this._artistAlbums; }
+  get ready()        { return this._ready;        }
+
+  /** Subscribe to any state change. Returns an unsubscribe fn. */
+  subscribe(fn: () => void): () => void {
+    this._listeners.add(fn);
+    return () => this._listeners.delete(fn);
+  }
+  private _notify() { this._listeners.forEach(fn => fn()); }
+
+  /** Called once when module is imported. Safe to call multiple times. */
+  start() {
+    if (this._running || typeof window === "undefined") return;
+    this._running = true;
+    this._boot().catch(console.error);
+  }
+
+  private async _boot() {
+    // ── Step 1: hydrate from localStorage instantly ────────────────────────
+    const secCached = cacheGetWithAge<SectionData[]>(this.secKey);
+    const albCached = cacheGetWithAge<{ film: AlbumData[]; artist: AlbumData[] }>(this.albKey);
+
+    if (secCached) {
+      this._sections = secCached.data;
+      this._ready    = true;
+      this._notify();
+    }
+    if (albCached) {
+      this._filmAlbums   = albCached.data.film   ?? [];
+      this._artistAlbums = albCached.data.artist ?? [];
+      this._notify();
+    }
+
+    const sectionsOk = secCached && !secCached.stale
+                       && secCached.data.length >= SECTION_DEFS.length;
+    const albumsOk   = albCached && !albCached.stale
+                       && albCached.data.film.length > 0
+                       && albCached.data.artist.every(a => a.fullyLoaded);
+
+    // ── Step 2: if everything is fresh, just schedule next refresh ─────────
+    if (sectionsOk && albumsOk) {
+      setTimeout(() => { this._running = false; this.start(); }, CACHE_TTL_MS);
+      return;
+    }
+
+    // ── Step 3: fetch sections in parallel (all 12 at once) ───────────────
+    if (!sectionsOk) {
+      const seen = new Set<string>();
+      this._sections.forEach(s => s.songs.forEach(song => song.id && seen.add(song.id)));
+
+      const allResults = await Promise.all(
+        SECTION_DEFS.map(({ pool, seed }) => fetchSection(pickQuery(pool, seed), 50))
+      );
+
+      let updated: SectionData[] = [...this._sections];
+      allResults.forEach((songs, idx) => {
+        const { title } = SECTION_DEFS[idx];
+        const unique    = dedup(songs, seen);
+        if (unique.length === 0) return;
+        updated = [...updated.filter(s => s.title !== title), { title, songs: unique }];
+      });
+      updated.sort((a, b) =>
+        SECTION_DEFS.findIndex(d => d.title === a.title) -
+        SECTION_DEFS.findIndex(d => d.title === b.title)
+      );
+      this._sections = updated;
+      this._ready    = true;
+      cacheSet(this.secKey, updated);
+      this._notify();
+    }
+
+    // ── Step 4: fetch film albums ──────────────────────────────────────────
+    if (!albCached || this._filmAlbums.length === 0) {
+      const dummyRef = { current: false };
+      const film     = await fetchCurrentYearFilmAlbums(dummyRef);
+      this._filmAlbums = film;
+      cacheSet(this.albKey, { film, artist: this._artistAlbums });
+      this._notify();
+    }
+
+    // ── Step 5: fetch artist albums progressively (stub → full) ───────────
+    if (!albumsOk) {
+      const dummyRef = { current: false };
+      const filmSnap = this._filmAlbums;
+
+      await loadArtistAlbums(dummyRef, (updated) => {
+        const prev = this._artistAlbums;
+        const idx  = prev.findIndex(a => a.title === updated.title);
+        const next = idx >= 0
+          ? [...prev.slice(0, idx), updated, ...prev.slice(idx + 1)]
+          : [...prev, updated];
+        this._artistAlbums = next;
+        if (next.length > 0 && next.every(a => a.fullyLoaded)) {
+          cacheSet(this.albKey, { film: filmSnap, artist: next });
+        }
+        this._notify();
+      });
+    }
+
+    // ── Schedule next full refresh ─────────────────────────────────────────
+    setTimeout(() => { this._running = false; this.start(); }, CACHE_TTL_MS);
+  }
+}
+
+/** Singleton — starts fetching the instant this module is imported */
+export const homePagePrefetcher = new HomePagePrefetcher();
+homePagePrefetcher.start();
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
@@ -1369,35 +1513,30 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
 
   useEffect(() => { document.title = "Medly"; }, []);
 
-  const todayCacheKey  = `hp_sections_${todaysSeed()}`;
-  const albumsCacheKey = `hp_albums_${todaysSeed()}`;
-
-  // ── Sections (song rows) ──────────────────────────────────────────────────
-  const [sections, setSections] = useState<SectionData[]>(
-    () => cacheGet<SectionData[]>(todayCacheKey) ?? []
+  // ── Read from prefetcher — renders instantly if cache is warm ────────────
+  const [sections,     setSections]     = useState<SectionData[]>(() => homePagePrefetcher.sections);
+  const [filmAlbums,   setFilmAlbums]   = useState<AlbumData[]>  (() => homePagePrefetcher.filmAlbums);
+  const [artistAlbums, setArtistAlbums] = useState<AlbumData[]>  (() => homePagePrefetcher.artistAlbums);
+  const [albumsLoading, setAlbumsLoading] = useState(() =>
+    homePagePrefetcher.filmAlbums.length === 0
   );
 
-  // ── Film albums ───────────────────────────────────────────────────────────
-  const [filmAlbums, setFilmAlbums] = useState<AlbumData[]>(() => {
-    const c = cacheGet<{ film: AlbumData[]; artist: AlbumData[] }>(albumsCacheKey);
-    return c?.film ?? [];
-  });
-
-  // ── Artist albums — built incrementally by onArtistUpdated ───────────────
-  const [artistAlbums, setArtistAlbums] = useState<AlbumData[]>(() => {
-    const c = cacheGet<{ film: AlbumData[]; artist: AlbumData[] }>(albumsCacheKey);
-    return c?.artist ?? [];
-  });
-
-  const [albumsLoading, setAlbumsLoading] = useState(() => {
-    const c = cacheGet<{ film: AlbumData[]; artist: AlbumData[] }>(albumsCacheKey);
-    return !c || c.film.length === 0;
-  });
+  // Subscribe to prefetcher updates — re-render whenever new data arrives
+  useEffect(() => {
+    const unsub = homePagePrefetcher.subscribe(() => {
+      setSections(    [...homePagePrefetcher.sections]);
+      setFilmAlbums(  [...homePagePrefetcher.filmAlbums]);
+      setArtistAlbums([...homePagePrefetcher.artistAlbums]);
+      setAlbumsLoading(homePagePrefetcher.filmAlbums.length === 0);
+    });
+    // Also ensure prefetcher is running (safe no-op if already started)
+    homePagePrefetcher.start();
+    return unsub;
+  }, []);
 
   const OPEN_ALBUM_KEY = "rw_open_album";
 
   // ── Open album modal ──────────────────────────────────────────────────────
-  // Restore from sessionStorage so "back to home" from mini player returns here
   const [openAlbum, setOpenAlbum] = useState<{
     album:      AlbumData;
     albumType:  string;
@@ -1408,14 +1547,6 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
       return raw ? JSON.parse(raw) : null;
     } catch { return null; }
   });
-
-  // ── Refs ──────────────────────────────────────────────────────────────────
-  const loadedRef     = useRef(false);
-  const albumsLoadRef = useRef(false);
-  const unmountedRef  = useRef(false);
-  const globalSeenRef = useRef(new Set<string>());
-
-  useEffect(() => { return () => { unmountedRef.current = true; }; }, []);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   const handleRequireAuth = () => {
@@ -1440,56 +1571,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
     try { sessionStorage.removeItem(OPEN_ALBUM_KEY); } catch { /**/ }
   };
 
-  // ── Load song sections ────────────────────────────────────────────────────
-  useEffect(() => {
-    if (loadedRef.current) return;
-    loadedRef.current = true;
-
-    const cached = cacheGet<SectionData[]>(todayCacheKey);
-    if (cached && cached.length >= SECTION_DEFS.length) return;
-
-    globalSeenRef.current = new Set<string>();
-    if (cached) {
-      cached.forEach((s) =>
-        s.songs.forEach((song) => song.id && globalSeenRef.current.add(song.id))
-      );
-      setSections(cached);
-    } else {
-      setSections([]);
-    }
-
-    let unmounted = false;
-
-    async function loadInBatches() {
-      // Load ALL sections in parallel with 50 songs each — no staged loading
-      const allResults = await Promise.all(
-        SECTION_DEFS.map(({ pool, seed }) =>
-          fetchSection(pickQuery(pool, seed), 50)
-        )
-      );
-      if (unmounted) return;
-
-      let updated: SectionData[] = cached ? [...cached] : [];
-      allResults.forEach((songs, idx) => {
-        const { title } = SECTION_DEFS[idx];
-        const unique    = dedup(songs, globalSeenRef.current);
-        if (unique.length === 0) return;
-        updated = [...updated.filter((s) => s.title !== title), { title, songs: unique }];
-      });
-      updated.sort(
-        (a, b) =>
-          SECTION_DEFS.findIndex((d) => d.title === a.title) -
-          SECTION_DEFS.findIndex((d) => d.title === b.title)
-      );
-      setSections(updated);
-      cacheSet(todayCacheKey, updated);
-    }
-
-    loadInBatches();
-    return () => { unmounted = true; };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Quick Picks ───────────────────────────────────────────────────────────
+  // ── Quick Picks — rotate every minute ────────────────────────────────────
   const [minuteTick, setMinuteTick] = useState(oneMinSeed());
   useEffect(() => {
     const id = setInterval(() => setMinuteTick(oneMinSeed()), 60_000);
@@ -1501,64 +1583,6 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
     if (pool.length === 0) return [];
     return seededShuffle(pool, minuteTick).slice(0, 12);
   })();
-
-  // ── Load film albums + full artist discographies at page load ─────────────
-  useEffect(() => {
-    if (albumsLoadRef.current) return;
-    albumsLoadRef.current = true;
-
-    // Only use cache if all artist discographies are already fully loaded
-    const cachedAlbums = cacheGet<{ film: AlbumData[]; artist: AlbumData[] }>(albumsCacheKey);
-    if (
-      cachedAlbums &&
-      cachedAlbums.film.length > 0 &&
-      cachedAlbums.artist.length > 0 &&
-      cachedAlbums.artist.every((a) => a.fullyLoaded)
-    ) {
-      setFilmAlbums(cachedAlbums.film);
-      setArtistAlbums(cachedAlbums.artist);
-      setAlbumsLoading(false);
-      return;
-    }
-
-    setAlbumsLoading(true);
-
-    async function loadAll() {
-      // Film albums load fast — show them right away
-      const filmResults = await fetchCurrentYearFilmAlbums(unmountedRef);
-      if (unmountedRef.current) return;
-      setFilmAlbums(filmResults);
-      setAlbumsLoading(false);
-
-      // Artist albums:
-      //   onArtistUpdated fires immediately with stub (fullyLoaded: false)
-      //   → artist card appears in UI instantly
-      //   onArtistUpdated fires again with full songs (fullyLoaded: true)
-      //   → song count updates, clicking gives instant full list
-      await loadArtistAlbums(
-        unmountedRef,
-        (updatedArtist) => {
-          if (unmountedRef.current) return;
-
-          setArtistAlbums((prev) => {
-            const idx = prev.findIndex((a) => a.title === updatedArtist.title);
-            const next = idx >= 0
-              ? [...prev.slice(0, idx), updatedArtist, ...prev.slice(idx + 1)]
-              : [...prev, updatedArtist];
-
-            // Write cache once ALL artists are fully loaded
-            if (next.length > 0 && next.every((a) => a.fullyLoaded)) {
-              cacheSet(albumsCacheKey, { film: filmResults, artist: next });
-            }
-
-            return next;
-          });
-        }
-      );
-    }
-
-    loadAll();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
