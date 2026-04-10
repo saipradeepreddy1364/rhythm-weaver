@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { BrowserRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider } from "@/context/AuthContext";
 import { PlayerProvider, usePlayer } from "@/context/PlayerContext";
@@ -15,12 +15,49 @@ import { useAuth } from "@/context/AuthContext";
 
 type Page = "home" | "search" | "library";
 
+// ─── Silent audio keep-alive ──────────────────────────────────────────────────
+// Mobile browsers (iOS/Android) suspend the audio session after a few songs if
+// no other audio element is registered as "active". A near-silent looping audio
+// keeps the session alive so the main player never gets interrupted mid-queue.
+function useSilentAudioKeepAlive(isPlaying: boolean) {
+  const silentRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    // Minimal valid 1-sample WAV (44 bytes) encoded as base64 — produces no audible sound
+    const SILENT_WAV =
+      "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
+
+    const audio = new Audio(SILENT_WAV);
+    audio.loop   = true;
+    audio.volume = 0.001; // virtually inaudible
+    silentRef.current = audio;
+
+    return () => {
+      audio.pause();
+      silentRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const audio = silentRef.current;
+    if (!audio) return;
+    if (isPlaying) {
+      audio.play().catch(() => { /* autoplay policy — harmless, main audio still works */ });
+    } else {
+      audio.pause();
+    }
+  }, [isPlaying]);
+}
+
 function AppContent() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { currentSong } = usePlayer();
+  const { currentSong, isPlaying } = usePlayer();
   const { user, checkAuth } = useAuth();
   const [showAuthModal, setShowAuthModal] = useState(false);
+
+  // Keep audio session alive — prevents the "pauses after 5-6 songs" bug on mobile
+  useSilentAudioKeepAlive(isPlaying);
 
   const currentPath = location.pathname;
   const currentPage: Page =

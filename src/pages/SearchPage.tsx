@@ -473,7 +473,7 @@ function LanguageAlbumModal({
       const queries = getLanguageQueries(language);
 
       for (const q of queries) {
-        for (let page = 1; page <= 20; page++) {
+        for (let page = 1; page <= 40; page++) {
           try {
             if (page > 1) await sleep(200);
             const res = await api.searchSongs(q, page, 50);
@@ -1422,7 +1422,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
       const fetchAllPages = async () => {
         const seen = new Set<string>();
         let accumulated: Song[] = [];
-        const PAGE_LIMIT = 20;
+        const PAGE_LIMIT = 40;
 
         // ── Step 0: seed with preloaded songs if query matches a known key ──
         // This covers: "anirudh", "arijit singh", "ar rahman", "sid sriram", etc.

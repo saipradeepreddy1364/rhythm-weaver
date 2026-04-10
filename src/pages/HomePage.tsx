@@ -263,23 +263,64 @@ const PRELOAD_TARGETS: { key: string; queries: string[] }[] = [
     key: "telugu",
     queries: [
       "trending telugu songs 2025", "telugu hits 2024", "telugu film songs 2023",
-      "tollywood songs 2022", "telugu chartbusters 2021", "telugu romantic songs",
-      "telugu folk songs", "telugu mass songs", "telugu melody songs",
+      "tollywood songs 2022", "telugu chartbusters 2021", "telugu songs 2020",
+      "telugu romantic songs", "telugu folk songs", "telugu mass songs",
+      "telugu melody songs", "telugu item songs", "telugu love songs",
+      "telugu songs 2019", "telugu songs 2018", "telugu songs 2017",
+      "tollywood 2010s hits", "telugu devotional songs", "telugu songs 2016",
+      "telugu dance songs", "telugu sad songs",
     ],
   },
   {
     key: "hindi",
     queries: [
       "top hindi songs 2025", "superhit hindi songs 2024", "hindi film songs 2023",
-      "bollywood hits 2022", "hindi chartbusters 2021", "hindi romantic songs",
-      "hindi dance songs", "hindi sad songs", "hindi melody songs",
+      "bollywood hits 2022", "hindi chartbusters 2021", "bollywood songs 2020",
+      "hindi romantic songs", "hindi dance songs", "hindi sad songs",
+      "hindi songs 2019", "bollywood 2018 songs", "hindi item songs",
+      "hindi party songs", "bollywood 90s hits", "bollywood 2000s superhits",
+      "hindi melody songs", "bollywood 2010s hits", "hindi old classic songs",
+      "hindi love songs", "bollywood blockbuster songs",
     ],
   },
   {
     key: "tamil",
     queries: [
       "trending tamil songs 2025", "tamil hits 2024", "kollywood songs 2023",
-      "tamil romantic songs", "tamil folk songs", "AR Rahman Tamil songs",
+      "tamil film songs 2022", "tamil chartbusters 2021", "tamil songs 2020",
+      "tamil romantic songs", "tamil folk songs", "tamil mass songs",
+      "tamil songs 2019", "tamil melody songs", "tamil dance songs",
+      "tamil love songs", "tamil devotional songs", "tamil songs 2018",
+      "kollywood 2017 songs", "AR Rahman Tamil songs", "tamil sad songs",
+    ],
+  },
+  {
+    key: "kannada",
+    queries: [
+      "trending kannada songs 2025", "sandalwood songs 2024", "kannada hits 2023",
+      "kannada film songs 2022", "kannada songs 2021", "kannada songs 2020",
+      "kannada romantic songs", "kannada folk songs", "kannada mass songs",
+      "kannada songs 2019", "kannada melody songs", "sandalwood 2018 hits",
+      "kannada love songs", "kannada 2017 songs",
+    ],
+  },
+  {
+    key: "malayalam",
+    queries: [
+      "trending malayalam songs 2025", "mollywood songs 2024", "malayalam hits 2023",
+      "malayalam film songs 2022", "malayalam songs 2021", "malayalam songs 2020",
+      "malayalam romantic songs", "malayalam folk songs", "malayalam sad songs",
+      "malayalam songs 2019", "malayalam melody songs", "mollywood 2018 songs",
+      "malayalam love songs", "malayalam devotional songs",
+    ],
+  },
+  {
+    key: "punjabi",
+    queries: [
+      "top punjabi songs 2025", "punjabi hits 2024", "punjabi songs 2023",
+      "punjabi songs 2022", "punjabi chartbusters 2021", "punjabi songs 2020",
+      "punjabi love songs", "punjabi folk songs", "punjabi bhangra songs",
+      "punjabi songs 2019", "punjabi sad songs", "punjabi remix songs",
     ],
   },
   // ── Music directors / singers that users frequently search ─────────────────
@@ -288,6 +329,7 @@ const PRELOAD_TARGETS: { key: string; queries: string[] }[] = [
     queries: [
       "anirudh ravichander songs", "anirudh hits", "anirudh latest songs 2025",
       "anirudh best songs", "anirudh ravichander tamil", "anirudh telugu songs",
+      "anirudh 2024 songs", "anirudh 2023 songs", "anirudh 2022 songs",
     ],
   },
   {
@@ -295,6 +337,7 @@ const PRELOAD_TARGETS: { key: string; queries: string[] }[] = [
     queries: [
       "arijit singh songs", "arijit singh hits 2024", "arijit singh bollywood",
       "arijit singh romantic", "arijit singh latest songs 2025",
+      "arijit singh 2023 songs", "arijit singh 2022 songs", "arijit singh sad songs",
     ],
   },
   {
@@ -302,45 +345,48 @@ const PRELOAD_TARGETS: { key: string; queries: string[] }[] = [
     queries: [
       "ar rahman hit songs", "ar rahman tamil songs", "ar rahman hindi songs",
       "ar rahman best songs", "ar rahman oscar songs",
+      "ar rahman 2024 songs", "ar rahman 2023 songs",
     ],
   },
   {
     key: "sid sriram",
     queries: [
       "sid sriram songs", "sid sriram telugu", "sid sriram tamil",
-      "sid sriram latest 2025", "sid sriram hits",
+      "sid sriram latest 2025", "sid sriram hits", "sid sriram 2024",
     ],
   },
   {
     key: "shreya ghoshal",
     queries: [
       "shreya ghoshal songs", "shreya ghoshal hits", "shreya ghoshal latest 2025",
-      "shreya ghoshal bollywood",
+      "shreya ghoshal bollywood", "shreya ghoshal telugu", "shreya ghoshal tamil",
     ],
   },
   {
     key: "sp balasubrahmanyam",
     queries: [
       "sp balasubrahmanyam songs", "spb telugu hits", "spb tamil songs",
-      "sp balasubrahmanyam hindi songs",
+      "sp balasubrahmanyam hindi songs", "spb best songs",
     ],
   },
   {
     key: "thaman",
     queries: [
       "ss thaman songs", "thaman telugu hits 2025", "thaman latest songs",
+      "thaman 2024 songs", "thaman 2023 songs",
     ],
   },
   {
     key: "devi sri prasad",
     queries: [
       "devi sri prasad songs", "dsp telugu hits", "dsp latest songs 2025",
+      "dsp 2024 songs", "dsp 2023 songs",
     ],
   },
 ];
 
 const PRELOAD_SESSION_KEY = (k: string) => `preload_songs_v2_${k}`;
-const PRELOAD_MAX_PAGES   = 8;   // 8 pages × 50 = 400 songs per query in background
+const PRELOAD_MAX_PAGES   = 16;  // 16 pages × 50 = 800 songs per query in background
 const PRELOAD_BATCH_DELAY = 300; // ms between pages — light on API
 
 /**

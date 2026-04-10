@@ -278,7 +278,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         do { nextIdx = Math.floor(Math.random() * q.length); }
         while (nextIdx === idx);
       }
+    } else if (repeatRef.current === "off") {
+      // ── Strict linear advance: stop when the last song finishes ──────────
+      if (idx >= q.length - 1) {
+        // End of queue reached — stop playback entirely, do not loop
+        songEndingRef.current = false;
+        intendToPlayRef.current = false;
+        setIsPlaying(false);
+        if (audioRef.current) audioRef.current.pause();
+        return;
+      }
+      nextIdx = idx + 1;
     } else {
+      // repeat === "all": smart history-based pick that wraps around
       const history = pruneAndSaveHistory(playHistoryRef.current);
       playHistoryRef.current = history;
       nextIdx = pickNext(q, idx, history, recentTimestampsRef.current);
@@ -337,6 +349,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       if (!isNaN(audio.currentTime)) {
         setProgressState(audio.currentTime);
         stallRetryRef.current = 0;
+        lastProgressTime = audio.currentTime;
+        lastProgressAt   = Date.now();
         if ("mediaSession" in navigator && !isNaN(audio.duration) && isFinite(audio.duration) && audio.duration > 0) {
           try {
             navigator.mediaSession.setPositionState({
@@ -367,10 +381,18 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
     };
 
+    // Track last time-update so we can detect genuine freezes vs normal buffering
+    let lastProgressTime = -1;
+    let lastProgressAt   = 0;
+
     const handleWaiting = () => {
       clearStallTimer();
       stallTimerRef.current = setTimeout(async () => {
-        if (!intendToPlayRef.current || audio.paused === false) return;
+        if (!intendToPlayRef.current) return;
+
+        // If currentTime has advanced since the stall started — just slow network, not frozen
+        if (audio.currentTime !== lastProgressTime && (Date.now() - lastProgressAt) < 3000) return;
+
         stallRetryRef.current += 1;
         if (stallRetryRef.current > 3) {
           stallRetryRef.current = 0;
@@ -390,6 +412,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
     const handleCanPlay = () => {
       clearStallTimer();
+      stallRetryRef.current = 0; // reset on successful buffer — prevents cross-song counter accumulation
       if (intendToPlayRef.current && audio.paused) {
         audio.play().catch(() => {});
       }
