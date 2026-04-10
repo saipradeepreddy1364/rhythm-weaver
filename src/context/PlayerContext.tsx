@@ -563,23 +563,61 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [nextSongInternal]);
 
   // When currentSong changes: load + play + wake lock + MediaSession
+  // If audioUrl is empty (liked song from backend), resolve it here before playing.
   useEffect(() => {
     if (!currentSong || !audioRef.current) return;
     const audio = audioRef.current;
-    stallRetryRef.current = 0;
-    setProgressState(0);
-    setDuration(0);
-    audio.src = currentSong.audioUrl;
-    audio.load();
-    intendToPlayRef.current = true;
-    audio.play()
-      .then(() => { requestWakeLock(); })
-      .catch((err) => {
-        console.error("Autoplay blocked:", err);
-        setIsPlaying(false);
-        intendToPlayRef.current = false;
+    const songId = currentSong.id;
+    let cancelled = false;
+
+    const startPlayback = (url: string) => {
+      if (cancelled) return;
+      stallRetryRef.current = 0;
+      setProgressState(0);
+      setDuration(0);
+      audio.src = url;
+      audio.load();
+      intendToPlayRef.current = true;
+      audio.play()
+        .then(() => { requestWakeLock(); })
+        .catch((err) => {
+          if (cancelled) return;
+          console.error("Autoplay blocked:", err);
+          setIsPlaying(false);
+          intendToPlayRef.current = false;
+        });
+      updateMediaSession(currentSong, true, 0, 0);
+    };
+
+    if (currentSong.audioUrl) {
+      // URL already known — start immediately
+      startPlayback(currentSong.audioUrl);
+    } else {
+      // audioUrl is empty (liked song from backend with no cached URL)
+      // Show playing state while we fetch, then start audio
+      setIsPlaying(true);
+      intendToPlayRef.current = true;
+      resolveSongAudioUrl(currentSong).then((resolved) => {
+        if (cancelled) return;
+        if (!resolved.audioUrl) {
+          console.error("[PlayerContext] Could not resolve audioUrl for", songId);
+          setIsPlaying(false);
+          intendToPlayRef.current = false;
+          setTimeout(() => nextSongInternal(), 800);
+          return;
+        }
+        // Patch resolved URL into state so queue stays in sync
+        setCurrentSong(resolved);
+        setQueue((prev) => {
+          const patched = prev.map((s) => s.id === resolved.id ? resolved : s);
+          queueRef.current = patched;
+          return patched;
+        });
+        startPlayback(resolved.audioUrl);
       });
-    updateMediaSession(currentSong, true, 0, 0);
+    }
+
+    return () => { cancelled = true; };
   }, [currentSong?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle play/pause toggle
