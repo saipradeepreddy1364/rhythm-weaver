@@ -76,7 +76,9 @@ function pickNext(
 ): number {
   if (queue.length === 0) return 0;
   const len = queue.length;
-  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+  // Use a shorter 1-hour window so songs become "fresh" again sooner
+  // and the user doesn't wait 24 hours before repeat:all loops back naturally
+  const cutoff = Date.now() - 60 * 60 * 1000;
 
   const recentlyPlayedIds = new Set<string>();
   for (const [id, ts] of Object.entries(playHistory)) {
@@ -84,6 +86,15 @@ function pickNext(
   }
   for (const [id, ts] of Object.entries(recentTimestamps)) {
     if (ts >= cutoff) recentlyPlayedIds.add(id);
+  }
+
+  // Count how many songs in the queue are NOT in recent history
+  const unplayedCount = queue.filter((s) => !recentlyPlayedIds.has(s.id)).length;
+
+  // If every song has been played recently, clear the block and just advance linearly
+  // so playback never stalls (full-cycle complete — start over)
+  if (unplayedCount === 0) {
+    return (currentIdx + 1) % len;
   }
 
   for (let offset = 1; offset <= len; offset++) {
@@ -778,19 +789,29 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       queueIndexRef.current = safeIdx;
       setQueue(q);
       setQueueIndex(safeIdx);
-      setCurrentSong(resolved);
-      setIsPlaying(true);
-      intendToPlayRef.current  = true;
       lastPlayedSongRef.current = resolved;
       addToRecentlyPlayedInternal(resolved);
       markPlayed(resolved.id);
 
-      // Resolve any remaining songs in the queue that have no audioUrl
-      // (e.g. the full liked-songs list from backend) — do this in the background
-      // so the current song starts immediately and next/prev work as they resolve
+      // If the user clicked the SAME song that's already current, the useEffect
+      // on [currentSong?.id] won't re-fire — so restart the audio directly here.
+      if (currentSong?.id === resolved.id && audioRef.current) {
+        const audio = audioRef.current;
+        audio.currentTime = 0;
+        setProgressState(0);
+        intendToPlayRef.current = true;
+        setIsPlaying(true);
+        audio.play().catch(() => {});
+      } else {
+        setCurrentSong(resolved);
+        setIsPlaying(true);
+        intendToPlayRef.current = true;
+      }
+
+      // Resolve any remaining songs in the queue that have no audioUrl in background
       resolveQueueAudioUrls(q);
     },
-    [addToRecentlyPlayedInternal, markPlayed, resolveQueueAudioUrls]
+    [addToRecentlyPlayedInternal, markPlayed, resolveQueueAudioUrls, currentSong]
   );
 
   const addToQueue = useCallback((song: Song) => {
