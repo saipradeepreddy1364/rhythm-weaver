@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { X, Music2, Eye, EyeOff, Loader2 } from "lucide-react";
+import { X, Eye, EyeOff, Loader2 } from "lucide-react";
 
 interface AuthModalProps {
   open: boolean;
@@ -85,17 +85,8 @@ export function AuthModal({ open, onClose, defaultTab = "login" }: AuthModalProp
     >
       <div className="bg-[#1a1a1a] border border-white/10 rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden animate-fade-in">
 
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-6 pb-4">
-          <div className="flex items-center gap-2">
-            <div
-              className="w-8 h-8 rounded-lg flex items-center justify-center"
-              style={{ background: "linear-gradient(135deg,#1DB954,#1ed760)" }}
-            >
-              <Music2 className="w-4 h-4 text-black" />
-            </div>
-            <span className="font-bold text-white text-lg">RhythmWeaver</span>
-          </div>
+        {/* Close button */}
+        <div className="flex justify-end px-4 pt-4">
           <button
             onClick={onClose}
             className="text-white/40 hover:text-white transition-colors rounded-lg p-1"
