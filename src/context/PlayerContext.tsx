@@ -22,6 +22,7 @@ interface PlayerContextType {
   recentlyPlayed: Song[];
   shuffle: boolean;
   repeat: "off" | "one" | "all";
+  isRadioMode: boolean;
   playSong: (song: Song, songQueue?: Song[]) => void;
   togglePlay: () => void;
   nextSong: () => void;
@@ -137,6 +138,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const songEndingRef         = useRef(false);
   const stallRetryRef         = useRef(0);
   const stallTimerRef         = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastPlayedSongRef     = useRef<Song | null>(null); // seed for radio mode
+  const radioFetchingRef      = useRef(false);             // prevent concurrent radio fetches
+  const [isRadioMode, setIsRadioMode] = useState(false);
 
   useEffect(() => { queueRef.current = queue; }, [queue]);
   useEffect(() => { queueIndexRef.current = queueIndex; }, [queueIndex]);
@@ -253,6 +257,68 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // ── Radio: fetch more songs based on the last-played song's language/artist ──
+  // Called automatically when the queue runs out in repeat:off mode.
+  const fetchRadioSongs = useCallback(async (seed: Song): Promise<Song[]> => {
+    // Build a query from available metadata — prefer language-aware terms
+    const artist = seed.artist || "";
+    const movie  = (seed as any).movie || (seed as any).album || "";
+    // Detect language heuristically: Tamil/Telugu/Hindi artists often have
+    // movie names in those scripts, but we can also check for known fields
+    const lang   = (seed as any).language || "";
+
+    // Build search query: artist name gives the best "similar songs" results
+    let query = artist || movie || "trending songs";
+    if (lang) query = `${lang} songs ${artist}`.trim();
+    else if (artist) query = `${artist} songs`;
+
+    try {
+      // Use the existing api search — most music apps expose a search endpoint
+      const res  = await (api as any).search?.(query) ?? await (api as any).getSongs?.(query);
+      const raw  = Array.isArray(res) ? res : (res?.data ?? res?.results ?? []);
+      if (!Array.isArray(raw) || raw.length === 0) return [];
+
+      // Map to Song objects (reuse any existing mapper the app already has)
+      const { mapApiSong } = await import("@/data/songs").catch(() => ({ mapApiSong: null }));
+      const songs: Song[] = raw
+        .map((item: any) => (mapApiSong ? mapApiSong(item) : item))
+        .filter((s: any): s is Song => !!s && !!s.id);
+
+      // Exclude songs already in the current queue to avoid repeats
+      const existingIds = new Set(queueRef.current.map((s) => s.id));
+      return songs.filter((s) => !existingIds.has(s.id)).slice(0, 20);
+    } catch (err) {
+      console.warn("[PlayerContext] Radio fetch failed:", err);
+      return [];
+    }
+  }, []);
+
+  // ── Resolve all missing audioUrls in a queue (e.g. liked songs from backend) ─
+  // Fires in the background; patches queueRef + state as each song resolves.
+  const resolveQueueAudioUrls = useCallback(async (songs: Song[]) => {
+    const unresolved = songs.filter((s) => !s.audioUrl);
+    if (unresolved.length === 0) return;
+
+    await Promise.allSettled(
+      unresolved.map(async (song) => {
+        const resolved = await resolveSongAudioUrl(song);
+        if (resolved.audioUrl === song.audioUrl) return; // nothing changed
+        // Patch in queueRef
+        const q = [...queueRef.current];
+        const i = q.findIndex((s) => s.id === resolved.id);
+        if (i >= 0) {
+          q[i] = resolved;
+          queueRef.current = q;
+          setQueue([...q]);
+          // Also update currentSong if it's the one we just resolved
+          if (queueIndexRef.current === i) {
+            setCurrentSong(resolved);
+          }
+        }
+      })
+    );
+  }, []);
+
   const nextSongInternal = useCallback(() => {
     const q   = queueRef.current;
     const idx = queueIndexRef.current;
@@ -279,13 +345,51 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         while (nextIdx === idx);
       }
     } else if (repeatRef.current === "off") {
-      // ── Strict linear advance: stop when the last song finishes ──────────
       if (idx >= q.length - 1) {
-        // End of queue reached — stop playback entirely, do not loop
-        songEndingRef.current = false;
-        intendToPlayRef.current = false;
-        setIsPlaying(false);
-        if (audioRef.current) audioRef.current.pause();
+        // End of queue — kick off a radio fetch from the last played song
+        const seed = lastPlayedSongRef.current ?? q[idx];
+        if (!radioFetchingRef.current && seed) {
+          radioFetchingRef.current = true;
+          setIsRadioMode(true);
+          fetchRadioSongs(seed).then((radioSongs) => {
+            radioFetchingRef.current = false;
+            if (radioSongs.length === 0) {
+              // Nothing fetched — stop gracefully
+              songEndingRef.current   = false;
+              intendToPlayRef.current = false;
+              setIsPlaying(false);
+              setIsRadioMode(false);
+              if (audioRef.current) audioRef.current.pause();
+              return;
+            }
+            // Append radio songs to the queue and play the first new one
+            const newQ    = [...queueRef.current, ...radioSongs];
+            const newIdx  = queueRef.current.length; // first of the newly added
+            queueRef.current      = newQ;
+            queueIndexRef.current = newIdx;
+            setQueue(newQ);
+            setQueueIndex(newIdx);
+            const next = newQ[newIdx];
+            // Resolve audioUrl if needed then play
+            resolveSongAudioUrl(next).then((resolved) => {
+              newQ[newIdx] = resolved;
+              queueRef.current = [...newQ];
+              setQueue([...newQ]);
+              setCurrentSong(resolved);
+              setIsPlaying(true);
+              intendToPlayRef.current = true;
+              addToRecentlyPlayedInternal(resolved);
+              markPlayed(resolved.id);
+              lastPlayedSongRef.current = resolved;
+            });
+          });
+        } else if (!seed) {
+          // No seed — just stop
+          songEndingRef.current   = false;
+          intendToPlayRef.current = false;
+          setIsPlaying(false);
+          if (audioRef.current) audioRef.current.pause();
+        }
         return;
       }
       nextIdx = idx + 1;
@@ -314,6 +418,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         intendToPlayRef.current = true;
         addToRecentlyPlayedInternal(resolved);
         markPlayed(resolved.id);
+        lastPlayedSongRef.current = resolved;
       });
     } else {
       queueIndexRef.current = nextIdx;
@@ -323,8 +428,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       intendToPlayRef.current = true;
       addToRecentlyPlayedInternal(candidate);
       markPlayed(candidate.id);
+      lastPlayedSongRef.current = candidate;
     }
-  }, [addToRecentlyPlayedInternal, markPlayed]);
+  }, [addToRecentlyPlayedInternal, markPlayed, fetchRadioSongs]);
 
   // ── Setup audio element ONCE ──────────────────────────────────────────────
   useEffect(() => {
@@ -613,8 +719,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   // ── playSong — resolves audioUrl on the fly if missing ────────────────────
   const playSong = useCallback(
     async (song: Song, songQueue?: Song[]) => {
-      // Resolve audioUrl before anything else — this is the core fix for
-      // liked songs loaded from the backend on a new device (no localStorage cache)
+      // Reset radio mode whenever user explicitly picks a song
+      setIsRadioMode(false);
+      radioFetchingRef.current = false;
+
+      // Resolve audioUrl before anything else — core fix for liked songs
+      // loaded from the backend on a new device (no localStorage cache)
       const resolved = await resolveSongAudioUrl(song);
 
       // If we patched the URL, also patch it inside the queue so next/prev work
@@ -632,11 +742,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setQueueIndex(safeIdx);
       setCurrentSong(resolved);
       setIsPlaying(true);
-      intendToPlayRef.current = true;
+      intendToPlayRef.current  = true;
+      lastPlayedSongRef.current = resolved;
       addToRecentlyPlayedInternal(resolved);
       markPlayed(resolved.id);
+
+      // Resolve any remaining songs in the queue that have no audioUrl
+      // (e.g. the full liked-songs list from backend) — do this in the background
+      // so the current song starts immediately and next/prev work as they resolve
+      resolveQueueAudioUrls(q);
     },
-    [addToRecentlyPlayedInternal, markPlayed]
+    [addToRecentlyPlayedInternal, markPlayed, resolveQueueAudioUrls]
   );
 
   const addToQueue = useCallback((song: Song) => {
@@ -732,7 +848,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     <PlayerContext.Provider
       value={{
         currentSong, isPlaying, queue, queueIndex, progress, duration,
-        volume, showPlayer, recentlyPlayed, shuffle, repeat,
+        volume, showPlayer, recentlyPlayed, shuffle, repeat, isRadioMode,
         playSong, togglePlay, nextSong, prevSong,
         setProgress, setVolume, setShowPlayer,
         toggleFavorite, isFavorite, addToQueue,

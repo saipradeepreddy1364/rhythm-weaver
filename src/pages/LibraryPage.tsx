@@ -381,16 +381,31 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                 subtitle="Tap the heart on any song to save it here."
               />
             ) : (
-              <div className="space-y-0.5 mt-1">
-                {likedSongs.map((song) => (
-                  <SongRow
-                    key={song.id}
-                    song={song}
-                    queue={likedSongs}
-                    onRequireAuth={handleRequireAuth}
-                  />
-                ))}
-              </div>
+              <>
+                {/* Play All button */}
+                <div className="flex items-center justify-between mb-3 mt-1">
+                  <p className="text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>
+                    {likedSongs.length} songs
+                  </p>
+                  <button
+                    onClick={() => playSong(likedSongs[0], likedSongs)}
+                    className="flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-bold text-black transition-all active:scale-95"
+                    style={{ background: "#1DB954" }}
+                  >
+                    <Play className="w-3 h-3 fill-black" /> Play All
+                  </button>
+                </div>
+                <div className="space-y-0.5 mt-1">
+                  {likedSongs.map((song) => (
+                    <SongRow
+                      key={song.id}
+                      song={song}
+                      queue={likedSongs}
+                      onRequireAuth={handleRequireAuth}
+                    />
+                  ))}
+                </div>
+              </>
             )}
           </>
         )}
@@ -406,9 +421,18 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
               />
             ) : (
               <>
-                <p className="text-xs mt-1 mb-3" style={{ color: "rgba(255,255,255,0.4)" }}>
-                  Last 3 days · {recentFiltered.length} songs
-                </p>
+                <div className="flex items-center justify-between mb-3 mt-1">
+                  <p className="text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>
+                    Last 3 days · {recentFiltered.length} songs
+                  </p>
+                  <button
+                    onClick={() => playSong(recentFiltered[0], recentFiltered)}
+                    className="flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-bold text-black transition-all active:scale-95"
+                    style={{ background: "#1DB954" }}
+                  >
+                    <Play className="w-3 h-3 fill-black" /> Play All
+                  </button>
+                </div>
                 <div className="space-y-0.5">
                   {recentFiltered.map((song) => (
                     <SongRow

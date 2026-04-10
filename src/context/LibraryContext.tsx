@@ -85,12 +85,14 @@ function backendDtoToSong(dto: any): Song {
   return {
     id:       dto.songId,
     title:    dto.songTitle || dto.songId,
-    artist:   dto.artist    || "",
-    albumArt: dto.songImage || dto.albumArt || "",
-    audioUrl: dto.audioUrl  || "",
+    artist:   dto.artist    || dto.primaryArtists || dto.singers || "",
+    albumArt: dto.songImage || dto.albumArt || dto.image || "",
+    audioUrl: dto.audioUrl  || dto.downloadUrl || dto.url || "",
     duration: dto.duration  || 0,
     album:    dto.album     || "",
     movie:    dto.movie     || "",
+    // Carry language through so the radio fetcher can build better queries
+    language: dto.language  || "",
   } as Song;
 }
 
@@ -134,10 +136,23 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       const serverSongs: Song[] = raw.map(backendDtoToSong);
 
       setLikedSongs((local) => {
-        // Merge: server is the source of truth for IDs, but local may have
-        // richer song objects (full audioUrl, artist etc.) — prefer local if present
+        // Merge: prefer whichever version has more data.
+        // Server is source of truth for the set of liked songs (adds/removes).
+        // Local is preferred for audioUrl (server often doesn't store it).
         const localMap = new Map(local.map((s) => [s.id, s]));
-        const merged = serverSongs.map((s) => localMap.get(s.id) ?? s);
+        const merged = serverSongs.map((serverSong) => {
+          const localSong = localMap.get(serverSong.id);
+          if (!localSong) return serverSong;
+          return {
+            ...serverSong,
+            // Keep local audioUrl if server has none
+            audioUrl: localSong.audioUrl || serverSong.audioUrl,
+            // Prefer whichever albumArt is non-empty
+            albumArt: localSong.albumArt || serverSong.albumArt,
+            // Keep fuller artist string
+            artist:   localSong.artist   || serverSong.artist,
+          };
+        });
 
         // Also keep any local songs not yet synced to server
         local.forEach((s) => {
