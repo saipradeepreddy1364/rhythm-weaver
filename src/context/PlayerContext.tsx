@@ -488,19 +488,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
       nextIdx = idx + 1;
     } else {
-      // repeat === "all": for library queues advance linearly (wrap around).
-      // For non-library queues use smart history-based pick so recently-played
-      // songs aren't immediately repeated within a session.
-      // Only playHistory (songs played in this queue session) is used —
-      // recentTimestamps from the library is deliberately excluded so that
-      // liked / recently-played songs the user intentionally chose are never skipped.
-      if (libraryQueueRef.current) {
-        nextIdx = (idx + 1) % q.length;
-      } else {
-        const history = pruneAndSaveHistory(playHistoryRef.current);
-        playHistoryRef.current = history;
-        nextIdx = pickNext(q, idx, history);
-      }
+      // repeat === "all": always advance linearly and wrap.
+      // pickNext (smart history-based skip) is disabled entirely — it caused
+      // songs to be auto-skipped when the play-history contained library songs.
+      // Linear wrap is simpler, predictable, and what users expect.
+      nextIdx = (idx + 1) % q.length;
     }
 
     const candidate = q[nextIdx];
@@ -832,6 +824,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
       // Track whether this queue came from the library (no auto-repeat/skip at end)
       libraryQueueRef.current = !!fromLibrary;
+
+      // When switching to a library queue, wipe the play-history so that no
+      // previously-played song gets auto-skipped by pickNext logic.
+      if (fromLibrary) {
+        playHistoryRef.current = {};
+        localStorage.removeItem(PLAYED_HISTORY_KEY);
+      }
 
       // Resolve audioUrl before anything else — core fix for liked songs
       // loaded from the backend on a new device (no localStorage cache)
