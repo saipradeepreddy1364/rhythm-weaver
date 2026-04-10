@@ -138,6 +138,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [repeat, setRepeat]           = useState<"off" | "one" | "all">("off");
 
   const audioRef              = useRef<HTMLAudioElement | null>(null);
+  const currentSongRef        = useRef<Song | null>(null); // always mirrors currentSong for background access
   const queueRef              = useRef<Song[]>([]);
   const queueIndexRef         = useRef(0);
   const playHistoryRef        = useRef<Record<string, number>>(loadPlayHistory());
@@ -157,6 +158,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   useEffect(() => { queueIndexRef.current = queueIndex; }, [queueIndex]);
   useEffect(() => { shuffleRef.current = shuffle; }, [shuffle]);
   useEffect(() => { repeatRef.current = repeat; }, [repeat]);
+  useEffect(() => { currentSongRef.current = currentSong; }, [currentSong]);
 
   // Load favorites
   useEffect(() => {
@@ -330,6 +332,41 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
+  // ── Direct audio playback helper ─────────────────────────────────────────
+  // CRITICAL for locked-screen playback: iOS/Android suspend React's render
+  // pipeline when the screen is locked. This means setCurrentSong() + useEffect
+  // won't fire to load the next song. We bypass React entirely by setting
+  // audio.src and calling audio.play() directly from nextSongInternal.
+  const playAudioDirectly = useCallback((song: Song) => {
+    const audio = audioRef.current;
+    if (!audio || !song.audioUrl) return;
+    stallRetryRef.current = 0;
+    audio.src = song.audioUrl;
+    audio.load();
+    intendToPlayRef.current = true;
+    audio.play().catch((err) => {
+      console.error("[PlayerContext] Direct play failed:", err);
+    });
+    // Update MediaSession metadata immediately so the lock screen shows the new song
+    if ("mediaSession" in navigator) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title:   song.title,
+        artist:  song.artist || "",
+        album:   (song as any).movie || (song as any).album || "",
+        artwork: song.albumArt
+          ? [
+              { src: song.albumArt, sizes: "96x96",   type: "image/jpeg" },
+              { src: song.albumArt, sizes: "128x128",  type: "image/jpeg" },
+              { src: song.albumArt, sizes: "192x192",  type: "image/jpeg" },
+              { src: song.albumArt, sizes: "256x256",  type: "image/jpeg" },
+              { src: song.albumArt, sizes: "512x512",  type: "image/jpeg" },
+            ]
+          : [],
+      });
+      navigator.mediaSession.playbackState = "playing";
+    }
+  }, []);
+
   const nextSongInternal = useCallback(() => {
     const q   = queueRef.current;
     const idx = queueIndexRef.current;
@@ -392,6 +429,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
               addToRecentlyPlayedInternal(resolved);
               markPlayed(resolved.id);
               lastPlayedSongRef.current = resolved;
+              playAudioDirectly(resolved); // bypass React render for lock-screen
             });
           });
         } else if (!seed) {
@@ -430,6 +468,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         addToRecentlyPlayedInternal(resolved);
         markPlayed(resolved.id);
         lastPlayedSongRef.current = resolved;
+        playAudioDirectly(resolved); // bypass React render for lock-screen
       });
     } else {
       queueIndexRef.current = nextIdx;
@@ -440,8 +479,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       addToRecentlyPlayedInternal(candidate);
       markPlayed(candidate.id);
       lastPlayedSongRef.current = candidate;
+      playAudioDirectly(candidate); // bypass React render for lock-screen
     }
-  }, [addToRecentlyPlayedInternal, markPlayed, fetchRadioSongs]);
+  }, [addToRecentlyPlayedInternal, markPlayed, fetchRadioSongs, playAudioDirectly]);
 
   // ── Setup audio element ONCE ──────────────────────────────────────────────
   useEffect(() => {
@@ -583,6 +623,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
     const startPlayback = (url: string) => {
       if (cancelled) return;
+      // If playAudioDirectly() already loaded this URL (lock-screen transition),
+      // don't reload — just ensure the play state is consistent.
+      const audio = audioRef.current!;
+      const alreadyLoaded = audio.src === url || audio.src.endsWith(url);
+      if (alreadyLoaded && !audio.paused) {
+        // Already playing — just sync React state and MediaSession
+        requestWakeLock();
+        updateMediaSession(currentSong, true, audio.currentTime, audio.duration);
+        return;
+      }
       stallRetryRef.current = 0;
       setProgressState(0);
       setDuration(0);
