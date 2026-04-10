@@ -489,9 +489,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       nextIdx = idx + 1;
     } else {
       // repeat === "all": always advance linearly and wrap.
-      // pickNext (smart history-based skip) is disabled entirely — it caused
-      // songs to be auto-skipped when the play-history contained library songs.
-      // Linear wrap is simpler, predictable, and what users expect.
+      // pickNext (history-based skip) is removed — it caused songs to be
+      // auto-skipped whenever they appeared in the 24-hour play history,
+      // including all library songs. Linear wrap is predictable and correct.
       nextIdx = (idx + 1) % q.length;
     }
 
@@ -822,11 +822,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setIsRadioMode(false);
       radioFetchingRef.current = false;
 
-      // Track whether this queue came from the library (no auto-repeat/skip at end)
+      // ── Set libraryQueueRef SYNCHRONOUSLY before any await ────────────────
+      // CRITICAL: nextSongInternal reads libraryQueueRef inside the audio "ended"
+      // event listener. Setting it after an await means the "ended" event on the
+      // currently-playing song can fire first with the OLD value (false), which
+      // triggers radio mode instead of linear library queue advance.
       libraryQueueRef.current = !!fromLibrary;
 
-      // When switching to a library queue, wipe the play-history so that no
-      // previously-played song gets auto-skipped by pickNext logic.
+      // When switching to a library queue, wipe play-history so no previously-played
+      // song gets auto-skipped.
       if (fromLibrary) {
         playHistoryRef.current = {};
         localStorage.removeItem(PLAYED_HISTORY_KEY);
