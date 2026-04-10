@@ -148,6 +148,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const wakeLockRef           = useRef<WakeLockSentinel | null>(null);
   const intendToPlayRef       = useRef(false);
   const songEndingRef         = useRef(false);
+  const isTransitioningRef    = useRef(false); // true while swapping audio.src — suppresses spurious handlePause
+  const nextSongInternalRef   = useRef<() => void>(() => {}); // always-current fn ref so ended listener never goes stale
   const stallRetryRef         = useRef(0);
   const stallTimerRef         = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPlayedSongRef     = useRef<Song | null>(null); // seed for radio mode
@@ -341,12 +343,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const audio = audioRef.current;
     if (!audio || !song.audioUrl) return;
     stallRetryRef.current = 0;
+    // Flag transition BEFORE changing src — suppresses the browser's automatic
+    // "pause" event that fires when src is reassigned, which would otherwise
+    // set isPlaying=false and kill continuous playback on locked screens.
+    isTransitioningRef.current = true;
     audio.src = song.audioUrl;
     audio.load();
     intendToPlayRef.current = true;
-    audio.play().catch((err) => {
-      console.error("[PlayerContext] Direct play failed:", err);
-    });
+    audio.play()
+      .then(() => { isTransitioningRef.current = false; })
+      .catch((err) => {
+        isTransitioningRef.current = false;
+        console.error("[PlayerContext] Direct play failed:", err);
+      });
     // Update MediaSession metadata immediately so the lock screen shows the new song
     if ("mediaSession" in navigator) {
       navigator.mediaSession.metadata = new MediaMetadata({
@@ -483,6 +492,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
   }, [addToRecentlyPlayedInternal, markPlayed, fetchRadioSongs, playAudioDirectly]);
 
+  // Keep the ref current so audio element listeners always call the latest version
+  // MUST be after nextSongInternal is declared
+  useEffect(() => { nextSongInternalRef.current = nextSongInternal; }, [nextSongInternal]);
+
   // ── Setup audio element ONCE ──────────────────────────────────────────────
   useEffect(() => {
     const audio = new Audio();
@@ -525,7 +538,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     };
 
     const handleEnded = () => {
-      if (!songEndingRef.current) nextSongInternal();
+      if (!songEndingRef.current) nextSongInternalRef.current();
     };
 
     const handlePlay = () => {
@@ -534,6 +547,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     };
 
     const handlePause = () => {
+      // Ignore the pause that fires when we reassign audio.src during a song transition
+      if (isTransitioningRef.current) return;
       setIsPlaying(false);
       if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
     };
@@ -553,7 +568,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         stallRetryRef.current += 1;
         if (stallRetryRef.current > 3) {
           stallRetryRef.current = 0;
-          nextSongInternal();
+          nextSongInternalRef.current();
           return;
         }
         try {
@@ -578,7 +593,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const handleError = () => {
       clearStallTimer();
       console.error("Audio playback error — skipping to next");
-      setTimeout(() => nextSongInternal(), 800);
+      setTimeout(() => nextSongInternalRef.current(), 800);
     };
 
     const handleAbort = () => {
@@ -611,7 +626,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       audio.removeEventListener("error",          handleError);
       audio.removeEventListener("abort",          handleAbort);
     };
-  }, [nextSongInternal]);
+  }, []); // runs once — all callbacks use refs so they're always current
 
   // When currentSong changes: load + play + wake lock + MediaSession
   // If audioUrl is empty (liked song from backend), resolve it here before playing.
@@ -636,12 +651,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       stallRetryRef.current = 0;
       setProgressState(0);
       setDuration(0);
+      isTransitioningRef.current = true;
       audio.src = url;
       audio.load();
       intendToPlayRef.current = true;
       audio.play()
-        .then(() => { requestWakeLock(); })
+        .then(() => { isTransitioningRef.current = false; requestWakeLock(); })
         .catch((err) => {
+          isTransitioningRef.current = false;
           if (cancelled) return;
           console.error("Autoplay blocked:", err);
           setIsPlaying(false);
