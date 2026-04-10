@@ -303,6 +303,84 @@ function getPreloadedSongs(key: string): Song[] {
   } catch { return []; }
 }
 
+// ─── Category preload cache ───────────────────────────────────────────────────
+// Module-level fire-and-forget: pre-fetches every Browse category into
+// sessionStorage so clicking a card opens its modal instantly (no spinner).
+const CAT_SESSION_KEY = (label: string) =>
+  `preload_cat_v2_${label.toLowerCase().replace(/\s+/g, "_")}`;
+const CAT_COVER_KEY = (label: string) =>
+  `preload_cat_cover_v2_${label.toLowerCase().replace(/\s+/g, "_")}`;
+
+function getCategoryCache(label: string): { songs: Song[]; coverArt: string } {
+  try {
+    const songs    = JSON.parse(sessionStorage.getItem(CAT_SESSION_KEY(label)) || "[]") as Song[];
+    const coverArt = sessionStorage.getItem(CAT_COVER_KEY(label)) || "";
+    return { songs, coverArt };
+  } catch { return { songs: [], coverArt: "" }; }
+}
+
+function saveCategoryCache(label: string, songs: Song[], coverArt: string) {
+  try {
+    sessionStorage.setItem(CAT_SESSION_KEY(label), JSON.stringify(songs));
+    sessionStorage.setItem(CAT_COVER_KEY(label),   coverArt);
+  } catch { /* storage quota */ }
+}
+
+let _catPreloadStarted = false;
+function startCategoryPreload() {
+  if (_catPreloadStarted || typeof window === "undefined") return;
+  _catPreloadStarted = true;
+
+  // Wait 5 s — lets HomePage preloader (starts at 2 s) get network priority first
+  setTimeout(async () => {
+    for (const cat of BROWSE_CATEGORIES) {
+      if (sessionStorage.getItem(CAT_SESSION_KEY(cat.label))) continue; // already cached
+
+      const extraQueries = LANGUAGE_EXTRA_QUERIES[cat.label] || [];
+      const allQueries   = [cat.query, ...extraQueries];
+
+      const seen     = new Set<string>();
+      const all: Song[] = [];
+      let   coverArt = "";
+
+      for (const q of allQueries) {
+        for (let page = 1; page <= 6; page++) {
+          try {
+            if (page > 1) await sleep(200);
+            const res   = await api.searchSongs(q, page, 50);
+            const items = extractResults(res);
+            if (items.length === 0) break;
+
+            const songs = items
+              .map(mapApiSong)
+              .map(cleanSong)
+              .filter((s: Song) => Boolean(s.audioUrl));
+
+            let added = 0;
+            for (const s of songs) {
+              if (s.id && !seen.has(s.id)) {
+                seen.add(s.id);
+                all.push(s);
+                if (!coverArt && s.albumArt) coverArt = s.albumArt;
+                added++;
+              }
+            }
+            if (items.length < 50 || added === 0) break;
+          } catch { break; }
+        }
+        await sleep(150);
+      }
+
+      if (all.length > 0) saveCategoryCache(cat.label, all, coverArt);
+      await sleep(800); // brief pause between categories to avoid API flooding
+    }
+  }, 5000);
+}
+
+// Fire once on module import
+startCategoryPreload();
+
+
 // ─── Category Song List Modal ─────────────────────────────────────────────────
 
 function CategorySongModal({
@@ -398,8 +476,20 @@ function CategorySongModal({
               ))}
               {loading && songs.length > 0 && (
                 <div className="flex items-center justify-center py-4 gap-2">
-                  <div className="w-5 h-5 rounded-full border-2 border-white/20 border-t-white/60 animate-spin" />
-                  <span className="text-xs text-white/40">Loading more…</span>
+                  <div className="w-4 h-4 rounded-full border-2 border-white/15 border-t-green-400/60 animate-spin" />
+                  <span className="text-xs" style={{ color: "rgba(255,255,255,0.3)" }}>
+                    Finding more songs…
+                  </span>
+                </div>
+              )}
+              {!loading && songs.length > 0 && (
+                <div className="flex justify-center py-4">
+                  <span
+                    className="text-xs px-4 py-1.5 rounded-full"
+                    style={{ background: "rgba(29,185,84,0.1)", color: "#1DB954" }}
+                  >
+                    ✓ {songs.length} songs
+                  </span>
                 </div>
               )}
             </div>
@@ -721,10 +811,12 @@ interface CategoryCardProps {
 }
 
 function CategoryCard({ label, query, onSelect }: CategoryCardProps) {
-  const [coverArt, setCoverArt] = useState<string | null>(null);
-  const [songs, setSongs]       = useState<Song[]>([]);
-  const [loaded, setLoaded]     = useState(false);
-  const fetchedRef              = useRef(false);
+  // ── Seed from preload cache immediately so the card shows cover + count ──
+  const cached                  = getCategoryCache(label);
+  const [coverArt, setCoverArt] = useState<string | null>(cached.coverArt || null);
+  const [songs, setSongs]       = useState<Song[]>(cached.songs);
+  const [loaded, setLoaded]     = useState(cached.songs.length > 0);
+  const fetchedRef              = useRef(cached.songs.length > 0); // skip fetch if already cached
 
   useEffect(() => {
     if (fetchedRef.current) return;
@@ -738,27 +830,34 @@ function CategoryCard({ label, query, onSelect }: CategoryCardProps) {
       const allSongs: Song[] = [];
 
       for (const q of allQueries) {
-        try {
-          const res     = await api.searchSongs(q, 1, 30);
-          const fetched = extractResults(res).map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
-          for (const s of fetched) {
-            if (s.id && !seen.has(s.id)) {
-              seen.add(s.id);
-              allSongs.push(s);
+        for (let page = 1; page <= 4; page++) {
+          try {
+            if (page > 1) await sleep(200);
+            const res     = await api.searchSongs(q, page, 50);
+            const items   = extractResults(res);
+            const fetched = items.map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
+            for (const s of fetched) {
+              if (s.id && !seen.has(s.id)) {
+                seen.add(s.id);
+                allSongs.push(s);
+              }
             }
-          }
-        } catch { /* continue */ }
-        await sleep(150);
+            if (items.length < 50) break;
+          } catch { break; }
+          await sleep(150);
+        }
       }
 
       const withArt = allSongs.filter((s: Song) => s.albumArt);
-      if (withArt.length > 0) setCoverArt(withArt[0].albumArt!);
+      const art     = withArt.length > 0 ? withArt[0].albumArt! : "";
+      if (art) setCoverArt(art);
       setSongs(allSongs);
       setLoaded(true);
+      saveCategoryCache(label, allSongs, art);
     };
 
     fetchAll().catch(() => setLoaded(true));
-  }, [query, label]);
+  }, [query, label]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <button
@@ -1058,7 +1157,7 @@ function ArtistModal({
 
       for (const q of queryVariants) {
         // Up to 20 pages per query variant → 20 × 50 = 1000 per variant
-        for (let page = 1; page <= 20; page++) {
+        for (let page = 1; page <= 40; page++) {
           try {
             if (page > 1) await sleep(250);
             const res   = await api.searchSongs(q, page, pageSize);
@@ -1340,48 +1439,70 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
   };
 
   // Handle category card click — open modal with songs
+  // ── Open category modal — instantly from cache, then keep loading more ────────
   const handleCategorySelect = (label: string, catSongs: Song[], coverArt: string) => {
-    if (catSongs.length > 0) {
-      setCategoryModal({ label, songs: catSongs, coverArt, loading: false });
-    } else {
-      setCategoryModal({ label, songs: [], coverArt: "", loading: true });
-      const cat = BROWSE_CATEGORIES.find((c) => c.label === label);
-      if (cat) {
-        const extraQueries = LANGUAGE_EXTRA_QUERIES[label] || [];
-        const allQueries   = [cat.query, ...extraQueries];
+    // 1. Try sessionStorage cache first (populated by startCategoryPreload)
+    const cached = getCategoryCache(label);
+    const initSongs = cached.songs.length > 0 ? cached.songs
+      : catSongs.length > 0 ? catSongs
+      : [];
+    const initCover = cached.coverArt || coverArt || "";
 
-        const fetchAll = async () => {
-          const seen = new Set<string>();
-          const all: Song[] = [];
+    // Open modal immediately — never show a blank spinner if we have anything
+    setCategoryModal({ label, songs: initSongs, coverArt: initCover, loading: initSongs.length === 0 });
 
-          for (const q of allQueries) {
-            try {
-              const res     = await api.searchSongs(q, 1, 50);
-              const fetched = extractResults(res).map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
-              for (const s of fetched) {
-                if (s.id && !seen.has(s.id)) {
-                  seen.add(s.id);
-                  all.push(s);
-                }
+    const cat = BROWSE_CATEGORIES.find((c) => c.label === label);
+    if (!cat) return;
+
+    // 2. Continue fetching MORE songs in the background (progressive enrichment)
+    const extraQueries = LANGUAGE_EXTRA_QUERIES[label] || [];
+    const allQueries   = [cat.query, ...extraQueries];
+
+    const fetchMore = async () => {
+      const seen = new Set<string>(initSongs.map((s) => s.id));
+      const all  = [...initSongs];
+      let   cover = initCover;
+
+      for (const q of allQueries) {
+        for (let page = 1; page <= 8; page++) {
+          try {
+            if (page > 1) await sleep(200);
+            const res   = await api.searchSongs(q, page, 50);
+            const items = extractResults(res);
+            const fetched = items.map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
+            let added = 0;
+            for (const s of fetched) {
+              if (s.id && !seen.has(s.id)) {
+                seen.add(s.id);
+                all.push(s);
+                if (!cover && s.albumArt) cover = s.albumArt;
+                added++;
               }
-            } catch { /* continue */ }
-            await sleep(150);
-          }
-
-          const withArt = all.filter((s: Song) => s.albumArt);
-          setCategoryModal({
-            label,
-            songs: all,
-            coverArt: withArt.length > 0 ? (withArt[0].albumArt || "") : "",
-            loading: false,
-          });
-        };
-
-        fetchAll().catch(() =>
-          setCategoryModal((prev) => (prev ? { ...prev, loading: false } : null))
-        );
+            }
+            if (added > 0) {
+              setCategoryModal((prev) =>
+                prev?.label === label
+                  ? { ...prev, songs: [...all], coverArt: cover, loading: false }
+                  : prev
+              );
+            }
+            if (items.length < 50 || added === 0) break;
+          } catch { break; }
+        }
+        await sleep(150);
+        if (all.length >= 800) break;
       }
-    }
+
+      // Persist updated cache so next open is instant
+      if (all.length > 0) saveCategoryCache(label, all, cover);
+      setCategoryModal((prev) =>
+        prev?.label === label ? { ...prev, loading: false } : prev
+      );
+    };
+
+    fetchMore().catch(() =>
+      setCategoryModal((prev) => (prev ? { ...prev, loading: false } : null))
+    );
   };
 
   // Real-time search — detects language names and routes to LanguageAlbumModal
