@@ -268,6 +268,41 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+// ─── HTML entity decoder (fixes "&quot;" etc. coming from API) ────────────────
+function decodeHtml(str: string): string {
+  if (!str) return str;
+  return str
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&apos;/g, "'")
+    .replace(/&#x27;/g, "'")
+    .replace(/&#x2F;/g, "/");
+}
+
+function cleanSong(song: Song): Song {
+  return {
+    ...song,
+    title:  decodeHtml(song.title  || ""),
+    artist: decodeHtml((song as Song & { artist?: string }).artist || ""),
+    album:  decodeHtml((song as Song & { album?: string }).album   || ""),
+    movie:  decodeHtml((song as Song & { movie?: string }).movie   || ""),
+  } as Song;
+}
+
+// ─── Preload cache — reads songs pre-fetched by HomePage's background loader ──
+const PRELOAD_SESSION_KEY = (k: string) => `preload_songs_v2_${k.toLowerCase()}`;
+
+function getPreloadedSongs(key: string): Song[] {
+  try {
+    const raw = sessionStorage.getItem(PRELOAD_SESSION_KEY(key));
+    if (!raw) return [];
+    return JSON.parse(raw) as Song[];
+  } catch { return []; }
+}
+
 // ─── Category Song List Modal ─────────────────────────────────────────────────
 
 function CategorySongModal({
@@ -409,16 +444,28 @@ function LanguageAlbumModal({
     fetchedRef.current = true;
 
     const run = async () => {
+      // ── Step 0: Load preloaded songs instantly from sessionStorage ──────────
+      const preloaded = getPreloadedSongs(language);
+      if (preloaded.length > 0) {
+        for (const s of preloaded) seenIds.current.add(s.id);
+        setSongs(preloaded);
+        setTotalFetched(preloaded.length);
+        const withArt = preloaded.filter((s) => s.albumArt);
+        if (withArt.length > 0) setCoverArt(withArt[0].albumArt!);
+        setLoadingCover(false);
+        setLoadingMore(true); // continue fetching more in background
+      }
+
       // ── Step 1: Fetch cover art from the best recognisable movie ──
-      const movieQuery = LANGUAGE_BEST_MOVIE[language] || `${displayName} superhit movie`;
-      try {
-        const coverRes = await api.searchSongs(movieQuery, 1, 5);
-        const coverItems = extractResults(coverRes).map(mapApiSong);
-        const withArt = coverItems.filter((s: Song) => s.albumArt);
-        if (withArt.length > 0) {
-          setCoverArt(withArt[0].albumArt!);
-        }
-      } catch { /* continue without cover */ }
+      if (!coverArt) {
+        const movieQuery = LANGUAGE_BEST_MOVIE[language] || `${displayName} superhit movie`;
+        try {
+          const coverRes = await api.searchSongs(movieQuery, 1, 5);
+          const coverItems = extractResults(coverRes).map(mapApiSong).map(cleanSong);
+          const withArt = coverItems.filter((s: Song) => s.albumArt);
+          if (withArt.length > 0) setCoverArt(withArt[0].albumArt!);
+        } catch { /* continue without cover */ }
+      }
       setLoadingCover(false);
       setLoadingMore(true);
 
@@ -426,13 +473,13 @@ function LanguageAlbumModal({
       const queries = getLanguageQueries(language);
 
       for (const q of queries) {
-        // Each query: paginate up to 20 pages (20 × 50 = 1000 per query) for thousands of songs
         for (let page = 1; page <= 20; page++) {
           try {
             if (page > 1) await sleep(200);
             const res = await api.searchSongs(q, page, 50);
             const items = extractResults(res)
               .map(mapApiSong)
+              .map(cleanSong)
               .filter((s: Song) => Boolean(s.audioUrl));
 
             const fresh: Song[] = [];
@@ -444,12 +491,10 @@ function LanguageAlbumModal({
             }
 
             if (fresh.length > 0) {
-              // If we still don't have a cover, grab one from these songs
               if (!coverArt) {
                 const withArt = fresh.filter((s) => s.albumArt);
                 if (withArt.length > 0) setCoverArt(withArt[0].albumArt!);
               }
-
               setSongs((prev) => {
                 const next = [...prev, ...fresh];
                 setTotalFetched(next.length);
@@ -457,10 +502,10 @@ function LanguageAlbumModal({
               });
             }
 
-            if (items.length < 50) break; // no more pages
+            if (items.length < 50) break;
           } catch { break; }
         }
-        await sleep(100); // brief pause between queries
+        await sleep(100);
       }
 
       setLoadingMore(false);
@@ -695,7 +740,7 @@ function CategoryCard({ label, query, onSelect }: CategoryCardProps) {
       for (const q of allQueries) {
         try {
           const res     = await api.searchSongs(q, 1, 30);
-          const fetched = extractResults(res).map(mapApiSong).filter((s: Song) => s.audioUrl);
+          const fetched = extractResults(res).map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
           for (const s of fetched) {
             if (s.id && !seen.has(s.id)) {
               seen.add(s.id);
@@ -813,7 +858,7 @@ function AlbumModal({
             if (page > 1) await sleep(200);
             const res   = await api.searchSongs(q, page, pageSize);
             const items = extractResults(res);
-            const songs = items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
+            const songs = items.map(mapApiSong).map(cleanSong).filter((s: Song) => Boolean(s.audioUrl));
 
             const albumSongs = songs.filter(
               (s: Song) =>
@@ -1019,7 +1064,7 @@ function ArtistModal({
             const res   = await api.searchSongs(q, page, pageSize);
             const items = extractResults(res);
             const songs = items
-              .map(mapApiSong)
+              .map(mapApiSong).map(cleanSong)
               .filter((s: Song) => Boolean(s.audioUrl));
 
             // Filter to songs by this artist (relaxed match)
@@ -1312,7 +1357,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
           for (const q of allQueries) {
             try {
               const res     = await api.searchSongs(q, 1, 50);
-              const fetched = extractResults(res).map(mapApiSong).filter((s: Song) => s.audioUrl);
+              const fetched = extractResults(res).map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
               for (const s of fetched) {
                 if (s.id && !seen.has(s.id)) {
                   seen.add(s.id);
@@ -1377,13 +1422,28 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
       const fetchAllPages = async () => {
         const seen = new Set<string>();
         let accumulated: Song[] = [];
-        const PAGE_LIMIT = 20; // up to 20 pages = 1000 songs
+        const PAGE_LIMIT = 20;
+
+        // ── Step 0: seed with preloaded songs if query matches a known key ──
+        // This covers: "anirudh", "arijit singh", "ar rahman", "sid sriram", etc.
+        const preloadKey = trimmed.toLowerCase();
+        const preloaded  = getPreloadedSongs(preloadKey);
+        if (preloaded.length > 0) {
+          for (const s of preloaded) {
+            if (s.id && !seen.has(s.id)) { seen.add(s.id); accumulated.push(s); }
+          }
+          // Show preloaded immediately so UI is never empty
+          setSongs(accumulated);
+          setAlbums(groupIntoAlbums(accumulated));
+          setArtists(groupIntoArtists(accumulated));
+          setLoading(false);
+        }
 
         for (let page = 1; page <= PAGE_LIMIT; page++) {
           try {
             if (page > 1) await sleep(200);
             const res     = await api.searchSongs(trimmed, page, PAGE_SIZE);
-            const results = extractResults(res).map(mapApiSong).filter((s: Song) => s.audioUrl);
+            const results = extractResults(res).map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
 
             const fresh: Song[] = [];
             for (const s of results) {
@@ -1477,7 +1537,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
       api
         .searchSongs(trimmed, pg, PAGE_SIZE)
         .then((res) => {
-          const results = extractResults(res).map(mapApiSong).filter((s: Song) => s.audioUrl);
+          const results = extractResults(res).map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
           setSongs((prev) => {
             const merged = [...prev, ...results];
             setAlbums(groupIntoAlbums(merged));

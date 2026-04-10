@@ -253,6 +253,165 @@ const ARTIST_DISCOVERY_QUERIES = [
   "parampara tandon songs",
 ];
 
+// ─── Background preload cache ─────────────────────────────────────────────────
+// Starts fetching high-demand queries the moment the module is imported (before
+// any component mounts). Results land in sessionStorage under "preload:<key>".
+// SearchPage / LanguageAlbumModal reads from here first → instant results.
+
+const PRELOAD_TARGETS: { key: string; queries: string[] }[] = [
+  {
+    key: "telugu",
+    queries: [
+      "trending telugu songs 2025", "telugu hits 2024", "telugu film songs 2023",
+      "tollywood songs 2022", "telugu chartbusters 2021", "telugu romantic songs",
+      "telugu folk songs", "telugu mass songs", "telugu melody songs",
+    ],
+  },
+  {
+    key: "hindi",
+    queries: [
+      "top hindi songs 2025", "superhit hindi songs 2024", "hindi film songs 2023",
+      "bollywood hits 2022", "hindi chartbusters 2021", "hindi romantic songs",
+      "hindi dance songs", "hindi sad songs", "hindi melody songs",
+    ],
+  },
+  {
+    key: "tamil",
+    queries: [
+      "trending tamil songs 2025", "tamil hits 2024", "kollywood songs 2023",
+      "tamil romantic songs", "tamil folk songs", "AR Rahman Tamil songs",
+    ],
+  },
+  // ── Music directors / singers that users frequently search ─────────────────
+  {
+    key: "anirudh",
+    queries: [
+      "anirudh ravichander songs", "anirudh hits", "anirudh latest songs 2025",
+      "anirudh best songs", "anirudh ravichander tamil", "anirudh telugu songs",
+    ],
+  },
+  {
+    key: "arijit singh",
+    queries: [
+      "arijit singh songs", "arijit singh hits 2024", "arijit singh bollywood",
+      "arijit singh romantic", "arijit singh latest songs 2025",
+    ],
+  },
+  {
+    key: "ar rahman",
+    queries: [
+      "ar rahman hit songs", "ar rahman tamil songs", "ar rahman hindi songs",
+      "ar rahman best songs", "ar rahman oscar songs",
+    ],
+  },
+  {
+    key: "sid sriram",
+    queries: [
+      "sid sriram songs", "sid sriram telugu", "sid sriram tamil",
+      "sid sriram latest 2025", "sid sriram hits",
+    ],
+  },
+  {
+    key: "shreya ghoshal",
+    queries: [
+      "shreya ghoshal songs", "shreya ghoshal hits", "shreya ghoshal latest 2025",
+      "shreya ghoshal bollywood",
+    ],
+  },
+  {
+    key: "sp balasubrahmanyam",
+    queries: [
+      "sp balasubrahmanyam songs", "spb telugu hits", "spb tamil songs",
+      "sp balasubrahmanyam hindi songs",
+    ],
+  },
+  {
+    key: "thaman",
+    queries: [
+      "ss thaman songs", "thaman telugu hits 2025", "thaman latest songs",
+    ],
+  },
+  {
+    key: "devi sri prasad",
+    queries: [
+      "devi sri prasad songs", "dsp telugu hits", "dsp latest songs 2025",
+    ],
+  },
+];
+
+const PRELOAD_SESSION_KEY = (k: string) => `preload_songs_v2_${k}`;
+const PRELOAD_MAX_PAGES   = 8;   // 8 pages × 50 = 400 songs per query in background
+const PRELOAD_BATCH_DELAY = 300; // ms between pages — light on API
+
+/**
+ * Read pre-loaded songs for a key.
+ * Returns [] immediately if not yet populated — caller should fall back to API.
+ */
+export function getPreloadedSongs(key: string): Song[] {
+  try {
+    const raw = sessionStorage.getItem(PRELOAD_SESSION_KEY(key.toLowerCase()));
+    if (!raw) return [];
+    return JSON.parse(raw) as Song[];
+  } catch { return []; }
+}
+
+/**
+ * Module-level fire-and-forget preloader.
+ * Runs in the background; stores results in sessionStorage.
+ * Called once when the module is first imported.
+ */
+let _preloadStarted = false;
+function startBackgroundPreload() {
+  if (_preloadStarted || typeof window === "undefined") return;
+  _preloadStarted = true;
+
+  // Delay the first call by 2 s so the initial homepage fetch gets priority
+  setTimeout(async () => {
+    for (const target of PRELOAD_TARGETS) {
+      const sk = PRELOAD_SESSION_KEY(target.key);
+      // Skip if already cached in this session
+      if (sessionStorage.getItem(sk)) continue;
+
+      const seen = new Set<string>();
+      const all: Song[] = [];
+
+      for (const query of target.queries) {
+        for (let page = 1; page <= PRELOAD_MAX_PAGES; page++) {
+          try {
+            if (page > 1) await new Promise(r => setTimeout(r, PRELOAD_BATCH_DELAY));
+            const res   = await api.searchSongs(query, page, 50);
+            const items = extractResults(res);
+            if (items.length === 0) break;
+            const songs = items.map(mapApiSong).map((s: Song) => ({
+              ...s,
+              title:  decodeHtml(s.title  || ""),
+              artist: decodeHtml((s as Song & { artist?: string }).artist || ""),
+              album:  decodeHtml((s as Song & { album?: string }).album   || ""),
+              movie:  decodeHtml((s as Song & { movie?: string }).movie   || ""),
+            } as Song)).filter((s: Song) => Boolean(s.audioUrl));
+            let added = 0;
+            for (const s of songs) {
+              if (s.id && !seen.has(s.id)) { seen.add(s.id); all.push(s); added++; }
+            }
+            if (items.length < 50 || added === 0) break;
+          } catch { break; }
+        }
+        await new Promise(r => setTimeout(r, 200));
+      }
+
+      if (all.length > 0) {
+        try { sessionStorage.setItem(sk, JSON.stringify(all)); } catch { /* quota */ }
+      }
+
+      // Pause 1 s between targets so we don't hammer the API
+      await new Promise(r => setTimeout(r, 1000));
+    }
+  }, 2000);
+}
+
+// Fire immediately on module import
+startBackgroundPreload();
+
 // ─── Section definitions ──────────────────────────────────────────────────────
 const SECTION_DEFS = [
   { title: `Hindi Hits ${CURRENT_YEAR}`,  pool: HINDI_YEAR_QUERIES,  seed: 11 },
@@ -292,6 +451,20 @@ interface HomePageProps {
 
 type RawSong = Song & { primaryArtists?: string; singers?: string };
 
+// ─── Decode HTML entities that sneak in via the API ──────────────────────────
+function decodeHtml(str: string): string {
+  if (!str) return str;
+  return str
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&apos;/g, "'")
+    .replace(/&#x27;/g, "'")
+    .replace(/&#x2F;/g, "/");
+}
+
 function getArtistName(song: Song): string {
   const raw   = song as RawSong;
   const field =
@@ -299,7 +472,7 @@ function getArtistName(song: Song): string {
     raw.singers ||
     (song as Song & { artist?: string }).artist ||
     "";
-  return field.split(",")[0].trim();
+  return decodeHtml(field.split(",")[0].trim());
 }
 
 // ─── Low-level fetch helpers ──────────────────────────────────────────────────
@@ -308,13 +481,24 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/** Sanitise a song object — decode HTML entities in text fields */
+function cleanSong(song: Song): Song {
+  return {
+    ...song,
+    title:  decodeHtml(song.title  || ""),
+    artist: decodeHtml((song as Song & { artist?: string }).artist || ""),
+    album:  decodeHtml((song as Song & { album?: string }).album   || ""),
+    movie:  decodeHtml((song as Song & { movie?: string }).movie   || ""),
+  } as Song;
+}
+
 async function fetchSection(query: string, limit = 50): Promise<Song[]> {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       if (attempt > 0) await sleep(1500);
       const res   = await api.searchSongs(query, 1, limit);
       const items = extractResults(res);
-      const songs = items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
+      const songs = items.map(mapApiSong).map(cleanSong).filter((s: Song) => Boolean(s.audioUrl));
       if (songs.length > 0) return songs;
     } catch { /* silent retry */ }
   }
@@ -330,7 +514,7 @@ async function fetchLanguageSongs(queries: string[], targetPerQuery = 50): Promi
         if (pg > 1) await sleep(200);
         const res   = await api.searchSongs(query, pg, targetPerQuery);
         const items = extractResults(res);
-        const songs = items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
+        const songs = items.map(mapApiSong).map(cleanSong).filter((s: Song) => Boolean(s.audioUrl));
         let added = 0;
         for (const s of songs) {
           if (s.id && !seen.has(s.id)) { seen.add(s.id); all.push(s); added++; }
@@ -365,7 +549,7 @@ async function fetchAllPages(query: string, maxPages = 60, seen?: Set<string>): 
       const res   = await api.searchSongs(query, page, 50);
       const items = extractResults(res);
       if (items.length === 0) break;
-      const songs = items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
+      const songs = items.map(mapApiSong).map(cleanSong).filter((s: Song) => Boolean(s.audioUrl));
       let added = 0;
       for (const s of songs) {
         if (s.id && !localSeen.has(s.id)) { localSeen.add(s.id); all.push(s); added++; }
@@ -443,7 +627,7 @@ async function fetchAllMovieSongs(query: string, albumTitle: string): Promise<So
       if (page > 1) await sleep(280);
       const res   = await api.searchSongs(query, page, 50);
       const items = extractResults(res);
-      let songs   = items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
+      let songs   = items.map(mapApiSong).map(cleanSong).filter((s: Song) => Boolean(s.audioUrl));
       const filtered = songs.filter(
         (s: Song) =>
           s.movie?.toLowerCase().includes(titleLower) ||
@@ -476,7 +660,7 @@ async function fetchCurrentYearFilmAlbums(
         if (pg > 1) await sleep(200);
         const res   = await api.searchSongs(query, pg, 50);
         const items = extractResults(res);
-        const songs = items.map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl));
+        const songs = items.map(mapApiSong).map(cleanSong).filter((s: Song) => Boolean(s.audioUrl));
         for (const song of songs) {
           const key = (song.movie || song.album || "").trim();
           if (!key || key.length < 3) continue;
@@ -522,7 +706,7 @@ async function loadArtistAlbums(
   const discoveryResults = await Promise.allSettled(
     ARTIST_DISCOVERY_QUERIES.map((q) =>
       api.searchSongs(q, 1, 50).then((res) =>
-        extractResults(res).map(mapApiSong).filter((s: Song) => Boolean(s.audioUrl))
+        extractResults(res).map(mapApiSong).map(cleanSong).filter((s: Song) => Boolean(s.audioUrl))
       )
     )
   );
