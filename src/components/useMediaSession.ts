@@ -1,23 +1,30 @@
 /**
  * useMediaSession.ts
  * ─────────────────────────────────────────────────────────────────────────────
- * Handles lock-screen / notification controls and hardware media keys.
+ * Handles lock-screen / notification controls, hardware media keys,
+ * audio focus (phone calls, other apps), and background buffering.
  *
  * KEY DESIGN:
- *  1. All action handlers are stored in refs — never stale, never re-registered.
- *  2. next/prev resolve the stream URL BEFORE setting audio.src so the audio
- *     element never tries to load a missing or expired URL.
- *  3. We pre-fetch and cache the NEXT song's stream URL while the current song
- *     is playing. When the lock-screen "next" button fires, the URL is already
- *     in the cache — no network round-trip needed under JS throttle.
+ *  1. All action handlers live in refs — never stale, registered ONCE.
+ *  2. A hidden <audio> element pre-buffers the NEXT song while the current
+ *     one plays. When lock-screen "next" fires, the data is already in the
+ *     browser's media cache — no network round-trip under JS throttle.
+ *  3. We listen to the main audio element's `pause` / `play` events to detect
+ *     OS audio-focus changes (phone calls, other apps). When the OS pauses us,
+ *     we sync React state so the notification drawer shows the correct button.
+ *  4. A keep-alive ping hits the backend every 4 minutes so Render's free
+ *     tier never cold-starts mid-session.
+ *  5. resolveStreamUrl + urlCache are exported for PlayerContext to share.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef } from "react";
 
 const BACKEND_URL =
   (import.meta as any).env?.VITE_API_BACKEND_URL ||
   "https://musicbackend-g2sp.onrender.com/api";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Song {
   id: string;
@@ -34,7 +41,10 @@ interface UseMediaSessionOptions {
   audioRef: React.RefObject<HTMLAudioElement | null>;
   currentSong: Song | null;
   isPlaying: boolean;
-  playAudioDirectly: (song: Song) => void;
+  /** Pause React state — called when OS steals audio focus (calls, other apps) */
+  pausePlayback: () => void;
+  /** Resume React state — called when OS returns audio focus */
+  resumePlayback: () => void;
   nextSong: () => void;
   prevSong: () => void;
   togglePlay: () => void;
@@ -42,46 +52,41 @@ interface UseMediaSessionOptions {
   queueIndexRef: React.RefObject<number>;
 }
 
-// ── URL cache: songId → resolved stream URL ───────────────────────────────────
-// Shared across hook instances (module-level) so it survives re-mounts.
-const urlCache = new Map<string, string>();
+// ─── Module-level URL cache (survives re-mounts) ──────────────────────────────
+export const urlCache = new Map<string, string>();
 
 /**
  * Resolve the best playable stream URL for a song.
- * Priority: cache → song.audioUrl (if non-empty) → backend /songs/{id} fetch.
- * Always stores the result in cache so the next call is instant.
+ * Order: memory cache → song.audioUrl → backend fetch.
+ * Always stores the resolved URL in cache.
  */
-async function resolveStreamUrl(song: Song): Promise<string | null> {
+export async function resolveStreamUrl(song: Song): Promise<string | null> {
   if (urlCache.has(song.id)) return urlCache.get(song.id)!;
 
-  // Use the song's own audioUrl if it's a real HTTP URL
   if (song.audioUrl && song.audioUrl.startsWith("http")) {
     urlCache.set(song.id, song.audioUrl);
     return song.audioUrl;
   }
 
-  // Fetch fresh details from the backend
   try {
     const res = await fetch(`${BACKEND_URL}/songs/${song.id}`);
     if (!res.ok) return null;
     const json = await res.json();
 
-    // Walk the response shape to find downloadUrl
-    const data = json?.data;
+    const data     = json?.data;
     const songData = Array.isArray(data) ? data[0] : data;
     if (!songData) return null;
 
-    const downloadUrl = songData.downloadUrl || songData.audioUrl || songData.url;
+    const downloadUrl = songData.downloadUrl ?? songData.audioUrl ?? songData.url;
     let url: string | null = null;
 
     if (Array.isArray(downloadUrl)) {
-      // JioSaavn: [{quality:"320kbps", url:"..."}, ...] — pick highest quality
       const sorted = [...downloadUrl].sort((a, b) => {
-        const qa = parseInt(a.quality) || 0;
-        const qb = parseInt(b.quality) || 0;
+        const qa = parseInt(String(a.quality)) || 0;
+        const qb = parseInt(String(b.quality)) || 0;
         return qb - qa;
       });
-      url = sorted[0]?.url || null;
+      url = sorted[0]?.url ?? null;
     } else if (typeof downloadUrl === "string" && downloadUrl.startsWith("http")) {
       url = downloadUrl;
     }
@@ -93,17 +98,58 @@ async function resolveStreamUrl(song: Song): Promise<string | null> {
   }
 }
 
-/** Pre-warm the cache for a song without blocking. Fire-and-forget. */
-function prefetchUrl(song: Song | undefined) {
-  if (!song || urlCache.has(song.id)) return;
-  resolveStreamUrl(song).catch(() => {/* silent */});
+// ─── Hidden buffer element — pre-loads next song's audio data ─────────────────
+// One element shared across all hook instances via module scope.
+let bufferAudio: HTMLAudioElement | null = null;
+
+function getBufferAudio(): HTMLAudioElement {
+  if (!bufferAudio) {
+    bufferAudio = new Audio();
+    bufferAudio.preload = "auto";
+    bufferAudio.volume  = 0;
+    bufferAudio.muted   = true;
+    (bufferAudio as any).disableRemotePlayback = true;
+  }
+  return bufferAudio;
 }
+
+function prefetchAndBuffer(song: Song | undefined) {
+  if (!song) return;
+  resolveStreamUrl(song).then((url) => {
+    if (!url) return;
+    const el = getBufferAudio();
+    if (el.src === url) return; // already buffering this URL
+    el.src     = url;
+    el.preload = "auto";
+    el.load();  // loads/buffers but never plays
+  }).catch(() => {});
+}
+
+// ─── Keep-alive: ping /health every 4 min to prevent Render cold starts ───────
+let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
+
+function startKeepAlive() {
+  if (keepAliveTimer) return;
+  fetch(`${BACKEND_URL}/health`).catch(() => {});
+  keepAliveTimer = setInterval(
+    () => fetch(`${BACKEND_URL}/health`).catch(() => {}),
+    4 * 60 * 1000
+  );
+}
+function stopKeepAlive() {
+  if (!keepAliveTimer) return;
+  clearInterval(keepAliveTimer);
+  keepAliveTimer = null;
+}
+
+// ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useMediaSession({
   audioRef,
   currentSong,
   isPlaying,
-  playAudioDirectly,
+  pausePlayback,
+  resumePlayback,
   nextSong,
   prevSong,
   togglePlay,
@@ -111,34 +157,82 @@ export function useMediaSession({
   queueIndexRef,
 }: UseMediaSessionOptions) {
 
-  // ── Keep all callbacks in refs so handlers are never stale ────────────────
-  const nextSongRef          = useRef(nextSong);
-  const prevSongRef          = useRef(prevSong);
-  const togglePlayRef        = useRef(togglePlay);
-  const playAudioDirectlyRef = useRef(playAudioDirectly);
-  const isPlayingRef         = useRef(isPlaying);
+  // Keep all callbacks in refs so handlers are never stale
+  const nextSongRef   = useRef(nextSong);
+  const prevSongRef   = useRef(prevSong);
+  const togglePlayRef = useRef(togglePlay);
+  const pauseRef      = useRef(pausePlayback);
+  const resumeRef     = useRef(resumePlayback);
+  const isPlayingRef  = useRef(isPlaying);
 
-  useEffect(() => { nextSongRef.current          = nextSong;        }, [nextSong]);
-  useEffect(() => { prevSongRef.current          = prevSong;        }, [prevSong]);
-  useEffect(() => { togglePlayRef.current        = togglePlay;      }, [togglePlay]);
-  useEffect(() => { playAudioDirectlyRef.current = playAudioDirectly; }, [playAudioDirectly]);
-  useEffect(() => { isPlayingRef.current         = isPlaying;       }, [isPlaying]);
+  useEffect(() => { nextSongRef.current   = nextSong;        }, [nextSong]);
+  useEffect(() => { prevSongRef.current   = prevSong;        }, [prevSong]);
+  useEffect(() => { togglePlayRef.current = togglePlay;      }, [togglePlay]);
+  useEffect(() => { pauseRef.current      = pausePlayback;   }, [pausePlayback]);
+  useEffect(() => { resumeRef.current     = resumePlayback;  }, [resumePlayback]);
+  useEffect(() => { isPlayingRef.current  = isPlaying;       }, [isPlaying]);
 
-  // ── Pre-fetch next song URL whenever the current song or queue changes ─────
-  // This runs while the current song is playing so that by the time the user
-  // (or lock-screen control) hits "next", the URL is already cached and the
-  // audio element can start instantly without a network round-trip.
+  // ── Keep-alive: start when playing, stop when paused/stopped ─────────────
+  useEffect(() => {
+    if (isPlaying) startKeepAlive();
+    else           stopKeepAlive();
+  }, [isPlaying]);
+
+  // ── Pre-buffer next song whenever current song or queue changes ───────────
+  // Runs while the current song plays — by the time screen locks or the user
+  // hits "next", audio data is already in the browser's media cache.
   useEffect(() => {
     const q   = queueRef.current;
     const idx = queueIndexRef.current;
     if (!q || q.length === 0) return;
 
-    // Pre-fetch next AND prev so both skip directions are instant
     const nextIdx = (idx + 1) % q.length;
     const prevIdx = (idx - 1 + q.length) % q.length;
-    prefetchUrl(q[nextIdx]);
-    if (nextIdx !== prevIdx) prefetchUrl(q[prevIdx]);
+
+    prefetchAndBuffer(q[nextIdx]);                              // buffer next
+    if (prevIdx !== nextIdx) resolveStreamUrl(q[prevIdx]).catch(() => {}); // warm prev
   }, [currentSong?.id, queueRef, queueIndexRef]);
+
+  // ── Audio focus: handle OS-initiated pause/play (calls, other apps) ───────
+  // When a phone call comes in, the OS pauses the audio element directly.
+  // We detect this via the `pause` event and sync React state so the
+  // notification drawer and lock-screen both show the correct play button.
+  // When the call ends, `play` fires and we resume.
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    let osPaused = false; // tracks whether OS (not us) caused the pause
+
+    const handlePause = () => {
+      // Only react if React thinks we're playing — means OS stole focus
+      if (isPlayingRef.current) {
+        osPaused = true;
+        pauseRef.current();
+        if ("mediaSession" in navigator) {
+          navigator.mediaSession.playbackState = "paused";
+        }
+      }
+    };
+
+    const handlePlay = () => {
+      // Only react if we were OS-paused — don't double-fire on normal play
+      if (osPaused) {
+        osPaused = false;
+        resumeRef.current();
+        if ("mediaSession" in navigator) {
+          navigator.mediaSession.playbackState = "playing";
+        }
+      }
+    };
+
+    audio.addEventListener("pause", handlePause);
+    audio.addEventListener("play",  handlePlay);
+    return () => {
+      audio.removeEventListener("pause", handlePause);
+      audio.removeEventListener("play",  handlePlay);
+    };
+  }, [audioRef]);
 
   // ── 1. Metadata ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -166,7 +260,7 @@ export function useMediaSession({
     navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
   }, [isPlaying]);
 
-  // ── 3. Action handlers — registered ONCE, read from refs ─────────────────
+  // ── 3. Action handlers — registered ONCE, all live values via refs ────────
   useEffect(() => {
     if (!("mediaSession" in navigator)) return;
 
@@ -174,64 +268,61 @@ export function useMediaSession({
       try { navigator.mediaSession.setActionHandler(action, handler); } catch { /* unsupported */ }
     };
 
-    // play / pause
+    // play — notification drawer "play" button
     trySet("play", () => {
       const audio = audioRef.current;
       if (!audio) return;
       audio.play().catch(() => {});
       navigator.mediaSession.playbackState = "playing";
-      if (!isPlayingRef.current) togglePlayRef.current();
+      if (!isPlayingRef.current) resumeRef.current();
     });
 
+    // pause — notification drawer "pause" button
     trySet("pause", () => {
       const audio = audioRef.current;
       if (!audio) return;
       audio.pause();
       navigator.mediaSession.playbackState = "paused";
-      if (isPlayingRef.current) togglePlayRef.current();
+      if (isPlayingRef.current) pauseRef.current();
     });
 
+    // stop
     trySet("stop", () => {
       const audio = audioRef.current;
       if (!audio) return;
       audio.pause();
       navigator.mediaSession.playbackState = "paused";
-      if (isPlayingRef.current) togglePlayRef.current();
+      if (isPlayingRef.current) pauseRef.current();
     });
 
-    // nexttrack ── resolve URL first (usually already cached), then play
+    // nexttrack — URL already in cache + audio data already buffered → instant
     trySet("nexttrack", () => {
       const q   = queueRef.current;
       const idx = queueIndexRef.current;
       if (!q || q.length === 0) return;
 
-      const nextIdx    = (idx + 1) % q.length;
+      const nextIdx      = (idx + 1) % q.length;
       const nextSongItem = q[nextIdx];
       if (!nextSongItem) return;
 
-      // Kick off React state sync immediately (updates UI when screen unlocks)
-      nextSongRef.current();
+      nextSongRef.current(); // React state sync (UI updates on screen unlock)
 
-      // Resolve URL and play — cache hit is synchronous-equivalent
       resolveStreamUrl(nextSongItem).then((url) => {
         const audio = audioRef.current;
         if (!audio || !url) return;
-        // Inline play so we don't wait for React re-render
         audio.src = url;
         audio.load();
         audio.play().catch(() => {});
         navigator.mediaSession.playbackState = "playing";
-        // Also pre-warm the one after next
-        const afterNext = (nextIdx + 1) % q.length;
-        prefetchUrl(q[afterNext]);
+        if (!isPlayingRef.current) resumeRef.current();
+        // Pre-buffer the one after next
+        prefetchAndBuffer(q[(nextIdx + 1) % q.length]);
       });
     });
 
-    // previoustrack ── same pattern
+    // previoustrack
     trySet("previoustrack", () => {
       const audio = audioRef.current;
-
-      // If more than 3 s in, restart current track without a fetch
       if (audio && audio.currentTime > 3) {
         audio.currentTime = 0;
         audio.play().catch(() => {});
@@ -242,11 +333,11 @@ export function useMediaSession({
       const idx = queueIndexRef.current;
       if (!q || q.length === 0) return;
 
-      const prevIdx    = (idx - 1 + q.length) % q.length;
+      const prevIdx      = (idx - 1 + q.length) % q.length;
       const prevSongItem = q[prevIdx];
       if (!prevSongItem) return;
 
-      prevSongRef.current(); // React state sync
+      prevSongRef.current();
 
       resolveStreamUrl(prevSongItem).then((url) => {
         const a = audioRef.current;
@@ -255,6 +346,7 @@ export function useMediaSession({
         a.load();
         a.play().catch(() => {});
         navigator.mediaSession.playbackState = "playing";
+        if (!isPlayingRef.current) resumeRef.current();
       });
     });
 
@@ -266,9 +358,9 @@ export function useMediaSession({
         try {
           if (audio.duration && isFinite(audio.duration)) {
             navigator.mediaSession.setPositionState({
-              duration:    audio.duration,
+              duration:     audio.duration,
               playbackRate: audio.playbackRate,
-              position:    Math.min(details.seekTime, audio.duration),
+              position:     Math.min(details.seekTime, audio.duration),
             });
           }
         } catch { /* ignore */ }
@@ -288,7 +380,7 @@ export function useMediaSession({
       }
     });
 
-    // Re-assert playback state when screen unlocks (iOS resets handlers)
+    // Re-assert state on visibility change (iOS drops handlers on lock/unlock)
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
         navigator.mediaSession.playbackState = isPlayingRef.current ? "playing" : "paused";
@@ -301,9 +393,9 @@ export function useMediaSession({
       (["play","pause","stop","nexttrack","previoustrack","seekto","seekbackward","seekforward"] as MediaSessionAction[])
         .forEach((a) => trySet(a, null));
     };
-  }, []); // empty deps intentional — all live state read from refs
+  }, []); // empty deps intentional — all live state via refs
 
-  // ── 4. Position state ─────────────────────────────────────────────────────
+  // ── 4. Position state — keeps OS scrubber accurate ───────────────────────
   useEffect(() => {
     if (!("mediaSession" in navigator)) return;
     const audio = audioRef.current;
@@ -328,7 +420,7 @@ export function useMediaSession({
     };
   }, [audioRef, currentSong]);
 
-  // ── 5. Audio element attributes for background / lock-screen playback ─────
+  // ── 5. Audio element attributes for lock-screen / background playback ─────
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -338,6 +430,3 @@ export function useMediaSession({
     (audio as any).disableRemotePlayback = false;
   }, [audioRef, currentSong]);
 }
-
-// Export so PlayerContext can also use the same cache when resolving URLs
-export { resolveStreamUrl, urlCache };

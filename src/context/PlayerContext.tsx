@@ -8,9 +8,8 @@ import React, {
   ReactNode,
 } from "react";
 import { Song } from "@/data/songs";
-import { api, extractAudioUrl } from "@/services/api";
-import { useMediaSession } from "../components/useMediaSession";
-
+import { api } from "@/services/api";
+import { useMediaSession, resolveStreamUrl } from "../components/useMediaSession";
 interface PlayerContextType {
   currentSong: Song | null;
   isPlaying: boolean;
@@ -20,7 +19,6 @@ interface PlayerContextType {
   duration: number;
   volume: number;
   showPlayer: boolean;
-  recentlyPlayed: Song[];
   shuffle: boolean;
   repeat: "off" | "one" | "all";
   isRadioMode: boolean;
@@ -40,44 +38,16 @@ interface PlayerContextType {
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
 
-const RECENTLY_PLAYED_KEY = "rw_recently_played";
-const RECENTLY_PLAYED_TS_KEY = "rw_recent_ts";
 const FAVORITES_KEY = "rw_favorites";
 
-function loadRecentTimestamps(): Record<string, number> {
-  try {
-    const raw = localStorage.getItem(RECENTLY_PLAYED_TS_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
-}
-
-// ─── Fetch a fresh audioUrl for a song that has none ─────────────────────────
+// ─── Resolve a fresh audioUrl using the shared module-level cache ─────────────
+// Uses resolveStreamUrl from useMediaSession so the URL cache is shared between
+// PlayerContext and the lock-screen handlers — no duplicate fetches.
 async function resolveSongAudioUrl(song: Song): Promise<Song> {
-  if (song.audioUrl) return song;
+  if (song.audioUrl && song.audioUrl.startsWith("http")) return song;
   try {
-    const res = await api.getSongById(song.id);
-    const data = res?.data ?? res;
-    const audioUrl = extractAudioUrl(data);
-    if (audioUrl) {
-      const resolved = { ...song, audioUrl };
-      // Cache the resolved URL back into localStorage liked songs so
-      // future plays work even when the backend is down (e.g. 502 errors).
-      try {
-        const LIKED_KEY = "rw_liked_songs_v2";
-        const raw = localStorage.getItem(LIKED_KEY);
-        if (raw) {
-          const songs: Song[] = JSON.parse(raw);
-          const idx = songs.findIndex((s) => s.id === song.id);
-          if (idx >= 0) {
-            songs[idx] = { ...songs[idx], audioUrl };
-            localStorage.setItem(LIKED_KEY, JSON.stringify(songs));
-          }
-        }
-      } catch { /* storage write failure is non-fatal */ }
-      return resolved;
-    }
+    const url = await resolveStreamUrl(song);
+    if (url) return { ...song, audioUrl: url };
   } catch (err) {
     console.error("[PlayerContext] Failed to fetch audioUrl for", song.id, err);
   }
@@ -93,7 +63,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [duration, setDuration] = useState(0);
   const [volume, setVolumeState] = useState(0.7);
   const [showPlayer, setShowPlayer] = useState(false);
-  const [recentlyPlayed, setRecentlyPlayed] = useState<Song[]>([]);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [shuffle, setShuffle] = useState(false);
   const [repeat, setRepeat] = useState<"off" | "one" | "all">("off");
@@ -105,7 +74,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const queueIndexRef = useRef(0);
   const shuffleRef = useRef(false);
   const repeatRef = useRef<"off" | "one" | "all">("off");
-  const recentTimestampsRef = useRef<Record<string, number>>(loadRecentTimestamps());
   const intendToPlayRef = useRef(false);
   const songEndingRef = useRef(false);
   const isTransitioningRef = useRef(false);
@@ -114,8 +82,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const stallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPlayedSongRef = useRef<Song | null>(null);
   const radioFetchingRef = useRef(false);
-  // FIX: libraryQueueRef now only prevents RADIO mode — it no longer stops playback.
-  // Library queues now loop just like regular queues when they reach the end.
   const libraryQueueRef = useRef(false);
 
   useEffect(() => { queueRef.current = queue; }, [queue]);
@@ -130,12 +96,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (saved) { try { setFavorites(JSON.parse(saved)); } catch { /**/ } }
   }, []);
   useEffect(() => { localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites)); }, [favorites]);
-
-  // Load recently played
-  useEffect(() => {
-    const saved = localStorage.getItem(RECENTLY_PLAYED_KEY);
-    if (saved) { try { setRecentlyPlayed(JSON.parse(saved)); } catch { /**/ } }
-  }, []);
 
   // Re-acquire audio on visibility change (iOS drops audio context on lock)
   useEffect(() => {
@@ -163,45 +123,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, []);
 
-  const addToRecentlyPlayedInternal = useCallback((song: Song) => {
-    setRecentlyPlayed((prev) => {
-      const filtered = prev.filter((s) => s.id !== song.id);
-      const updated = [song, ...filtered].slice(0, 50);
-      localStorage.setItem(RECENTLY_PLAYED_KEY, JSON.stringify(updated));
-      const ts = { ...recentTimestampsRef.current, [song.id]: Date.now() };
-      recentTimestampsRef.current = ts;
-      localStorage.setItem(RECENTLY_PLAYED_TS_KEY, JSON.stringify(ts));
-      return updated;
-    });
-  }, []);
-
-  const updateMediaSession = useCallback((song: Song, playing: boolean, pos = 0, dur = 0) => {
-    if (!("mediaSession" in navigator)) return;
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: song.title,
-      artist: song.artist,
-      album: (song as any).movie || (song as any).album || "",
-      artwork: song.albumArt
-        ? [
-            { src: song.albumArt, sizes: "96x96", type: "image/jpeg" },
-            { src: song.albumArt, sizes: "128x128", type: "image/jpeg" },
-            { src: song.albumArt, sizes: "192x192", type: "image/jpeg" },
-            { src: song.albumArt, sizes: "256x256", type: "image/jpeg" },
-            { src: song.albumArt, sizes: "384x384", type: "image/jpeg" },
-            { src: song.albumArt, sizes: "512x512", type: "image/jpeg" },
-          ]
-        : [],
-    });
-    navigator.mediaSession.playbackState = playing ? "playing" : "paused";
-    if (dur > 0 && isFinite(dur)) {
-      try {
-        navigator.mediaSession.setPositionState({
-          duration: dur,
-          playbackRate: 1,
-          position: Math.min(pos, dur),
-        });
-      } catch { /**/ }
-    }
+  const addToRecentlyPlayedInternal = useCallback((_song: Song) => {
+    // Recently played is managed by LibraryContext (no localStorage here)
   }, []);
 
   // ── Radio: fetch more songs based on the last-played song ────────────────
@@ -502,23 +425,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    // loadedmetadata fires reliably before canplay and is the best source for duration
     const handleLoadedMetadata = () => {
       if (!isNaN(audio.duration) && isFinite(audio.duration) && audio.duration > 0) {
         setDuration(audio.duration);
-        // FIX: Update the recently-played entry for the current song with the real
-        // duration from the audio element. Song objects from liked songs / API often
-        // have duration:0 or a stale value — this ensures the library view shows the
-        // correct time that matches the screenshot / seek bar.
-        const actualDuration = audio.duration;
-        setRecentlyPlayed((prev) => {
-          if (prev.length === 0) return prev;
-          const top = prev[0];
-          if (!top || (top.duration && Math.abs(top.duration - actualDuration) < 2)) return prev;
-          const updated = [{ ...top, duration: actualDuration }, ...prev.slice(1)];
-          localStorage.setItem(RECENTLY_PLAYED_KEY, JSON.stringify(updated));
-          return updated;
-        });
       }
     };
 
@@ -533,16 +442,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     };
 
     const handlePause = () => {
+      // Ignore pauses fired during song transitions (src swap)
       if (isTransitioningRef.current) return;
-      if (intendToPlayRef.current) {
-        audio.play().catch(() => {
-          setIsPlaying(false);
-          if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
-        });
-        return;
+      // If we intended to play (intendToPlayRef), this pause came from the OS
+      // (phone call, another app). Don't fight it — sync React state.
+      // useMediaSession's audio focus listener will handle the resumePlayback call.
+      if (!intendToPlayRef.current) {
+        setIsPlaying(false);
+        if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
       }
-      setIsPlaying(false);
-      if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
     };
 
     const handleWaiting = () => {
@@ -628,15 +536,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const startPlayback = (url: string) => {
       if (cancelled) return;
       const alreadyLoaded = audio.src === url || audio.src.endsWith(url);
-      if (alreadyLoaded && !audio.paused) {
-        updateMediaSession(currentSong, true, audio.currentTime, audio.duration);
-        return;
-      }
+      if (alreadyLoaded && !audio.paused) return;
+
       stallRetryRef.current = 0;
       setProgressState(0);
-
-      // Seed duration immediately from song metadata so the seek bar isn't broken
-      // while the browser loads the stream. Will be overwritten by loadedmetadata.
       const seedDuration =
         typeof currentSong.duration === "number" && currentSong.duration > 1
           ? currentSong.duration
@@ -656,7 +559,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           setIsPlaying(false);
           intendToPlayRef.current = false;
         });
-      updateMediaSession(currentSong, true, 0, seedDuration || 0);
     };
 
     if (currentSong.audioUrl) {
@@ -698,11 +600,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       intendToPlayRef.current = false;
       audioRef.current.pause();
     }
-    if (currentSong) {
-      const dur = audioRef.current.duration;
-      const pos = audioRef.current.currentTime;
-      updateMediaSession(currentSong, isPlaying, pos, dur);
-    }
   }, [isPlaying]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Volume changes
@@ -712,12 +609,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const togglePlay = useCallback(() => { setIsPlaying((p) => !p); }, []);
 
+  // These two set isPlaying WITHOUT touching audio.play()/audio.pause() directly.
+  // Used by useMediaSession to sync React state when the OS pauses/resumes audio
+  // (phone calls, other apps taking audio focus) without causing double-play/pause.
+  const pausePlayback  = useCallback(() => { setIsPlaying(false); intendToPlayRef.current = false; }, []);
+  const resumePlayback = useCallback(() => { setIsPlaying(true);  intendToPlayRef.current = true;  }, []);
+
   // ── MediaSession ─────────────────────────────────────────────────────────
   useMediaSession({
     audioRef,
     currentSong,
     isPlaying,
-    playAudioDirectly,
+    pausePlayback,
+    resumePlayback,
     nextSong: nextSongInternal,
     prevSong: () => {
       const q = queueRef.current;
@@ -889,7 +793,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     <PlayerContext.Provider
       value={{
         currentSong, isPlaying, queue, queueIndex, progress, duration,
-        volume, showPlayer, recentlyPlayed, shuffle, repeat, isRadioMode,
+        volume, showPlayer, shuffle, repeat, isRadioMode,
         playSong, togglePlay, nextSong, prevSong,
         setProgress, setVolume, setShowPlayer,
         toggleFavorite, isFavorite, addToQueue,
