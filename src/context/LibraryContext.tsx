@@ -43,29 +43,11 @@ interface LibraryContextType {
 
 // ─── Storage keys ──────────────────────────────────────────────────────────────
 
-const LIKED_KEY           = "rw_liked_songs_v2";
-const PLAYLISTS_KEY       = "rw_playlists_v2";
-const RECENTLY_PLAYED_KEY = "rw_recently_played";
+const PLAYLISTS_KEY          = "rw_playlists_v2";
+const RECENTLY_PLAYED_KEY    = "rw_recently_played";
 const RECENTLY_PLAYED_TS_KEY = "rw_recent_ts";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
-
-function loadLikedFromStorage(): Song[] {
-  try {
-    const raw = localStorage.getItem(LIKED_KEY);
-    if (!raw) return [];
-    const songs: Song[] = JSON.parse(raw);
-    // Keep cached audioUrls — PlayerContext will re-resolve them on play if expired.
-    // Stripping them here causes playback to fail entirely when the backend is down.
-    return songs;
-  } catch {
-    return [];
-  }
-}
-
-function saveLikedToStorage(songs: Song[]) {
-  localStorage.setItem(LIKED_KEY, JSON.stringify(songs));
-}
 
 function loadPlaylistsFromStorage(): StoredPlaylist[] {
   try {
@@ -123,7 +105,6 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   // ── Boot: load from localStorage ────────────────────────────────────────────
 
   useEffect(() => {
-    setLikedSongs(loadLikedFromStorage());
     setStoredPlaylists(loadPlaylistsFromStorage());
 
     const rpRaw = localStorage.getItem(RECENTLY_PLAYED_KEY);
@@ -147,37 +128,12 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       if (raw.length === 0) return;
 
       const serverSongs: Song[] = raw.map(backendDtoToSong).filter((s) => !!s.id);
-
-      setLikedSongs((local) => {
-        const localMap = new Map(local.map((s) => [s.id, s]));
-        const merged = serverSongs.map((serverSong) => {
-          const localSong = localMap.get(serverSong.id);
-          if (!localSong) return serverSong;
-          return {
-            ...serverSong,
-            // FIX: prefer whichever audioUrl is non-empty — server may now have it
-            // (from extractAudioUrl fix above), local may have a cached URL
-            audioUrl: serverSong.audioUrl || localSong.audioUrl || "",
-            albumArt: serverSong.albumArt || localSong.albumArt || "",
-            artist:   localSong.artist    || serverSong.artist  || "",
-            title:    localSong.title     || serverSong.title   || "",
-          };
-        });
-
-        // Keep any local songs not yet synced to server
-        local.forEach((s) => {
-          if (!merged.find((m) => m.id === s.id)) merged.push(s);
-        });
-
-        saveLikedToStorage(merged);
-        return merged;
-      });
-    }).catch(() => { /* network error — keep local */ });
+      setLikedSongs(serverSongs);
+    }).catch(() => { /* network error — keep in-memory state */ });
   }, [user?.id]);
 
-  // ── Keep storage in sync ─────────────────────────────────────────────────────
+  // ── Keep playlists storage in sync ───────────────────────────────────────────
 
-  useEffect(() => { saveLikedToStorage(likedSongs); }, [likedSongs]);
   useEffect(() => { savePlaylistsToStorage(storedPlaylists); }, [storedPlaylists]);
 
   // ── Public reload helpers ────────────────────────────────────────────────────
@@ -191,33 +147,12 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
             ? res.data
             : [];
         if (raw.length > 0) {
-          // FIX: merge with existing local songs to preserve cached audioUrls
           const serverSongs = raw.map(backendDtoToSong).filter((s) => !!s.id);
-          setLikedSongs((local) => {
-            const localMap = new Map(local.map((s) => [s.id, s]));
-            const merged = serverSongs.map((serverSong) => {
-              const localSong = localMap.get(serverSong.id);
-              if (!localSong) return serverSong;
-              return {
-                ...serverSong,
-                audioUrl: serverSong.audioUrl || localSong.audioUrl || "",
-                albumArt: serverSong.albumArt || localSong.albumArt || "",
-                artist:   localSong.artist    || serverSong.artist  || "",
-                title:    localSong.title     || serverSong.title   || "",
-              };
-            });
-            local.forEach((s) => {
-              if (!merged.find((m) => m.id === s.id)) merged.push(s);
-            });
-            saveLikedToStorage(merged);
-            return merged;
-          });
+          setLikedSongs(serverSongs);
         }
-      }).catch(() => {
-        setLikedSongs(loadLikedFromStorage());
-      });
+      }).catch(() => { /* keep current in-memory list */ });
     } else {
-      setLikedSongs(loadLikedFromStorage());
+      setLikedSongs([]);
     }
   }, [user]);
 
