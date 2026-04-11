@@ -4,6 +4,7 @@ import { api, extractResults } from "@/services/api";
 import { SongRow } from "@/components/SongRow";
 import { usePlayer } from "@/context/PlayerContext";
 import { useAuth } from "@/context/AuthContext";
+import { useLibrary } from "@/context/LibraryContext";
 import {
   Music2,
   User,
@@ -1551,8 +1552,8 @@ homePagePrefetcher.start();
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function HomePage({ onRequireAuth }: HomePageProps) {
-  const { user, logout }   = useAuth();
-  const { recentlyPlayed } = usePlayer();
+  const { user, logout }     = useAuth();
+  const { recentlyPlayed }   = useLibrary();
 
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showUserMenu, setShowUserMenu]   = useState(false);
