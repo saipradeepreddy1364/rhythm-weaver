@@ -29,18 +29,6 @@ interface LibraryPageProps {
 
 type Tab = "liked" | "recent" | "playlists" | { type: "playlist"; id: string };
 
-function filterRecent(songs: Song[]): Song[] {
-  const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
-  const cutoff = Date.now() - THREE_DAYS_MS;
-  const timestamps: Record<string, number> = JSON.parse(
-    localStorage.getItem("rw_recent_ts") ?? "{}"
-  );
-  return songs.filter((s) => {
-    const ts = timestamps[s.id];
-    if (!ts) return true;
-    return ts >= cutoff;
-  });
-}
 
 export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
   const { user, logout } = useAuth();
@@ -75,7 +63,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
     }
   }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const recentFiltered = filterRecent(recentlyPlayed);
+  const recentFiltered = recentlyPlayed;
 
   const handleRequireAuth = () => {
     onRequireAuth();
@@ -425,7 +413,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
               <>
                 <div className="flex items-center justify-between mb-3 mt-1">
                   <p className="text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>
-                    Last 3 days · {recentFiltered.length} songs
+                    {recentFiltered.length} songs played this session
                   </p>
                   <button
                     onClick={() => playSong(recentFiltered[0], recentFiltered, true)}
