@@ -41,31 +41,13 @@ interface LibraryContextType {
   loadPlaylists: () => void;
 }
 
-// ─── Storage keys ──────────────────────────────────────────────────────────────
+// ─── Storage keys (recently played only — liked songs live on server) ──────────
 
-const LIKED_KEY           = "rw_liked_songs_v2";
-const PLAYLISTS_KEY       = "rw_playlists_v2";
-const RECENTLY_PLAYED_KEY = "rw_recently_played";
+const PLAYLISTS_KEY          = "rw_playlists_v2";
+const RECENTLY_PLAYED_KEY    = "rw_recently_played";
 const RECENTLY_PLAYED_TS_KEY = "rw_recent_ts";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
-
-function loadLikedFromStorage(): Song[] {
-  try {
-    const raw = localStorage.getItem(LIKED_KEY);
-    if (!raw) return [];
-    const songs: Song[] = JSON.parse(raw);
-    // Keep cached audioUrls — PlayerContext will re-resolve them on play if expired.
-    // Stripping them here causes playback to fail entirely when the backend is down.
-    return songs;
-  } catch {
-    return [];
-  }
-}
-
-function saveLikedToStorage(songs: Song[]) {
-  localStorage.setItem(LIKED_KEY, JSON.stringify(songs));
-}
 
 function loadPlaylistsFromStorage(): StoredPlaylist[] {
   try {
@@ -85,27 +67,23 @@ function generateId(): string {
 }
 
 // ─── Map backend liked song DTO → Song shape ───────────────────────────────────
-// FIX: Use extractAudioUrl() to correctly handle JioSaavn's downloadUrl array format.
-// The old code did `dto.audioUrl || dto.downloadUrl || dto.url` but downloadUrl is
-// an ARRAY like [{quality, url}, ...] — so it always evaluated as truthy but gave
-// an object instead of a string, resulting in a broken/empty audioUrl on all liked songs.
 function backendDtoToSong(dto: any): Song {
-  // extractAudioUrl handles: array of {url, quality} (JioSaavn), plain string, or missing
   const audioUrl =
-    extractAudioUrl(dto) ||           // handles downloadUrl array
-    dto.audioUrl  ||                  // plain string field
-    dto.url       ||                  // fallback field
+    extractAudioUrl(dto) ||
+    dto.audioUrl  ||
+    dto.url       ||
     "";
 
   return {
-    id:       dto.songId   || dto.id   || "",
-    title:    dto.songTitle || dto.name || dto.title || dto.songId || "",
-    artist:   dto.artist   || dto.primaryArtists || dto.singers || "",
-    albumArt: dto.songImage || dto.albumArt || dto.image || (Array.isArray(dto.image) ? dto.image[dto.image.length - 1]?.url : "") || "",
+    id:       dto.songId    || dto.id    || "",
+    title:    dto.songTitle || dto.name  || dto.title || dto.songId || "",
+    artist:   dto.artist    || dto.primaryArtists || dto.singers || "",
+    albumArt: dto.songImage || dto.albumArt || dto.image ||
+              (Array.isArray(dto.image) ? dto.image[dto.image.length - 1]?.url : "") || "",
     audioUrl,
     duration: typeof dto.duration === "number" ? dto.duration : (parseInt(dto.duration) || 0),
-    album:    dto.album  || "",
-    movie:    dto.movie  || "",
+    album:    dto.album    || "",
+    movie:    dto.movie    || "",
     language: dto.language || "",
   } as Song;
 }
@@ -120,10 +98,10 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const [recentlyPlayed, setRecentlyPlayed]   = useState<Song[]>([]);
   const [storedPlaylists, setStoredPlaylists] = useState<StoredPlaylist[]>([]);
 
-  // ── Boot: load from localStorage ────────────────────────────────────────────
+  // ── Boot: load playlists + recently played from localStorage ────────────────
+  // Liked songs are NOT loaded from localStorage — they come from the server only.
 
   useEffect(() => {
-    setLikedSongs(loadLikedFromStorage());
     setStoredPlaylists(loadPlaylistsFromStorage());
 
     const rpRaw = localStorage.getItem(RECENTLY_PLAYED_KEY);
@@ -132,93 +110,66 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // ── When user logs in: fetch liked songs from backend and merge ──────────────
+  // ── When user logs in: fetch liked songs from backend with retry ─────────────
+  //
+  // Liked songs are server-only. No localStorage read/write for them.
+  // Retry handles Render free tier cold-start (backend returns 502 for ~15-30s
+  // after inactivity). Delays: 0s → 10s → 20s → 35s.
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      setLikedSongs([]);
+      return;
+    }
+    let cancelled = false;
 
+    const RETRY_DELAYS_MS = [0, 10_000, 20_000, 35_000];
+
+    const attemptFetch = async (attempt: number) => {
+      if (cancelled) return;
+      try {
+        const res = await api.getLikedSongs();
+        if (cancelled) return;
+
+        const raw: any[] = Array.isArray(res)
+          ? res
+          : Array.isArray(res?.data)
+            ? res.data
+            : [];
+
+        const serverSongs: Song[] = raw.map(backendDtoToSong).filter((s) => !!s.id);
+        setLikedSongs(serverSongs);
+      } catch {
+        if (cancelled) return;
+        const nextAttempt = attempt + 1;
+        if (nextAttempt < RETRY_DELAYS_MS.length) {
+          setTimeout(() => attemptFetch(nextAttempt), RETRY_DELAYS_MS[nextAttempt]);
+        }
+        // All retries exhausted — liked songs stay empty until next login/reload.
+      }
+    };
+
+    attemptFetch(0);
+    return () => { cancelled = true; };
+  }, [user?.id]);
+
+  // ── Keep playlists in localStorage ──────────────────────────────────────────
+
+  useEffect(() => { savePlaylistsToStorage(storedPlaylists); }, [storedPlaylists]);
+
+  // ── Public reload helpers ────────────────────────────────────────────────────
+
+  const loadLikedSongs = useCallback(() => {
+    if (!user) { setLikedSongs([]); return; }
     api.getLikedSongs().then((res) => {
       const raw: any[] = Array.isArray(res)
         ? res
         : Array.isArray(res?.data)
           ? res.data
           : [];
-
-      if (raw.length === 0) return;
-
-      const serverSongs: Song[] = raw.map(backendDtoToSong).filter((s) => !!s.id);
-
-      setLikedSongs((local) => {
-        const localMap = new Map(local.map((s) => [s.id, s]));
-        const merged = serverSongs.map((serverSong) => {
-          const localSong = localMap.get(serverSong.id);
-          if (!localSong) return serverSong;
-          return {
-            ...serverSong,
-            // FIX: prefer whichever audioUrl is non-empty — server may now have it
-            // (from extractAudioUrl fix above), local may have a cached URL
-            audioUrl: serverSong.audioUrl || localSong.audioUrl || "",
-            albumArt: serverSong.albumArt || localSong.albumArt || "",
-            artist:   localSong.artist    || serverSong.artist  || "",
-            title:    localSong.title     || serverSong.title   || "",
-          };
-        });
-
-        // Keep any local songs not yet synced to server
-        local.forEach((s) => {
-          if (!merged.find((m) => m.id === s.id)) merged.push(s);
-        });
-
-        saveLikedToStorage(merged);
-        return merged;
-      });
-    }).catch(() => { /* network error — keep local */ });
-  }, [user?.id]);
-
-  // ── Keep storage in sync ─────────────────────────────────────────────────────
-
-  useEffect(() => { saveLikedToStorage(likedSongs); }, [likedSongs]);
-  useEffect(() => { savePlaylistsToStorage(storedPlaylists); }, [storedPlaylists]);
-
-  // ── Public reload helpers ────────────────────────────────────────────────────
-
-  const loadLikedSongs = useCallback(() => {
-    if (user) {
-      api.getLikedSongs().then((res) => {
-        const raw: any[] = Array.isArray(res)
-          ? res
-          : Array.isArray(res?.data)
-            ? res.data
-            : [];
-        if (raw.length > 0) {
-          // FIX: merge with existing local songs to preserve cached audioUrls
-          const serverSongs = raw.map(backendDtoToSong).filter((s) => !!s.id);
-          setLikedSongs((local) => {
-            const localMap = new Map(local.map((s) => [s.id, s]));
-            const merged = serverSongs.map((serverSong) => {
-              const localSong = localMap.get(serverSong.id);
-              if (!localSong) return serverSong;
-              return {
-                ...serverSong,
-                audioUrl: serverSong.audioUrl || localSong.audioUrl || "",
-                albumArt: serverSong.albumArt || localSong.albumArt || "",
-                artist:   localSong.artist    || serverSong.artist  || "",
-                title:    localSong.title     || serverSong.title   || "",
-              };
-            });
-            local.forEach((s) => {
-              if (!merged.find((m) => m.id === s.id)) merged.push(s);
-            });
-            saveLikedToStorage(merged);
-            return merged;
-          });
-        }
-      }).catch(() => {
-        setLikedSongs(loadLikedFromStorage());
-      });
-    } else {
-      setLikedSongs(loadLikedFromStorage());
-    }
+      const serverSongs = raw.map(backendDtoToSong).filter((s) => !!s.id);
+      setLikedSongs(serverSongs);
+    }).catch(() => { /* keep current in-memory list */ });
   }, [user]);
 
   const loadPlaylists = useCallback(() => {
@@ -233,11 +184,14 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   }));
 
   // ── Recently played ──────────────────────────────────────────────────────────
+  // Always prepend the song — even if it was played before — so repeated plays
+  // are reflected in history. The deduplication (filtered list shown in UI) is
+  // the responsibility of whichever component renders the list, not this store.
 
   const addToRecentlyPlayed = useCallback((song: Song) => {
     setRecentlyPlayed((prev) => {
-      const filtered = prev.filter((s) => s.id !== song.id);
-      const updated = [song, ...filtered].slice(0, 50);
+      // Prepend unconditionally so every play registers, but cap list at 50
+      const updated = [song, ...prev].slice(0, 50);
       localStorage.setItem(RECENTLY_PLAYED_KEY, JSON.stringify(updated));
       const ts: Record<string, number> = JSON.parse(
         localStorage.getItem(RECENTLY_PLAYED_TS_KEY) || "{}"
