@@ -109,7 +109,12 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
     const rpRaw = localStorage.getItem(RECENTLY_PLAYED_KEY);
     if (rpRaw) {
-      try { setRecentlyPlayed(JSON.parse(rpRaw)); } catch { /* ignore */ }
+      try {
+        // Strip any persisted audioUrl — URLs from JioSaavn expire, so we
+        // never want a stale URL in the queue causing silent skips.
+        const parsed: Song[] = JSON.parse(rpRaw);
+        setRecentlyPlayed(parsed.map(({ audioUrl: _dropped, ...rest }: any) => rest as Song));
+      } catch { /* ignore */ }
     }
   }, []);
 
@@ -172,7 +177,10 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const addToRecentlyPlayed = useCallback((song: Song) => {
     setRecentlyPlayed((prev) => {
       const filtered = prev.filter((s) => s.id !== song.id);
-      const updated = [song, ...filtered].slice(0, 50);
+      // Strip audioUrl before persisting — JioSaavn URLs expire quickly.
+      // The player will always fetch a fresh stream URL when the song is played.
+      const { audioUrl: _dropped, ...songWithoutUrl } = song as any;
+      const updated = [songWithoutUrl as Song, ...filtered].slice(0, 50);
       localStorage.setItem(RECENTLY_PLAYED_KEY, JSON.stringify(updated));
       const ts: Record<string, number> = JSON.parse(
         localStorage.getItem(RECENTLY_PLAYED_TS_KEY) || "{}"
