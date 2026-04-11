@@ -28,8 +28,8 @@ const BACKEND_URL =
 // Strip HTML tags and decode common HTML entities that JioSaavn returns in lyrics
 function cleanLyricsHtml(raw: string): string {
   return raw
-    .replace(/<br\s*\/?>/gi, "\n")   // <br> → newline
-    .replace(/<[^>]+>/g, "")         // strip all other tags
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
     .replace(/&amp;/g, "&")
     .replace(/&quot;/g, '"')
     .replace(/&#039;/g, "'")
@@ -38,20 +38,29 @@ function cleanLyricsHtml(raw: string): string {
     .replace(/&gt;/g, ">")
     .replace(/&nbsp;/g, " ")
     .replace(/\r\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")      // collapse 3+ blank lines → 2
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
-// Extract lyrics text from any response shape the backend / JioSaavn may return
+// Extract lyrics text from any response shape the backend / JioSaavn may return.
+// JioSaavn can return lyrics under many different keys depending on version.
 function extractLyricsText(data: any): string | null {
+  // Unwrap common wrapper shapes first
+  const inner = data?.data ?? data;
+
   const candidates = [
-    data?.data?.lyrics,
-    data?.data?.snippet,
+    inner?.lyrics,
+    inner?.snippet,
+    inner?.lyric,
+    inner?.lyricsSnippet,
+    inner?.lyrics_snippet,
     data?.lyrics,
     data?.snippet,
-    data?.data,
-    typeof data === "string" ? data : null,
+    // Sometimes the entire data field is the lyrics string
+    typeof inner === "string" ? inner : null,
+    typeof data  === "string" ? data  : null,
   ];
+
   for (const c of candidates) {
     if (typeof c === "string" && c.trim().length > 5) {
       const cleaned = cleanLyricsHtml(c);
