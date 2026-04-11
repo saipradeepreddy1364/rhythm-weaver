@@ -40,11 +40,11 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
   if (!currentSong) return null;
 
   const totalDuration =
-    duration && isFinite(duration) && duration > 0
+    duration && isFinite(duration) && duration > 1
       ? duration
-      : currentSong.duration || 1;
+      : (currentSong.duration && currentSong.duration > 1 ? currentSong.duration : 0);
 
-  const pct = Math.min(100, (progress / totalDuration) * 100);
+  const pct = totalDuration > 0 ? Math.min(100, (progress / totalDuration) * 100) : 0;
 
   // SVG circular progress
   const RADIUS = 26;

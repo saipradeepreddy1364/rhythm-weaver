@@ -472,7 +472,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     };
 
     const handleDurationChange = () => {
-      if (!isNaN(audio.duration) && isFinite(audio.duration)) setDuration(audio.duration);
+      if (!isNaN(audio.duration) && isFinite(audio.duration) && audio.duration > 0) {
+        setDuration(audio.duration);
+      }
+    };
+
+    // loadedmetadata fires reliably before canplay and is the best source for duration
+    const handleLoadedMetadata = () => {
+      if (!isNaN(audio.duration) && isFinite(audio.duration) && audio.duration > 0) {
+        setDuration(audio.duration);
+      }
     };
 
     const handleEnded = () => {
@@ -538,6 +547,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
     audio.addEventListener("timeupdate", handleTimeUpdate);
     audio.addEventListener("durationchange", handleDurationChange);
+    audio.addEventListener("loadedmetadata", handleLoadedMetadata);
     audio.addEventListener("ended", handleEnded);
     audio.addEventListener("play", handlePlay);
     audio.addEventListener("pause", handlePause);
@@ -553,6 +563,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       audio.src = "";
       audio.removeEventListener("timeupdate", handleTimeUpdate);
       audio.removeEventListener("durationchange", handleDurationChange);
+      audio.removeEventListener("loadedmetadata", handleLoadedMetadata);
       audio.removeEventListener("ended", handleEnded);
       audio.removeEventListener("play", handlePlay);
       audio.removeEventListener("pause", handlePause);
@@ -580,7 +591,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
       stallRetryRef.current = 0;
       setProgressState(0);
-      setDuration(0);
+
+      // Seed duration immediately from song metadata so the seek bar isn't broken
+      // while the browser loads the stream. Will be overwritten by loadedmetadata.
+      const seedDuration =
+        typeof currentSong.duration === "number" && currentSong.duration > 1
+          ? currentSong.duration
+          : 0;
+      setDuration(seedDuration);
+
       isTransitioningRef.current = true;
       audio.src = url;
       audio.load();
@@ -594,7 +613,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           setIsPlaying(false);
           intendToPlayRef.current = false;
         });
-      updateMediaSession(currentSong, true, 0, 0);
+      updateMediaSession(currentSong, true, 0, seedDuration || 0);
     };
 
     if (currentSong.audioUrl) {

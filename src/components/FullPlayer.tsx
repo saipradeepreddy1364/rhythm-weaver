@@ -135,10 +135,10 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   if (!currentSong || !showPlayer) return null;
 
   const totalDuration =
-    duration && isFinite(duration) && duration > 0
+    duration && isFinite(duration) && duration > 1
       ? duration
-      : currentSong.duration || 1;
-  const pct = Math.min(100, (progress / totalDuration) * 100);
+      : (currentSong.duration && currentSong.duration > 1 ? currentSong.duration : 0);
+  const pct = totalDuration > 0 ? Math.min(100, (progress / totalDuration) * 100) : 0;
 
   const isMuted = volume === 0;
 
@@ -346,6 +346,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             className="relative h-1.5 rounded-full cursor-pointer"
             style={{ background: "rgba(255,255,255,0.15)" }}
             onClick={(e) => {
+              if (totalDuration <= 0) return;
               const rect = e.currentTarget.getBoundingClientRect();
               const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
               setProgress(Math.floor(ratio * totalDuration));
@@ -361,12 +362,12 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             />
           </div>
           <div className="flex justify-between items-center text-xs mt-1.5" style={{ color: "rgba(255,255,255,0.4)" }}>
-            <span>{formatDuration(Math.floor(progress))}</span>
+            <span>{totalDuration > 0 ? formatDuration(Math.floor(progress)) : "--:--"}</span>
             {/* Percentage in center */}
             <span className="font-semibold" style={{ color: "rgba(255,255,255,0.55)" }}>
-              {Math.round(pct)}%
+              {totalDuration > 0 ? `${Math.round(pct)}%` : "…"}
             </span>
-            <span>{formatDuration(Math.floor(totalDuration))}</span>
+            <span>{totalDuration > 0 ? formatDuration(Math.floor(totalDuration)) : "--:--"}</span>
           </div>
         </div>
 
