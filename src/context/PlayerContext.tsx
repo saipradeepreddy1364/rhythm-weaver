@@ -127,39 +127,54 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     // Recently played is managed by LibraryContext (no localStorage here)
   }, []);
 
-  // ── Radio: fetch more songs based on the last-played song ────────────────
-  const fetchRadioSongs = useCallback(async (seed: Song): Promise<Song[]> => {
-    const artist = seed.artist || "";
-    const movie = (seed as any).movie || (seed as any).album || "";
-    const lang = (seed as any).language || "";
+  // ── Radio / Library-continuation: fetch more songs based on the last-played song ──
+  // When fromLibrary=true, builds a language-first query so the continuation
+  // feels like "more songs you'd like" rather than generic radio.
+  const fetchRadioSongs = useCallback(
+    async (seed: Song, fromLibrary = false): Promise<Song[]> => {
+      const artist = (seed as any).artist || "";
+      const movie  = (seed as any).movie  || (seed as any).album || "";
+      const lang   = (seed as any).language || "";
 
-    let query = artist || movie || "trending songs";
-    if (lang) query = `${lang} songs ${artist}`.trim();
-    else if (artist) query = `${artist} songs`;
-
-    try {
-      const apiAny = api as any;
-      let res: any;
-      if (typeof apiAny.search === "function") res = await apiAny.search(query);
-      else if (typeof apiAny.getSongs === "function") res = await apiAny.getSongs(query);
-      else if (typeof apiAny.searchSongs === "function") res = await apiAny.searchSongs(query);
-      else if (typeof apiAny.getTrending === "function") res = await apiAny.getTrending();
-
-      const raw = Array.isArray(res) ? res : (res?.data ?? res?.results ?? res?.songs ?? []);
-      if (!Array.isArray(raw) || raw.length === 0) return [];
-
-      const { mapApiSong } = await import("@/data/songs").catch(() => ({ mapApiSong: null }));
-      const songs: Song[] = raw
-        .map((item: any) => (mapApiSong ? mapApiSong(item) : item))
-        .filter((s: any): s is Song => !!s && !!s.id);
+      // Build query pool — language-first for library queues
+      const queries: string[] = [];
+      if (fromLibrary) {
+        // Priority: language > artist > movie > fallback
+        if (lang)   queries.push(`${lang} songs`, `trending ${lang} songs`, `popular ${lang} songs`);
+        if (artist) queries.push(`${artist} songs`, `${artist} hits`);
+        if (movie)  queries.push(`${movie} songs`);
+        queries.push("trending bollywood songs", "trending hindi songs");
+      } else {
+        if (lang && artist) queries.push(`${lang} songs ${artist}`);
+        else if (lang)      queries.push(`${lang} songs`);
+        else if (artist)    queries.push(`${artist} songs`);
+        else if (movie)     queries.push(`${movie} songs`);
+        queries.push("trending songs india");
+      }
 
       const existingIds = new Set(queueRef.current.map((s) => s.id));
-      return songs.filter((s) => !existingIds.has(s.id)).slice(0, 20);
-    } catch (err) {
-      console.warn("[PlayerContext] Radio fetch failed:", err);
+      const { mapApiSong }  = await import("@/data/songs").catch(() => ({ mapApiSong: null as any }));
+      const { extractResults } = await import("@/services/api").catch(() => ({ extractResults: null as any }));
+
+      for (const query of queries) {
+        try {
+          const res  = await api.searchSongs(query, 1, 50);
+          const raw  = extractResults ? extractResults(res) : (Array.isArray(res) ? res : (res?.data ?? []));
+          if (!Array.isArray(raw) || raw.length === 0) continue;
+
+          const songs: Song[] = raw
+            .map((item: any) => (mapApiSong ? mapApiSong(item) : item))
+            .filter((s: any): s is Song => !!s && !!s.id && !existingIds.has(s.id));
+
+          if (songs.length >= 5) return songs.slice(0, 30);
+        } catch (err) {
+          console.warn("[PlayerContext] Radio fetch failed for query:", query, err);
+        }
+      }
       return [];
-    }
-  }, []);
+    },
+    [] // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
   // ── Resolve all missing audioUrls in a queue ─────────────────────────────
   const resolveQueueAudioUrls = useCallback(async (songs: Song[]) => {
@@ -278,7 +293,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         if (!radioFetchingRef.current && seed) {
           radioFetchingRef.current = true;
           setIsRadioMode(true);
-          fetchRadioSongs(seed).then((radioSongs) => {
+          // Pass fromLibrary flag so fetchRadioSongs picks language-first queries
+          fetchRadioSongs(seed, libraryQueueRef.current).then((radioSongs) => {
             radioFetchingRef.current = false;
             if (radioSongs.length === 0) {
               setIsRadioMode(false);

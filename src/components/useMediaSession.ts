@@ -142,6 +142,37 @@ function stopKeepAlive() {
   keepAliveTimer = null;
 }
 
+// ─── Wake Lock — prevents Android from suspending JS while music plays ────────
+// Without this, Chromium on Android may throttle JS after ~60s of screen lock,
+// causing the `ended` event and next-song logic to fire late or not at all.
+let wakeLock: any = null;
+
+async function acquireWakeLock() {
+  if (!("wakeLock" in navigator)) return;
+  try {
+    if (wakeLock && wakeLock.released === false) return; // already held
+    wakeLock = await (navigator as any).wakeLock.request("screen");
+    wakeLock.addEventListener("release", () => { wakeLock = null; });
+  } catch {
+    // Permission denied or not supported — not fatal
+  }
+}
+
+function releaseWakeLock() {
+  if (wakeLock && !wakeLock.released) {
+    wakeLock.release().catch(() => {});
+    wakeLock = null;
+  }
+}
+
+// Re-acquire wake lock when tab becomes visible again (lock/unlock cycle releases it)
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && wakeLock === null) {
+    // Only re-acquire if we were previously playing (checked by caller)
+    // The hook handles this via the isPlaying effect below
+  }
+});
+
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useMediaSession({
@@ -172,10 +203,15 @@ export function useMediaSession({
   useEffect(() => { resumeRef.current     = resumePlayback;  }, [resumePlayback]);
   useEffect(() => { isPlayingRef.current  = isPlaying;       }, [isPlaying]);
 
-  // ── Keep-alive: start when playing, stop when paused/stopped ─────────────
+  // ── Keep-alive + Wake Lock: start when playing, stop when paused ─────────
   useEffect(() => {
-    if (isPlaying) startKeepAlive();
-    else           stopKeepAlive();
+    if (isPlaying) {
+      startKeepAlive();
+      acquireWakeLock(); // prevent Android JS throttle on screen lock
+    } else {
+      stopKeepAlive();
+      releaseWakeLock();
+    }
   }, [isPlaying]);
 
   // ── Pre-buffer next song whenever current song or queue changes ───────────
@@ -295,32 +331,21 @@ export function useMediaSession({
       if (isPlayingRef.current) pauseRef.current();
     });
 
-    // nexttrack — URL already in cache + audio data already buffered → instant
+    // nexttrack — delegates entirely to nextSongRef which calls playAudioDirectly
+    // internally. Do NOT also call resolveStreamUrl + audio.play() here — that
+    // creates a race where two code paths fight over audio.src simultaneously,
+    // which is the root cause of playback stopping on the lock screen.
     trySet("nexttrack", () => {
       const q   = queueRef.current;
       const idx = queueIndexRef.current;
       if (!q || q.length === 0) return;
-
-      const nextIdx      = (idx + 1) % q.length;
-      const nextSongItem = q[nextIdx];
-      if (!nextSongItem) return;
-
-      nextSongRef.current(); // React state sync (UI updates on screen unlock)
-
-      resolveStreamUrl(nextSongItem).then((url) => {
-        const audio = audioRef.current;
-        if (!audio || !url) return;
-        audio.src = url;
-        audio.load();
-        audio.play().catch(() => {});
-        navigator.mediaSession.playbackState = "playing";
-        if (!isPlayingRef.current) resumeRef.current();
-        // Pre-buffer the one after next
-        prefetchAndBuffer(q[(nextIdx + 1) % q.length]);
-      });
+      nextSongRef.current();
+      // Pre-buffer the song after next
+      const nextIdx = (idx + 1) % q.length;
+      prefetchAndBuffer(q[(nextIdx + 1) % q.length]);
     });
 
-    // previoustrack
+    // previoustrack — delegates to prevSongRef, same pattern as nexttrack
     trySet("previoustrack", () => {
       const audio = audioRef.current;
       if (audio && audio.currentTime > 3) {
@@ -328,26 +353,7 @@ export function useMediaSession({
         audio.play().catch(() => {});
         return;
       }
-
-      const q   = queueRef.current;
-      const idx = queueIndexRef.current;
-      if (!q || q.length === 0) return;
-
-      const prevIdx      = (idx - 1 + q.length) % q.length;
-      const prevSongItem = q[prevIdx];
-      if (!prevSongItem) return;
-
       prevSongRef.current();
-
-      resolveStreamUrl(prevSongItem).then((url) => {
-        const a = audioRef.current;
-        if (!a || !url) return;
-        a.src = url;
-        a.load();
-        a.play().catch(() => {});
-        navigator.mediaSession.playbackState = "playing";
-        if (!isPlayingRef.current) resumeRef.current();
-      });
     });
 
     // seek
@@ -384,6 +390,13 @@ export function useMediaSession({
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
         navigator.mediaSession.playbackState = isPlayingRef.current ? "playing" : "paused";
+        // Re-acquire wake lock — it's automatically released when screen locks
+        if (isPlayingRef.current) acquireWakeLock();
+        // Force-resume audio if the OS paused it while screen was locked
+        const audio = audioRef.current;
+        if (audio && isPlayingRef.current && audio.paused) {
+          audio.play().catch(() => {});
+        }
       }
     };
     document.addEventListener("visibilitychange", handleVisibility);
