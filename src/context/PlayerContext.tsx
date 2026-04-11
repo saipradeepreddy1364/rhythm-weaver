@@ -331,23 +331,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
     } else if (repeatRef.current === "off") {
       if (idx >= q.length - 1) {
-        // FIX: For library queues — do NOT stop, loop back to start.
-        // Previously this stopped playback entirely for library queues, causing
-        // the "plays one song then stops with screen off" bug.
-        if (libraryQueueRef.current) {
-          // Loop the library queue from the beginning
-          const firstSong = q[0];
-          queueIndexRef.current = 0;
-          setQueueIndex(0);
-          setCurrentSong(firstSong);
-          setIsPlaying(true);
-          intendToPlayRef.current = true;
-          addToRecentlyPlayedInternal(firstSong);
-          lastPlayedSongRef.current = firstSong;
-          playAudioDirectly(firstSong);
-          return;
-        }
-
+        // repeat:off — queue finished, stop playback (for both library and regular queues).
+        // User can enable repeat:all or repeat:one via the repeat button to change this behaviour.
         // Non-library queue: try radio
         const seed = lastPlayedSongRef.current ?? q[idx];
         if (!radioFetchingRef.current && seed) {
@@ -832,7 +817,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const toggleShuffle = useCallback(() => { setShuffle((v) => !v); }, []);
 
   const cycleRepeat = useCallback(() => {
-    setRepeat((v) => v === "off" ? "all" : v === "all" ? "one" : "off");
+    // off → one (repeat current song) → all (repeat whole queue) → off
+    setRepeat((v) => v === "off" ? "one" : v === "one" ? "all" : "off");
   }, []);
 
   return (

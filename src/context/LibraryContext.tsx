@@ -53,7 +53,11 @@ const RECENTLY_PLAYED_TS_KEY = "rw_recent_ts";
 function loadLikedFromStorage(): Song[] {
   try {
     const raw = localStorage.getItem(LIKED_KEY);
-    return raw ? JSON.parse(raw) : [];
+    if (!raw) return [];
+    const songs: Song[] = JSON.parse(raw);
+    // Strip stale audioUrls so PlayerContext will re-resolve them via the API.
+    // JioSaavn CDN URLs expire; keeping them causes silent playback failures.
+    return songs.map((s) => ({ ...s, audioUrl: "" }));
   } catch {
     return [];
   }
