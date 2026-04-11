@@ -441,10 +441,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     audioRef.current = audio;
     audio.volume = 0.7;
     audio.preload = "auto";
-    (audio as any).setAttribute?.("playsinline", "true");
-    (audio as any).setAttribute?.("webkit-playsinline", "true");
-    (audio as any).setAttribute?.("x-webkit-airplay", "allow");
-    audio.crossOrigin = "anonymous";
+    audio.setAttribute("playsinline", "true");
+    audio.setAttribute("webkit-playsinline", "true");
+    audio.setAttribute("x-webkit-airplay", "allow");
+    // NOTE: Do NOT set crossOrigin="anonymous" — JioSaavn CDN does not send CORS
+    // headers, so setting this causes the browser to block the entire stream load,
+    // preventing loadedmetadata from firing and leaving duration permanently at 0.
 
     const clearStallTimer = () => {
       if (stallTimerRef.current) { clearTimeout(stallTimerRef.current); stallTimerRef.current = null; }
@@ -459,6 +461,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         stallRetryRef.current = 0;
         lastProgressTime = audio.currentTime;
         lastProgressAt = Date.now();
+        // Final fallback: read duration from audio element on every timeupdate.
+        // By the time timeupdate fires, duration is always available. This catches
+        // any edge case where loadedmetadata / durationchange / canplay were missed.
+        if (!isNaN(audio.duration) && isFinite(audio.duration) && audio.duration > 0) {
+          setDuration((prev) => (prev !== audio.duration ? audio.duration : prev));
+        }
         if ("mediaSession" in navigator && !isNaN(audio.duration) && isFinite(audio.duration) && audio.duration > 0) {
           try {
             navigator.mediaSession.setPositionState({
@@ -532,6 +540,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const handleCanPlay = () => {
       clearStallTimer();
       stallRetryRef.current = 0;
+      // canplay is a reliable fallback for duration — fires after loadedmetadata
+      // once enough data is buffered. By this point audio.duration is always set.
+      if (!isNaN(audio.duration) && isFinite(audio.duration) && audio.duration > 0) {
+        setDuration(audio.duration);
+      }
       if (intendToPlayRef.current && audio.paused) audio.play().catch(() => {});
     };
 

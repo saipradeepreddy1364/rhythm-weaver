@@ -13,9 +13,10 @@ export interface Song {
 }
 
 export function formatDuration(seconds: number): string {
-  if (!seconds || isNaN(seconds)) return "0:00";
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
+  if (!seconds || isNaN(seconds) || !isFinite(seconds)) return "0:00";
+  const totalSec = Math.floor(Math.abs(seconds));
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
@@ -109,11 +110,21 @@ export function mapApiSong(item: any): Song {
     (typeof item.album === "string" ? item.album : "") ||
     "";
 
+  // ── Duration ───────────────────────────────────────────────────────────────
+  // JioSaavn returns duration as a string e.g. "245". parseInt handles string|number|undefined.
+  const rawDuration = item.duration ?? item.length ?? item.durationMs;
+  const duration =
+    typeof rawDuration === "number" && rawDuration > 0
+      ? rawDuration
+      : typeof rawDuration === "string"
+        ? (parseInt(rawDuration, 10) || 0)
+        : 0;
+
   return {
     id: String(item.id || item.songId || item.song_id || Math.random()),
     title: item.name || item.title || item.song || item.songName || "Unknown",
     artist,
-    duration: Number(item.duration) || 0,
+    duration,
     albumArt: imageUrl,
     audioUrl,
     language: item.language || undefined,
