@@ -255,19 +255,65 @@ export const api = {
   },
 
   // ── Lyrics ────────────────────────────────────────────────────────────────
-  // Maps to GET /songs/{id}/lyrics on the Spring Boot backend (SongController).
-  // Returns { success, data: { lyrics, ... } } or { success: false } if unavailable.
+  // Maps to GET /songs/{id}/lyrics on the Spring Boot backend.
+  // The backend tries 5 different JioSaavn API paths before giving up.
+  // Returns { success: true, data: { lyrics: "..." } } or { success: false }.
   getSongLyrics: async (songId: string): Promise<{ success: boolean; data?: { lyrics?: string } }> => {
     try {
-      const res = await fetch(`${BASE_URL}/songs/${encodeURIComponent(songId)}/lyrics`);
+      const url = `${BASE_URL}/songs/${encodeURIComponent(songId)}/lyrics`;
+      const res = await fetch(url);
+
+      // 404 = backend confirmed no lyrics; anything else = retry once
       if (res.status === 404) return { success: false };
-      if (!res.ok) throw new Error(`Lyrics HTTP ${res.status}`);
-      return res.json();
+
+      if (!res.ok) {
+        // Retry once after 1 second (handles cold-start / transient errors)
+        await new Promise((r) => setTimeout(r, 1000));
+        const retry = await fetch(url);
+        if (!retry.ok) return { success: false };
+        const json = await retry.json();
+        return extractLyricsFromResponse(json);
+      }
+
+      const json = await res.json();
+      return extractLyricsFromResponse(json);
     } catch {
       return { success: false };
     }
   },
 };
+
+
+// ─── Lyrics response normaliser ──────────────────────────────────────────────
+// Handles every shape the backend might return:
+//   { success, data: { lyrics } }   ← standard ApiResponse wrapper
+//   { lyrics }                      ← bare object
+//   { data: "lyrics text" }         ← data is a plain string
+function extractLyricsFromResponse(
+  json: any
+): { success: boolean; data?: { lyrics?: string } } {
+  if (!json) return { success: false };
+  if (json.success === true && json.data?.lyrics) {
+    return { success: true, data: { lyrics: json.data.lyrics } };
+  }
+  if (typeof json.data === "string" && json.data.trim()) {
+    return { success: true, data: { lyrics: json.data } };
+  }
+  const keys = ["lyrics", "lyric", "snippet", "lyricsSnippet", "lyricsText", "fullLyrics", "text"];
+  for (const key of keys) {
+    if (typeof json[key] === "string" && json[key].trim()) {
+      return { success: true, data: { lyrics: json[key] } };
+    }
+  }
+  if (json.data && typeof json.data === "object") {
+    for (const key of keys) {
+      if (typeof json.data[key] === "string" && json.data[key].trim()) {
+        return { success: true, data: { lyrics: json.data[key] } };
+      }
+    }
+  }
+  return { success: false };
+}
 
 // ─── Helper: extract fresh audioUrl from a JioSaavn song response ─────────────
 // JioSaavn returns downloadUrl as an array sorted low→high quality.
