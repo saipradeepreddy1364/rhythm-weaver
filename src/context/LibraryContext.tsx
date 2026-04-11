@@ -6,7 +6,7 @@ import React, {
   useCallback,
   ReactNode,
 } from "react";
-import { api } from "@/services/api";
+import { api, extractAudioUrl } from "@/services/api";
 import type { Song } from "@/data/songs";
 import { useAuth } from "./AuthContext";
 
@@ -81,18 +81,28 @@ function generateId(): string {
 }
 
 // ─── Map backend liked song DTO → Song shape ───────────────────────────────────
+// FIX: Use extractAudioUrl() to correctly handle JioSaavn's downloadUrl array format.
+// The old code did `dto.audioUrl || dto.downloadUrl || dto.url` but downloadUrl is
+// an ARRAY like [{quality, url}, ...] — so it always evaluated as truthy but gave
+// an object instead of a string, resulting in a broken/empty audioUrl on all liked songs.
 function backendDtoToSong(dto: any): Song {
+  // extractAudioUrl handles: array of {url, quality} (JioSaavn), plain string, or missing
+  const audioUrl =
+    extractAudioUrl(dto) ||           // handles downloadUrl array
+    dto.audioUrl  ||                  // plain string field
+    dto.url       ||                  // fallback field
+    "";
+
   return {
-    id:       dto.songId,
-    title:    dto.songTitle || dto.songId,
-    artist:   dto.artist    || dto.primaryArtists || dto.singers || "",
-    albumArt: dto.songImage || dto.albumArt || dto.image || "",
-    audioUrl: dto.audioUrl  || dto.downloadUrl || dto.url || "",
-    duration: dto.duration  || 0,
-    album:    dto.album     || "",
-    movie:    dto.movie     || "",
-    // Carry language through so the radio fetcher can build better queries
-    language: dto.language  || "",
+    id:       dto.songId   || dto.id   || "",
+    title:    dto.songTitle || dto.name || dto.title || dto.songId || "",
+    artist:   dto.artist   || dto.primaryArtists || dto.singers || "",
+    albumArt: dto.songImage || dto.albumArt || dto.image || (Array.isArray(dto.image) ? dto.image[dto.image.length - 1]?.url : "") || "",
+    audioUrl,
+    duration: typeof dto.duration === "number" ? dto.duration : (parseInt(dto.duration) || 0),
+    album:    dto.album  || "",
+    movie:    dto.movie  || "",
+    language: dto.language || "",
   } as Song;
 }
 
@@ -102,8 +112,8 @@ const LibraryContext = createContext<LibraryContextType | undefined>(undefined);
 
 export function LibraryProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
-  const [likedSongs, setLikedSongs]         = useState<Song[]>([]);
-  const [recentlyPlayed, setRecentlyPlayed] = useState<Song[]>([]);
+  const [likedSongs, setLikedSongs]           = useState<Song[]>([]);
+  const [recentlyPlayed, setRecentlyPlayed]   = useState<Song[]>([]);
   const [storedPlaylists, setStoredPlaylists] = useState<StoredPlaylist[]>([]);
 
   // ── Boot: load from localStorage ────────────────────────────────────────────
@@ -124,7 +134,6 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     if (!user) return;
 
     api.getLikedSongs().then((res) => {
-      // Backend returns { success, data: [ { songId, songTitle, songImage, ... } ] }
       const raw: any[] = Array.isArray(res)
         ? res
         : Array.isArray(res?.data)
@@ -133,28 +142,25 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
       if (raw.length === 0) return;
 
-      const serverSongs: Song[] = raw.map(backendDtoToSong);
+      const serverSongs: Song[] = raw.map(backendDtoToSong).filter((s) => !!s.id);
 
       setLikedSongs((local) => {
-        // Merge: prefer whichever version has more data.
-        // Server is source of truth for the set of liked songs (adds/removes).
-        // Local is preferred for audioUrl (server often doesn't store it).
         const localMap = new Map(local.map((s) => [s.id, s]));
         const merged = serverSongs.map((serverSong) => {
           const localSong = localMap.get(serverSong.id);
           if (!localSong) return serverSong;
           return {
             ...serverSong,
-            // Keep local audioUrl if server has none
-            audioUrl: localSong.audioUrl || serverSong.audioUrl,
-            // Prefer whichever albumArt is non-empty
-            albumArt: localSong.albumArt || serverSong.albumArt,
-            // Keep fuller artist string
-            artist:   localSong.artist   || serverSong.artist,
+            // FIX: prefer whichever audioUrl is non-empty — server may now have it
+            // (from extractAudioUrl fix above), local may have a cached URL
+            audioUrl: serverSong.audioUrl || localSong.audioUrl || "",
+            albumArt: serverSong.albumArt || localSong.albumArt || "",
+            artist:   localSong.artist    || serverSong.artist  || "",
+            title:    localSong.title     || serverSong.title   || "",
           };
         });
 
-        // Also keep any local songs not yet synced to server
+        // Keep any local songs not yet synced to server
         local.forEach((s) => {
           if (!merged.find((m) => m.id === s.id)) merged.push(s);
         });
@@ -163,23 +169,17 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         return merged;
       });
     }).catch(() => { /* network error — keep local */ });
-  }, [user?.id]); // re-run when user changes (login/logout)
+  }, [user?.id]);
 
-  // ── Keep storage in sync whenever state changes ──────────────────────────────
+  // ── Keep storage in sync ─────────────────────────────────────────────────────
 
-  useEffect(() => {
-    saveLikedToStorage(likedSongs);
-  }, [likedSongs]);
+  useEffect(() => { saveLikedToStorage(likedSongs); }, [likedSongs]);
+  useEffect(() => { savePlaylistsToStorage(storedPlaylists); }, [storedPlaylists]);
 
-  useEffect(() => {
-    savePlaylistsToStorage(storedPlaylists);
-  }, [storedPlaylists]);
-
-  // ── Public reload helpers (used by LibraryPage) ──────────────────────────────
+  // ── Public reload helpers ────────────────────────────────────────────────────
 
   const loadLikedSongs = useCallback(() => {
     if (user) {
-      // Re-fetch from backend when user is logged in
       api.getLikedSongs().then((res) => {
         const raw: any[] = Array.isArray(res)
           ? res
@@ -187,9 +187,27 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
             ? res.data
             : [];
         if (raw.length > 0) {
-          const songs = raw.map(backendDtoToSong);
-          setLikedSongs(songs);
-          saveLikedToStorage(songs);
+          // FIX: merge with existing local songs to preserve cached audioUrls
+          const serverSongs = raw.map(backendDtoToSong).filter((s) => !!s.id);
+          setLikedSongs((local) => {
+            const localMap = new Map(local.map((s) => [s.id, s]));
+            const merged = serverSongs.map((serverSong) => {
+              const localSong = localMap.get(serverSong.id);
+              if (!localSong) return serverSong;
+              return {
+                ...serverSong,
+                audioUrl: serverSong.audioUrl || localSong.audioUrl || "",
+                albumArt: serverSong.albumArt || localSong.albumArt || "",
+                artist:   localSong.artist    || serverSong.artist  || "",
+                title:    localSong.title     || serverSong.title   || "",
+              };
+            });
+            local.forEach((s) => {
+              if (!merged.find((m) => m.id === s.id)) merged.push(s);
+            });
+            saveLikedToStorage(merged);
+            return merged;
+          });
         }
       }).catch(() => {
         setLikedSongs(loadLikedFromStorage());
@@ -203,7 +221,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     setStoredPlaylists(loadPlaylistsFromStorage());
   }, []);
 
-  // ── Derived playlists (without song arrays) for context consumers ─────────────
+  // ── Derived playlists ────────────────────────────────────────────────────────
 
   const playlists: Playlist[] = storedPlaylists.map(({ songs, ...rest }) => ({
     ...rest,
@@ -238,15 +256,10 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       const liked = likedSongs.some((s) => s.id === song.id);
       if (liked) {
         setLikedSongs((prev) => prev.filter((s) => s.id !== song.id));
-        if (user) {
-          api.unlikeSong(song.id).catch(console.error);
-        }
+        if (user) api.unlikeSong(song.id).catch(console.error);
       } else {
         setLikedSongs((prev) => [song, ...prev]);
-        if (user) {
-          // Pass title + image so backend can store full song info
-          api.likeSong(song.id, song.title, song.albumArt).catch(console.error);
-        }
+        if (user) api.likeSong(song.id, song.title, song.albumArt).catch(console.error);
       }
     },
     [likedSongs, user]
@@ -263,11 +276,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         songs: [],
       };
       setStoredPlaylists((prev) => [...prev, newPlaylist]);
-
-      if (user) {
-        api.createPlaylist(name).catch(console.error);
-      }
-
+      if (user) api.createPlaylist(name).catch(console.error);
       return { id: newPlaylist.id, name, created_at: newPlaylist.created_at, song_count: 0 };
     },
     [user]
@@ -276,9 +285,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const removePlaylist = useCallback(
     async (playlistId: string) => {
       setStoredPlaylists((prev) => prev.filter((p) => p.id !== playlistId));
-      if (user) {
-        api.deletePlaylist(playlistId).catch(console.error);
-      }
+      if (user) api.deletePlaylist(playlistId).catch(console.error);
     },
     [user]
   );
@@ -288,9 +295,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       setStoredPlaylists((prev) =>
         prev.map((p) => (p.id === playlistId ? { ...p, name: newName } : p))
       );
-      if (user) {
-        api.updatePlaylist(playlistId, newName).catch(console.error);
-      }
+      if (user) api.updatePlaylist(playlistId, newName).catch(console.error);
     },
     [user]
   );
@@ -304,9 +309,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
           return { ...p, songs: [...p.songs, song] };
         })
       );
-      if (user) {
-        api.addToPlaylist(playlistId, song.id).catch(console.error);
-      }
+      if (user) api.addToPlaylist(playlistId, song.id).catch(console.error);
     },
     [user]
   );
@@ -318,9 +321,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
           p.id === playlistId ? { ...p, songs: p.songs.filter((s) => s.id !== songId) } : p
         )
       );
-      if (user) {
-        api.removeFromPlaylist(playlistId, songId).catch(console.error);
-      }
+      if (user) api.removeFromPlaylist(playlistId, songId).catch(console.error);
     },
     [user]
   );
