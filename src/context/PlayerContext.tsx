@@ -490,8 +490,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     } else {
       // repeat === "all": always advance linearly and wrap.
       // pickNext (history-based skip) is removed — it caused songs to be
-      // auto-skipped whenever they appeared in the 24-hour play history,
-      // including all library songs. Linear wrap is predictable and correct.
+      // auto-skipped whenever they appeared in the 24-hour play history.
+      // Simple linear wrap is predictable and what users expect.
       nextIdx = (idx + 1) % q.length;
     }
 
@@ -500,7 +500,18 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     // If the next song has no audioUrl (backend-loaded liked song on new device),
     // fetch it asynchronously then update the queue and set as current song
     if (!candidate.audioUrl) {
+      // Song has no audioUrl — fetch it before playing.
+      // IMPORTANT: if resolve fails, skip to the NEXT song rather than calling
+      // playAudioDirectly with an empty URL, which fires the audio error handler
+      // and causes a cascade skip through the entire library.
       resolveSongAudioUrl(candidate).then((resolved) => {
+        if (!resolved.audioUrl) {
+          // Could not get a URL — skip this song, try the one after
+          console.warn("[PlayerContext] Could not resolve audioUrl for", resolved.id, "— skipping");
+          queueIndexRef.current = nextIdx; // advance index so next call moves forward
+          nextSongInternalRef.current();
+          return;
+        }
         // Patch the queue so the resolved URL is used going forward
         const patchedQ = [...queueRef.current];
         patchedQ[nextIdx] = resolved;
@@ -616,10 +627,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         if (!intendToPlayRef.current) return;
 
         // If currentTime has advanced since the stall started — just slow network, not frozen
-        if (audio.currentTime !== lastProgressTime && (Date.now() - lastProgressAt) < 3000) return;
+        // Slow network check: if time advanced OR less than 8s since last progress, keep waiting
+        if (audio.currentTime !== lastProgressTime || (Date.now() - lastProgressAt) < 8000) return;
 
         stallRetryRef.current += 1;
-        if (stallRetryRef.current > 3) {
+        if (stallRetryRef.current > 5) { // 5 retries before giving up (was 3 — too aggressive)
           stallRetryRef.current = 0;
           nextSongInternalRef.current();
           return;
@@ -632,7 +644,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           audio.currentTime = pos;
           audio.play().catch(() => {});
         }
-      }, 4000);
+      }, 12000); // 12s — enough for slow CDN buffering before declaring a stall
     };
 
     const handleCanPlay = () => {
@@ -824,13 +836,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
       // ── Set libraryQueueRef SYNCHRONOUSLY before any await ────────────────
       // CRITICAL: nextSongInternal reads libraryQueueRef inside the audio "ended"
-      // event listener. Setting it after an await means the "ended" event on the
-      // currently-playing song can fire first with the OLD value (false), which
-      // triggers radio mode instead of linear library queue advance.
+      // event. If we set it after an await, the ended event on the current song
+      // can fire first with the OLD value (false) and trigger radio mode.
       libraryQueueRef.current = !!fromLibrary;
 
-      // When switching to a library queue, wipe play-history so no previously-played
-      // song gets auto-skipped.
+      // When switching to a library queue, clear play-history so no song
+      // gets auto-skipped by stale history from a previous session.
       if (fromLibrary) {
         playHistoryRef.current = {};
         localStorage.removeItem(PLAYED_HISTORY_KEY);
