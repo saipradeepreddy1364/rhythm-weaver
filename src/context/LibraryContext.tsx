@@ -55,9 +55,9 @@ function loadLikedFromStorage(): Song[] {
     const raw = localStorage.getItem(LIKED_KEY);
     if (!raw) return [];
     const songs: Song[] = JSON.parse(raw);
-    // Strip stale audioUrls so PlayerContext will re-resolve them via the API.
-    // JioSaavn CDN URLs expire; keeping them causes silent playback failures.
-    return songs.map((s) => ({ ...s, audioUrl: "" }));
+    // Keep cached audioUrls — PlayerContext will re-resolve them on play if expired.
+    // Stripping them here causes playback to fail entirely when the backend is down.
+    return songs;
   } catch {
     return [];
   }

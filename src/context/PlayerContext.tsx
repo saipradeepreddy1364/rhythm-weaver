@@ -60,7 +60,24 @@ async function resolveSongAudioUrl(song: Song): Promise<Song> {
     const res = await api.getSongById(song.id);
     const data = res?.data ?? res;
     const audioUrl = extractAudioUrl(data);
-    if (audioUrl) return { ...song, audioUrl };
+    if (audioUrl) {
+      const resolved = { ...song, audioUrl };
+      // Cache the resolved URL back into localStorage liked songs so
+      // future plays work even when the backend is down (e.g. 502 errors).
+      try {
+        const LIKED_KEY = "rw_liked_songs_v2";
+        const raw = localStorage.getItem(LIKED_KEY);
+        if (raw) {
+          const songs: Song[] = JSON.parse(raw);
+          const idx = songs.findIndex((s) => s.id === song.id);
+          if (idx >= 0) {
+            songs[idx] = { ...songs[idx], audioUrl };
+            localStorage.setItem(LIKED_KEY, JSON.stringify(songs));
+          }
+        }
+      } catch { /* storage write failure is non-fatal */ }
+      return resolved;
+    }
   } catch (err) {
     console.error("[PlayerContext] Failed to fetch audioUrl for", song.id, err);
   }
@@ -489,6 +506,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const handleLoadedMetadata = () => {
       if (!isNaN(audio.duration) && isFinite(audio.duration) && audio.duration > 0) {
         setDuration(audio.duration);
+        // FIX: Update the recently-played entry for the current song with the real
+        // duration from the audio element. Song objects from liked songs / API often
+        // have duration:0 or a stale value — this ensures the library view shows the
+        // correct time that matches the screenshot / seek bar.
+        const actualDuration = audio.duration;
+        setRecentlyPlayed((prev) => {
+          if (prev.length === 0) return prev;
+          const top = prev[0];
+          if (!top || (top.duration && Math.abs(top.duration - actualDuration) < 2)) return prev;
+          const updated = [{ ...top, duration: actualDuration }, ...prev.slice(1)];
+          localStorage.setItem(RECENTLY_PLAYED_KEY, JSON.stringify(updated));
+          return updated;
+        });
       }
     };
 
@@ -637,10 +667,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       resolveSongAudioUrl(currentSong).then((resolved) => {
         if (cancelled) return;
         if (!resolved.audioUrl) {
-          console.error("[PlayerContext] Could not resolve audioUrl for", songId);
+          console.error("[PlayerContext] Could not resolve audioUrl for", songId,
+            "— backend may be down (502). Cached URL will be used next time if available.");
           setIsPlaying(false);
           intendToPlayRef.current = false;
-          setTimeout(() => nextSongInternalRef.current(), 800);
+          // Don't auto-skip — let the user decide. A 502 means the whole backend
+          // is down, so skipping would just fail on every song in the queue.
           return;
         }
         setCurrentSong(resolved);
