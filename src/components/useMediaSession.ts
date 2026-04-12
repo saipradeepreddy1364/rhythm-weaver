@@ -215,12 +215,12 @@ export function useMediaSession({
     }
   }, [isPlaying]);
 
-  // ── Proactively refresh ALL songs' URLs every 5 min ──────────────────────
-  // FIX: Previously only refreshed the next 3 songs every 10 min. That window
-  // was too narrow — a 60-min playlist locked for 30+ min would have songs
-  // past position +3 with fully expired CDN URLs, causing silent skips.
-  // Now we refresh the ENTIRE queue every 5 min so every URL stays warm
-  // regardless of how long the screen has been locked or how big the queue is.
+  // ── Proactively refresh ALL songs' URLs every 90 seconds ────────────────
+  // JioSaavn CDN URLs expire in ~60 min. By hammering a refresh every 90 s
+  // we guarantee that every URL in the queue is always fresh — no song will
+  // ever reach playback with a stale URL, even if the screen stays locked for
+  // hours. The requests are lightweight (one GET /songs/{id} per song) and
+  // run in parallel so the burst completes quickly even for large queues.
   useEffect(() => {
     const refresh = async () => {
       const q = queueRef.current;
@@ -228,14 +228,14 @@ export function useMediaSession({
       // Evict and re-fetch every song in the queue in parallel
       await Promise.allSettled(
         q.map((song) => {
-          urlCache.delete(song.id); // force a fresh fetch
+          urlCache.delete(song.id); // force a fresh fetch every cycle
           return resolveStreamUrl(song).catch(() => {});
         })
       );
     };
-    // Run immediately so there is no cold window, then every 5 minutes
+    // Run immediately so there is no cold window, then every 90 seconds
     refresh();
-    const id = setInterval(refresh, 5 * 60 * 1000);
+    const id = setInterval(refresh, 90 * 1000);
     return () => clearInterval(id);
   }, [queueRef, queueIndexRef]);
 

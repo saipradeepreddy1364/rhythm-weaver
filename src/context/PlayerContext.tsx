@@ -41,12 +41,12 @@ const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
 const FAVORITES_KEY = "rw_favorites";
 
 // ─── URL age tracking — JioSaavn CDN URLs expire after ~60 min ───────────────
-// FIX: Reduced from 45 min to 30 min so URLs are refreshed more aggressively.
-// On a locked screen, the 5-min refresh loop in useMediaSession is the primary
-// defence; this 30-min ceiling is the fallback for songs that were just resolved
-// and are still sitting in the queue waiting to play.
+// FIX: Set to 10 min so URLs are re-resolved very aggressively. Combined with
+// the 90-second refresh loop in useMediaSession, no URL will ever be older
+// than ~90 s in practice — this 10-min ceiling is just the safety backstop
+// for songs that are about to play and haven't been touched by the loop yet.
 const urlFetchedAt = new Map<string, number>();
-const URL_MAX_AGE_MS = 30 * 60 * 1000; // re-resolve after 30 min
+const URL_MAX_AGE_MS = 10 * 60 * 1000; // re-resolve after 10 min
 
 function isUrlStale(songId: string): boolean {
   const t = urlFetchedAt.get(songId);
