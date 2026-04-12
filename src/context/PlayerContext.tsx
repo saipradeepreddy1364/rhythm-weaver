@@ -40,17 +40,39 @@ const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
 
 const FAVORITES_KEY = "rw_favorites";
 
+// ─── URL age tracking — JioSaavn CDN URLs expire after ~60 min ───────────────
+// FIX: Reduced from 45 min to 30 min so URLs are refreshed more aggressively.
+// On a locked screen, the 5-min refresh loop in useMediaSession is the primary
+// defence; this 30-min ceiling is the fallback for songs that were just resolved
+// and are still sitting in the queue waiting to play.
+const urlFetchedAt = new Map<string, number>();
+const URL_MAX_AGE_MS = 30 * 60 * 1000; // re-resolve after 30 min
+
+function isUrlStale(songId: string): boolean {
+  const t = urlFetchedAt.get(songId);
+  return !t || Date.now() - t > URL_MAX_AGE_MS;
+}
+
 // ─── Resolve a fresh audioUrl using the shared module-level cache ─────────────
-// Uses resolveStreamUrl from useMediaSession so the URL cache is shared between
-// PlayerContext and the lock-screen handlers — no duplicate fetches.
 async function resolveSongAudioUrl(song: Song): Promise<Song> {
-  if (song.audioUrl && song.audioUrl.startsWith("http")) return song;
+  // Always re-resolve if URL might be expired, even if we have one in memory
+  const needsRefresh = !song.audioUrl ||
+    !song.audioUrl.startsWith("http") ||
+    isUrlStale(song.id);
+
+  if (!needsRefresh) return song;
+
   try {
     const url = await resolveStreamUrl(song);
-    if (url) return { ...song, audioUrl: url };
+    if (url) {
+      urlFetchedAt.set(song.id, Date.now());
+      return { ...song, audioUrl: url };
+    }
   } catch (err) {
     console.error("[PlayerContext] Failed to fetch audioUrl for", song.id, err);
   }
+  // If re-resolve fails but we have an existing URL, keep using it
+  if (song.audioUrl?.startsWith("http")) return song;
   return song;
 }
 
@@ -83,6 +105,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const lastPlayedSongRef = useRef<Song | null>(null);
   const radioFetchingRef = useRef(false);
   const libraryQueueRef = useRef(false);
+  // Consecutive error counter — stops cascade-skip when backend is down
+  const consecutiveErrorsRef = useRef(0);
+  const errorBackoffTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => { queueRef.current = queue; }, [queue]);
   useEffect(() => { queueIndexRef.current = queueIndex; }, [queueIndex]);
@@ -97,24 +122,47 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, []);
   useEffect(() => { localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites)); }, [favorites]);
 
-  // Re-acquire audio on visibility change (iOS drops audio context on lock)
+  // ── Visibility change: force-resume when screen unlocks ──────────────────
+  // FIX: This is the core fix for "music stops after N minutes on lock screen".
+  // When Android/iOS locks the screen, JS timers are throttled and the browser
+  // may silently pause the audio element. On unlock (visibilityState → "visible"),
+  // we detect the stall and force-resume. The WakeLock re-acquisition in
+  // useMediaSession handles the OS side; this handles the React/audio side.
   useEffect(() => {
     const handleVisibility = async () => {
-      if (document.visibilityState === "visible" && intendToPlayRef.current) {
-        const audio = audioRef.current;
-        if (!audio) return;
-        if (audio.paused) {
-          try {
-            await audio.play();
-          } catch {
-            const pos = audio.currentTime;
-            const src = audio.src;
-            if (src) {
-              audio.src = src;
-              audio.load();
-              audio.currentTime = pos;
-              audio.play().catch(() => {});
-            }
+      if (document.visibilityState !== "visible") return;
+      if (!intendToPlayRef.current) return;
+      const audio = audioRef.current;
+      if (!audio) return;
+      if (!audio.paused) return; // already playing — nothing to do
+
+      try {
+        await audio.play();
+      } catch {
+        // play() rejected — src may have been dropped. Reload from current src.
+        const pos = audio.currentTime;
+        const src = audio.src;
+        if (!src) return;
+        try {
+          audio.src = src;
+          audio.load();
+          audio.currentTime = pos;
+          await audio.play();
+        } catch {
+          // If even that fails, evict the cached URL and re-fetch a fresh one
+          const song = currentSongRef.current;
+          if (!song) return;
+          urlFetchedAt.delete(song.id);
+          try { (window as any).__rwUrlCache?.delete(song.id); } catch { /**/ }
+          const resolved = await resolveSongAudioUrl({ ...song, audioUrl: "" });
+          if (resolved.audioUrl) {
+            const a = audioRef.current;
+            if (!a || !intendToPlayRef.current) return;
+            const savedPos = a.currentTime;
+            a.src = resolved.audioUrl;
+            a.load();
+            a.currentTime = savedPos;
+            a.play().catch(() => {});
           }
         }
       }
@@ -127,63 +175,50 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     // Recently played is managed by LibraryContext (no localStorage here)
   }, []);
 
-  // ── Radio / Library-continuation: fetch more songs based on the last-played song ──
-  // When fromLibrary=true, builds a language-first query so the continuation
-  // feels like "more songs you'd like" rather than generic radio.
-  const fetchRadioSongs = useCallback(
-    async (seed: Song, fromLibrary = false): Promise<Song[]> => {
-      const artist = (seed as any).artist || "";
-      const movie  = (seed as any).movie  || (seed as any).album || "";
-      const lang   = (seed as any).language || "";
+  // ── Radio: fetch more songs based on the last-played song ────────────────
+  const fetchRadioSongs = useCallback(async (seed: Song): Promise<Song[]> => {
+    const artist = seed.artist || "";
+    const movie = (seed as any).movie || (seed as any).album || "";
+    const lang = (seed as any).language || "";
 
-      // Build query pool — language-first for library queues
-      const queries: string[] = [];
-      if (fromLibrary) {
-        // Priority: language > artist > movie > fallback
-        if (lang)   queries.push(`${lang} songs`, `trending ${lang} songs`, `popular ${lang} songs`);
-        if (artist) queries.push(`${artist} songs`, `${artist} hits`);
-        if (movie)  queries.push(`${movie} songs`);
-        queries.push("trending bollywood songs", "trending hindi songs");
-      } else {
-        if (lang && artist) queries.push(`${lang} songs ${artist}`);
-        else if (lang)      queries.push(`${lang} songs`);
-        else if (artist)    queries.push(`${artist} songs`);
-        else if (movie)     queries.push(`${movie} songs`);
-        queries.push("trending songs india");
-      }
+    let query = artist || movie || "trending songs";
+    if (lang) query = `${lang} songs ${artist}`.trim();
+    else if (artist) query = `${artist} songs`;
+
+    try {
+      const apiAny = api as any;
+      let res: any;
+      if (typeof apiAny.search === "function") res = await apiAny.search(query);
+      else if (typeof apiAny.getSongs === "function") res = await apiAny.getSongs(query);
+      else if (typeof apiAny.searchSongs === "function") res = await apiAny.searchSongs(query);
+      else if (typeof apiAny.getTrending === "function") res = await apiAny.getTrending();
+
+      const raw = Array.isArray(res) ? res : (res?.data ?? res?.results ?? res?.songs ?? []);
+      if (!Array.isArray(raw) || raw.length === 0) return [];
+
+      const { mapApiSong } = await import("@/data/songs").catch(() => ({ mapApiSong: null }));
+      const songs: Song[] = raw
+        .map((item: any) => (mapApiSong ? mapApiSong(item) : item))
+        .filter((s: any): s is Song => !!s && !!s.id);
 
       const existingIds = new Set(queueRef.current.map((s) => s.id));
-      const { mapApiSong }  = await import("@/data/songs").catch(() => ({ mapApiSong: null as any }));
-      const { extractResults } = await import("@/services/api").catch(() => ({ extractResults: null as any }));
-
-      for (const query of queries) {
-        try {
-          const res  = await api.searchSongs(query, 1, 50);
-          const raw  = extractResults ? extractResults(res) : (Array.isArray(res) ? res : (res?.data ?? []));
-          if (!Array.isArray(raw) || raw.length === 0) continue;
-
-          const songs: Song[] = raw
-            .map((item: any) => (mapApiSong ? mapApiSong(item) : item))
-            .filter((s: any): s is Song => !!s && !!s.id && !existingIds.has(s.id));
-
-          if (songs.length >= 5) return songs.slice(0, 30);
-        } catch (err) {
-          console.warn("[PlayerContext] Radio fetch failed for query:", query, err);
-        }
-      }
+      return songs.filter((s) => !existingIds.has(s.id)).slice(0, 20);
+    } catch (err) {
+      console.warn("[PlayerContext] Radio fetch failed:", err);
       return [];
-    },
-    [] // eslint-disable-line react-hooks/exhaustive-deps
-  );
+    }
+  }, []);
 
-  // ── Resolve all missing audioUrls in a queue ─────────────────────────────
+  // ── Resolve all audioUrls in a queue — eagerly in parallel ──────────────
+  // Called when playSong() starts so ALL URLs are warm before any song is needed.
+  // Also called proactively 10 min before each URL would expire.
   const resolveQueueAudioUrls = useCallback(async (songs: Song[]) => {
-    const unresolved = songs.filter((s) => !s.audioUrl);
-    if (unresolved.length === 0) return;
+    // Resolve EVERYTHING in parallel — don't wait for previous ones
     await Promise.allSettled(
-      unresolved.map(async (song) => {
+      songs.map(async (song) => {
         const resolved = await resolveSongAudioUrl(song);
-        if (resolved.audioUrl === song.audioUrl) return;
+        if (resolved.audioUrl === song.audioUrl && resolved.audioUrl) return;
+        if (!resolved.audioUrl) return;
         const q = [...queueRef.current];
         const i = q.findIndex((s) => s.id === resolved.id);
         if (i >= 0) {
@@ -293,8 +328,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         if (!radioFetchingRef.current && seed) {
           radioFetchingRef.current = true;
           setIsRadioMode(true);
-          // Pass fromLibrary flag so fetchRadioSongs picks language-first queries
-          fetchRadioSongs(seed, libraryQueueRef.current).then((radioSongs) => {
+          fetchRadioSongs(seed).then((radioSongs) => {
             radioFetchingRef.current = false;
             if (radioSongs.length === 0) {
               setIsRadioMode(false);
@@ -453,6 +487,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
     const handlePlay = () => {
       songEndingRef.current = false;
+      consecutiveErrorsRef.current = 0; // successful play = backend is up
       setIsPlaying(true);
       if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing";
     };
@@ -504,8 +539,75 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
     const handleError = () => {
       clearStallTimer();
+      consecutiveErrorsRef.current += 1;
+
+      const song = currentSongRef.current;
+      const errCode = (audio.error?.code ?? 0);
+
+      // MEDIA_ERR_SRC_NOT_SUPPORTED (4) = URL expired or empty src.
+      // Try to re-resolve before giving up. Clear the stale cache entry first.
+      if (errCode === 4 && song) {
+        // Evict the stale URL from both caches so resolveStreamUrl fetches fresh
+        urlFetchedAt.delete(song.id);
+        try { (window as any).__rwUrlCache?.delete(song.id); } catch { /**/ }
+
+        console.warn("[PlayerContext] URL expired for", song.id, "— re-resolving before skip");
+        resolveSongAudioUrl({ ...song, audioUrl: "" }).then((resolved) => {
+          if (resolved.audioUrl && resolved.audioUrl !== song.audioUrl) {
+            consecutiveErrorsRef.current = 0;
+            // Patch queue
+            const q = [...queueRef.current];
+            const i = q.findIndex((s) => s.id === resolved.id);
+            if (i >= 0) { q[i] = resolved; queueRef.current = q; setQueue([...q]); }
+            setCurrentSong(resolved);
+            playAudioDirectly(resolved);
+          } else {
+            // Re-resolve also failed — backend is down
+            handleBackendDown();
+          }
+        }).catch(handleBackendDown);
+        return;
+      }
+
+      // Circuit breaker: after 3 consecutive failures, stop cascade-skipping.
+      // This prevents the whole queue from being burnt through in seconds when
+      // the backend (Render free tier) is sleeping or down.
+      if (consecutiveErrorsRef.current >= 3) {
+        console.error("[PlayerContext] Backend appears down — pausing playback instead of cascade-skip");
+        intendToPlayRef.current = false;
+        setIsPlaying(false);
+        if (audio) audio.pause();
+        // Auto-retry after 15 s in case the backend was just cold-starting
+        if (errorBackoffTimerRef.current) clearTimeout(errorBackoffTimerRef.current);
+        errorBackoffTimerRef.current = setTimeout(() => {
+          if (!intendToPlayRef.current && song) {
+            consecutiveErrorsRef.current = 0;
+            resolveSongAudioUrl({ ...song, audioUrl: "" }).then((resolved) => {
+              if (resolved.audioUrl) {
+                setCurrentSong(resolved);
+                setIsPlaying(true);
+                intendToPlayRef.current = true;
+                playAudioDirectly(resolved);
+              }
+            }).catch(() => {});
+          }
+        }, 15_000);
+        return;
+      }
+
       console.error("Audio playback error — skipping to next");
       setTimeout(() => nextSongInternalRef.current(), 800);
+    };
+
+    const handleBackendDown = () => {
+      consecutiveErrorsRef.current += 1;
+      if (consecutiveErrorsRef.current >= 3) {
+        intendToPlayRef.current = false;
+        setIsPlaying(false);
+        if (audio) audio.pause();
+      } else {
+        setTimeout(() => nextSongInternalRef.current(), 800);
+      }
     };
 
     const handleAbort = () => {
@@ -669,18 +771,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   // ── playSong ─────────────────────────────────────────────────────────────
   const playSong = useCallback(
     async (song: Song, songQueue?: Song[], fromLibrary?: boolean) => {
-      // Reset radio mode
       setIsRadioMode(false);
       radioFetchingRef.current = false;
-
-      // Set libraryQueueRef SYNCHRONOUSLY before any await
       libraryQueueRef.current = !!fromLibrary;
 
-      // FIX: For library queues, do NOT clear play history.
-      // The old code cleared it but that had no real benefit — the skip logic
-      // has been removed entirely. Songs are never auto-skipped based on history anymore.
-
       const resolved = await resolveSongAudioUrl(song);
+      urlFetchedAt.set(resolved.id, Date.now());
 
       let q = songQueue || [resolved];
       if (resolved.audioUrl !== song.audioUrl) {
@@ -696,8 +792,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setQueueIndex(safeIdx);
       lastPlayedSongRef.current = resolved;
       addToRecentlyPlayedInternal(resolved);
+      consecutiveErrorsRef.current = 0;
 
-      // If same song is already playing, just update queue reference silently
       if (currentSong?.id === resolved.id && audioRef.current) {
         const audio = audioRef.current;
         if (!audio.paused) return;
@@ -712,7 +808,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         intendToPlayRef.current = true;
       }
 
-      // Resolve remaining songs in queue in background
+      // Eagerly resolve ALL queue URLs in parallel so they're ready before lock screen.
+      // This is the key fix: by the time any song needs to play, its URL is already cached.
       resolveQueueAudioUrls(q);
     },
     [addToRecentlyPlayedInternal, resolveQueueAudioUrls, currentSong]

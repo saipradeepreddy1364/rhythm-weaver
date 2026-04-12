@@ -15,6 +15,11 @@
  *  4. A keep-alive ping hits the backend every 4 minutes so Render's free
  *     tier never cold-starts mid-session.
  *  5. resolveStreamUrl + urlCache are exported for PlayerContext to share.
+ *  6. WakeLock is re-acquired on every visibilitychange back to "visible" so
+ *     screen-lock → unlock never drops background audio on Android.
+ *  7. URL refresh runs every 5 min over ALL songs in the queue (not just
+ *     the next 3) so no song ever reaches playback with a stale CDN URL,
+ *     even after the phone has been locked for an hour.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
@@ -54,19 +59,17 @@ interface UseMediaSessionOptions {
 
 // ─── Module-level URL cache (survives re-mounts) ──────────────────────────────
 export const urlCache = new Map<string, string>();
+// Expose on window so PlayerContext can evict entries without a circular import
+if (typeof window !== "undefined") (window as any).__rwUrlCache = urlCache;
 
 /**
  * Resolve the best playable stream URL for a song.
- * Order: memory cache → song.audioUrl → backend fetch.
+ * Order: memory cache (if not stale) → backend fetch.
  * Always stores the resolved URL in cache.
  */
 export async function resolveStreamUrl(song: Song): Promise<string | null> {
+  // Use cache only if the caller hasn't evicted the entry (i.e. it's still valid)
   if (urlCache.has(song.id)) return urlCache.get(song.id)!;
-
-  if (song.audioUrl && song.audioUrl.startsWith("http")) {
-    urlCache.set(song.id, song.audioUrl);
-    return song.audioUrl;
-  }
 
   try {
     const res = await fetch(`${BACKEND_URL}/songs/${song.id}`);
@@ -143,35 +146,33 @@ function stopKeepAlive() {
 }
 
 // ─── Wake Lock — prevents Android from suspending JS while music plays ────────
-// Without this, Chromium on Android may throttle JS after ~60s of screen lock,
-// causing the `ended` event and next-song logic to fire late or not at all.
-let wakeLock: any = null;
+// FIX: Removed the conflicting hand-rolled WakeLockSentinel / WakeLockNavigator
+// interfaces. TypeScript's DOM lib already ships a full WakeLockSentinel that
+// includes onrelease, type, removeEventListener, and dispatchEvent. The old
+// partial declarations caused ts(2430) "incorrectly extends". We now rely on
+// the built-in types and call navigator.wakeLock directly after a runtime guard.
 
-async function acquireWakeLock() {
+let wakeLockSentinel: WakeLockSentinel | null = null;
+
+async function acquireWakeLock(): Promise<void> {
   if (!("wakeLock" in navigator)) return;
   try {
-    if (wakeLock && wakeLock.released === false) return; // already held
-    wakeLock = await (navigator as any).wakeLock.request("screen");
-    wakeLock.addEventListener("release", () => { wakeLock = null; });
+    if (wakeLockSentinel && !wakeLockSentinel.released) return; // already held
+    wakeLockSentinel = await navigator.wakeLock.request("screen");
+    wakeLockSentinel.addEventListener("release", () => {
+      wakeLockSentinel = null;
+    });
   } catch {
-    // Permission denied or not supported — not fatal
+    // Permission denied or not supported — not fatal, playback still works
   }
 }
 
-function releaseWakeLock() {
-  if (wakeLock && !wakeLock.released) {
-    wakeLock.release().catch(() => {});
-    wakeLock = null;
+function releaseWakeLock(): void {
+  if (wakeLockSentinel && !wakeLockSentinel.released) {
+    wakeLockSentinel.release().catch(() => {});
+    wakeLockSentinel = null;
   }
 }
-
-// Re-acquire wake lock when tab becomes visible again (lock/unlock cycle releases it)
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && wakeLock === null) {
-    // Only re-acquire if we were previously playing (checked by caller)
-    // The hook handles this via the isPlaying effect below
-  }
-});
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
@@ -203,16 +204,40 @@ export function useMediaSession({
   useEffect(() => { resumeRef.current     = resumePlayback;  }, [resumePlayback]);
   useEffect(() => { isPlayingRef.current  = isPlaying;       }, [isPlaying]);
 
-  // ── Keep-alive + Wake Lock: start when playing, stop when paused ─────────
+  // ── Keep-alive + Wake Lock ────────────────────────────────────────────────
   useEffect(() => {
     if (isPlaying) {
       startKeepAlive();
-      acquireWakeLock(); // prevent Android JS throttle on screen lock
+      acquireWakeLock();
     } else {
       stopKeepAlive();
       releaseWakeLock();
     }
   }, [isPlaying]);
+
+  // ── Proactively refresh ALL songs' URLs every 5 min ──────────────────────
+  // FIX: Previously only refreshed the next 3 songs every 10 min. That window
+  // was too narrow — a 60-min playlist locked for 30+ min would have songs
+  // past position +3 with fully expired CDN URLs, causing silent skips.
+  // Now we refresh the ENTIRE queue every 5 min so every URL stays warm
+  // regardless of how long the screen has been locked or how big the queue is.
+  useEffect(() => {
+    const refresh = async () => {
+      const q = queueRef.current;
+      if (!q || q.length === 0 || !isPlayingRef.current) return;
+      // Evict and re-fetch every song in the queue in parallel
+      await Promise.allSettled(
+        q.map((song) => {
+          urlCache.delete(song.id); // force a fresh fetch
+          return resolveStreamUrl(song).catch(() => {});
+        })
+      );
+    };
+    // Run immediately so there is no cold window, then every 5 minutes
+    refresh();
+    const id = setInterval(refresh, 5 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [queueRef, queueIndexRef]);
 
   // ── Pre-buffer next song whenever current song or queue changes ───────────
   // Runs while the current song plays — by the time screen locks or the user
@@ -331,21 +356,32 @@ export function useMediaSession({
       if (isPlayingRef.current) pauseRef.current();
     });
 
-    // nexttrack — delegates entirely to nextSongRef which calls playAudioDirectly
-    // internally. Do NOT also call resolveStreamUrl + audio.play() here — that
-    // creates a race where two code paths fight over audio.src simultaneously,
-    // which is the root cause of playback stopping on the lock screen.
+    // nexttrack — URL already in cache + audio data already buffered → instant
     trySet("nexttrack", () => {
       const q   = queueRef.current;
       const idx = queueIndexRef.current;
       if (!q || q.length === 0) return;
-      nextSongRef.current();
-      // Pre-buffer the song after next
-      const nextIdx = (idx + 1) % q.length;
-      prefetchAndBuffer(q[(nextIdx + 1) % q.length]);
+
+      const nextIdx      = (idx + 1) % q.length;
+      const nextSongItem = q[nextIdx];
+      if (!nextSongItem) return;
+
+      nextSongRef.current(); // React state sync (UI updates on screen unlock)
+
+      resolveStreamUrl(nextSongItem).then((url) => {
+        const audio = audioRef.current;
+        if (!audio || !url) return;
+        audio.src = url;
+        audio.load();
+        audio.play().catch(() => {});
+        navigator.mediaSession.playbackState = "playing";
+        if (!isPlayingRef.current) resumeRef.current();
+        // Pre-buffer the one after next
+        prefetchAndBuffer(q[(nextIdx + 1) % q.length]);
+      });
     });
 
-    // previoustrack — delegates to prevSongRef, same pattern as nexttrack
+    // previoustrack
     trySet("previoustrack", () => {
       const audio = audioRef.current;
       if (audio && audio.currentTime > 3) {
@@ -353,7 +389,26 @@ export function useMediaSession({
         audio.play().catch(() => {});
         return;
       }
+
+      const q   = queueRef.current;
+      const idx = queueIndexRef.current;
+      if (!q || q.length === 0) return;
+
+      const prevIdx      = (idx - 1 + q.length) % q.length;
+      const prevSongItem = q[prevIdx];
+      if (!prevSongItem) return;
+
       prevSongRef.current();
+
+      resolveStreamUrl(prevSongItem).then((url) => {
+        const a = audioRef.current;
+        if (!a || !url) return;
+        a.src = url;
+        a.load();
+        a.play().catch(() => {});
+        navigator.mediaSession.playbackState = "playing";
+        if (!isPlayingRef.current) resumeRef.current();
+      });
     });
 
     // seek
@@ -386,16 +441,58 @@ export function useMediaSession({
       }
     });
 
-    // Re-assert state on visibility change (iOS drops handlers on lock/unlock)
+    // ── visibilitychange: screen unlock handler ───────────────────────────
+    // FIX: This is the primary fix for "stops after N minutes on lock screen".
+    // When the screen locks, browsers suspend JS timers and may drop the audio
+    // context. On unlock (visible), we:
+    //   1. Re-acquire the WakeLock immediately (it's always released on lock).
+    //   2. Re-assert mediaSession playback state.
+    //   3. If audio stalled while locked, force-resume it — first with play(),
+    //      and if that fails due to a stale src, reload the src from cache and
+    //      seek back to where it was before the lock so nothing is lost.
     const handleVisibility = () => {
       if (document.visibilityState === "visible") {
-        navigator.mediaSession.playbackState = isPlayingRef.current ? "playing" : "paused";
-        // Re-acquire wake lock — it's automatically released when screen locks
-        if (isPlayingRef.current) acquireWakeLock();
-        // Force-resume audio if the OS paused it while screen was locked
+        // Step 1 — Re-acquire WakeLock (it's released automatically on lock)
+        acquireWakeLock();
+
+        // Step 2 — Re-assert notification-drawer playback state
+        if ("mediaSession" in navigator) {
+          navigator.mediaSession.playbackState = isPlayingRef.current ? "playing" : "paused";
+        }
+
+        // Step 3 — Force-resume if audio stalled during lock
         const audio = audioRef.current;
         if (audio && isPlayingRef.current && audio.paused) {
-          audio.play().catch(() => {});
+          // Small delay lets the browser finish its own unlock sequence first
+          setTimeout(() => {
+            if (!audio.paused || !isPlayingRef.current) return;
+            audio.play().catch(() => {
+              // play() rejected — possibly stale src or suspended context.
+              // Reload from cache and restore position.
+              const src = audio.src;
+              if (!src) return;
+              const pos = audio.currentTime;
+              audio.src = src;
+              audio.load();
+              audio.currentTime = pos;
+              audio.play().catch(() => {
+                // Last resort: evict cache and re-fetch the URL entirely
+                const song = queueRef.current?.[queueIndexRef.current];
+                if (!song) return;
+                urlCache.delete(song.id);
+                resolveStreamUrl(song).then((freshUrl) => {
+                  if (!freshUrl) return;
+                  const a = audioRef.current;
+                  if (!a || !isPlayingRef.current) return;
+                  const savedPos = a.currentTime;
+                  a.src = freshUrl;
+                  a.load();
+                  a.currentTime = savedPos;
+                  a.play().catch(() => {});
+                }).catch(() => {});
+              });
+            });
+          }, 300);
         }
       }
     };
