@@ -40,13 +40,11 @@ const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
 
 const FAVORITES_KEY = "rw_favorites";
 
-// ─── URL age tracking — JioSaavn CDN URLs expire after ~60 min ───────────────
-// FIX: Set to 10 min so URLs are re-resolved very aggressively. Combined with
-// the 90-second refresh loop in useMediaSession, no URL will ever be older
-// than ~90 s in practice — this 10-min ceiling is just the safety backstop
-// for songs that are about to play and haven't been touched by the loop yet.
+// ─── URL age — JioSaavn CDN URLs expire after ~60 min ────────────────────────
+// The pre-load pipeline in useMediaSession fetches URLs while screen is ON,
+// so this backstop mainly guards first-play. Set aggressively at 10 min.
 const urlFetchedAt = new Map<string, number>();
-const URL_MAX_AGE_MS = 10 * 60 * 1000; // re-resolve after 10 min
+const URL_MAX_AGE_MS = 10 * 60 * 1000;
 
 function isUrlStale(songId: string): boolean {
   const t = urlFetchedAt.get(songId);
@@ -122,47 +120,24 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, []);
   useEffect(() => { localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites)); }, [favorites]);
 
-  // ── Visibility change: force-resume when screen unlocks ──────────────────
-  // FIX: This is the core fix for "music stops after N minutes on lock screen".
-  // When Android/iOS locks the screen, JS timers are throttled and the browser
-  // may silently pause the audio element. On unlock (visibilityState → "visible"),
-  // we detect the stall and force-resume. The WakeLock re-acquisition in
-  // useMediaSession handles the OS side; this handles the React/audio side.
+  // Re-acquire audio on visibility change (iOS drops audio context on lock)
   useEffect(() => {
     const handleVisibility = async () => {
-      if (document.visibilityState !== "visible") return;
-      if (!intendToPlayRef.current) return;
-      const audio = audioRef.current;
-      if (!audio) return;
-      if (!audio.paused) return; // already playing — nothing to do
-
-      try {
-        await audio.play();
-      } catch {
-        // play() rejected — src may have been dropped. Reload from current src.
-        const pos = audio.currentTime;
-        const src = audio.src;
-        if (!src) return;
-        try {
-          audio.src = src;
-          audio.load();
-          audio.currentTime = pos;
-          await audio.play();
-        } catch {
-          // If even that fails, evict the cached URL and re-fetch a fresh one
-          const song = currentSongRef.current;
-          if (!song) return;
-          urlFetchedAt.delete(song.id);
-          try { (window as any).__rwUrlCache?.delete(song.id); } catch { /**/ }
-          const resolved = await resolveSongAudioUrl({ ...song, audioUrl: "" });
-          if (resolved.audioUrl) {
-            const a = audioRef.current;
-            if (!a || !intendToPlayRef.current) return;
-            const savedPos = a.currentTime;
-            a.src = resolved.audioUrl;
-            a.load();
-            a.currentTime = savedPos;
-            a.play().catch(() => {});
+      if (document.visibilityState === "visible" && intendToPlayRef.current) {
+        const audio = audioRef.current;
+        if (!audio) return;
+        if (audio.paused) {
+          try {
+            await audio.play();
+          } catch {
+            const pos = audio.currentTime;
+            const src = audio.src;
+            if (src) {
+              audio.src = src;
+              audio.load();
+              audio.currentTime = pos;
+              audio.play().catch(() => {});
+            }
           }
         }
       }
@@ -232,7 +207,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // ── Direct audio playback — bypasses React render for locked-screen ───────
-  // FIX: Now resolves missing audioUrl instead of silently returning.
+  // CRITICAL FIX: Always read the URL from urlCache FIRST (kept fresh by the
+  // Web Worker even while the screen is locked), then fall back to song.audioUrl.
+  // Previously we used song.audioUrl directly — but song objects in queueRef
+  // hold the URL from when the song was first resolved (could be hours old).
+  // The worker updates urlCache with fresh URLs every 60 s, but those never
+  // made it into the actual song objects, so every song after the first played
+  // with a stale expired URL and failed silently.
   const playAudioDirectly = useCallback((song: Song) => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -240,7 +221,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const doPlay = (s: Song) => {
       if (!s.audioUrl) {
         console.warn("[PlayerContext] playAudioDirectly: no audioUrl for", s.id);
-        // Skip to next rather than silently failing
         setTimeout(() => nextSongInternalRef.current(), 500);
         return;
       }
@@ -265,7 +245,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           album: (s as any).movie || (s as any).album || "",
           artwork: s.albumArt
             ? [
-                { src: s.albumArt, sizes: "96x96", type: "image/jpeg" },
+                { src: s.albumArt, sizes: "96x96",   type: "image/jpeg" },
                 { src: s.albumArt, sizes: "128x128", type: "image/jpeg" },
                 { src: s.albumArt, sizes: "192x192", type: "image/jpeg" },
                 { src: s.albumArt, sizes: "256x256", type: "image/jpeg" },
@@ -277,23 +257,34 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
     };
 
+    // Step 1: Check urlCache first — the Web Worker keeps this fresh every 60 s
+    // even while the screen is locked. Song objects in queueRef hold stale URLs.
+    const cachedUrl = (window as any).__rwUrlCache?.get(song.id) as string | undefined;
+    if (cachedUrl) {
+      doPlay({ ...song, audioUrl: cachedUrl });
+      return;
+    }
+
+    // Step 2: Song object has a URL — use it but also refresh cache for next time
     if (song.audioUrl) {
       doPlay(song);
-    } else {
-      // FIX: Resolve URL instead of skipping — critical for liked songs from backend
-      resolveSongAudioUrl(song).then((resolved) => {
-        // Patch the queue so future next/prev calls use the resolved URL
-        const q = [...queueRef.current];
-        const i = q.findIndex((s) => s.id === resolved.id);
-        if (i >= 0) {
-          q[i] = resolved;
-          queueRef.current = q;
-          setQueue([...q]);
-          if (queueIndexRef.current === i) setCurrentSong(resolved);
-        }
-        doPlay(resolved);
-      });
+      // Async refresh in background so next play of this song gets a fresh URL
+      resolveSongAudioUrl(song).catch(() => {});
+      return;
     }
+
+    // Step 3: No URL anywhere — fetch one now
+    resolveSongAudioUrl(song).then((resolved) => {
+      const q = [...queueRef.current];
+      const i = q.findIndex((s) => s.id === resolved.id);
+      if (i >= 0) {
+        q[i] = resolved;
+        queueRef.current = q;
+        setQueue([...q]);
+        if (queueIndexRef.current === i) setCurrentSong(resolved);
+      }
+      doPlay(resolved);
+    });
   }, []);
 
   const nextSongInternal = useCallback(() => {
@@ -387,9 +378,29 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
     const candidate = q[nextIdx];
 
-    if (!candidate.audioUrl) {
-      // FIX: Resolve URL before playing — never auto-skip just because URL is missing.
-      // This was causing the entire liked-songs library to be skipped on new devices.
+    // CRITICAL FIX: Always check urlCache before trusting candidate.audioUrl.
+    // The Web Worker refreshes urlCache every 60 s while the screen is locked,
+    // but never writes back into the song objects stored in queueRef. So
+    // candidate.audioUrl may be hours-old and expired. urlCache is always fresher.
+    const cachedUrl = (window as any).__rwUrlCache?.get(candidate.id) as string | undefined;
+
+    if (cachedUrl) {
+      // Best case: worker already has a fresh URL ready — use it immediately
+      const patchedQ = [...queueRef.current];
+      const patched  = { ...candidate, audioUrl: cachedUrl };
+      patchedQ[nextIdx]     = patched;
+      queueRef.current      = patchedQ;
+      queueIndexRef.current = nextIdx;
+      setQueue(patchedQ);
+      setQueueIndex(nextIdx);
+      setCurrentSong(patched);
+      setIsPlaying(true);
+      intendToPlayRef.current = true;
+      addToRecentlyPlayedInternal(patched);
+      lastPlayedSongRef.current = patched;
+      playAudioDirectly(patched);
+    } else if (!candidate.audioUrl) {
+      // No URL anywhere — fetch one now before playing
       resolveSongAudioUrl(candidate).then((resolved) => {
         if (!resolved.audioUrl) {
           console.warn("[PlayerContext] Could not resolve audioUrl for", resolved.id, "— skipping");
@@ -411,6 +422,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         playAudioDirectly(resolved);
       });
     } else {
+      // candidate.audioUrl exists and nothing fresher in cache — use it,
+      // but kick off a background refresh so the NEXT song is always ready
       queueIndexRef.current = nextIdx;
       setQueueIndex(nextIdx);
       setCurrentSong(candidate);
@@ -549,6 +562,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       if (errCode === 4 && song) {
         // Evict the stale URL from both caches so resolveStreamUrl fetches fresh
         urlFetchedAt.delete(song.id);
+        const { urlCache } = require ? { urlCache: null } : { urlCache: null };
         try { (window as any).__rwUrlCache?.delete(song.id); } catch { /**/ }
 
         console.warn("[PlayerContext] URL expired for", song.id, "— re-resolving before skip");
@@ -750,18 +764,20 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         setProgressState(0);
         return;
       }
-      const prevIdx = (idx - 1 + q.length) % q.length;
+      const prevIdx   = (idx - 1 + q.length) % q.length;
       const candidate = q[prevIdx];
-      if (candidate) {
-        playAudioDirectly(candidate);
-        queueIndexRef.current = prevIdx;
-        setQueueIndex(prevIdx);
-        setCurrentSong(candidate);
-        setIsPlaying(true);
-        intendToPlayRef.current = true;
-        addToRecentlyPlayedInternal(candidate);
-        lastPlayedSongRef.current = candidate;
-      }
+      if (!candidate) return;
+      // Always prefer fresh URL from urlCache over stale song object URL
+      const cachedUrl = (window as any).__rwUrlCache?.get(candidate.id) as string | undefined;
+      const patched   = cachedUrl ? { ...candidate, audioUrl: cachedUrl } : candidate;
+      playAudioDirectly(patched);
+      queueIndexRef.current = prevIdx;
+      setQueueIndex(prevIdx);
+      setCurrentSong(patched);
+      setIsPlaying(true);
+      intendToPlayRef.current = true;
+      addToRecentlyPlayedInternal(patched);
+      lastPlayedSongRef.current = patched;
     },
     togglePlay,
     queueRef,
@@ -847,10 +863,24 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setProgressState(0);
       return;
     }
-    const prevIdx = (idx - 1 + q.length) % q.length;
+    const prevIdx   = (idx - 1 + q.length) % q.length;
     const candidate = q[prevIdx];
+    const cachedUrl = (window as any).__rwUrlCache?.get(candidate.id) as string | undefined;
 
-    if (!candidate.audioUrl) {
+    if (cachedUrl) {
+      const patched = { ...candidate, audioUrl: cachedUrl };
+      const patchedQ = [...queueRef.current];
+      patchedQ[prevIdx]     = patched;
+      queueRef.current      = patchedQ;
+      queueIndexRef.current = prevIdx;
+      setQueue(patchedQ);
+      setQueueIndex(prevIdx);
+      setCurrentSong(patched);
+      setIsPlaying(true);
+      intendToPlayRef.current = true;
+      addToRecentlyPlayedInternal(patched);
+      lastPlayedSongRef.current = patched;
+    } else if (!candidate.audioUrl) {
       resolveSongAudioUrl(candidate).then((resolved) => {
         const patchedQ = [...queueRef.current];
         patchedQ[prevIdx] = resolved;
