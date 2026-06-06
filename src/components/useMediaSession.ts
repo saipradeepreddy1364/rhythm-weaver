@@ -288,34 +288,6 @@ export function useMediaSession({
     return () => audio.removeEventListener("ended", onEnded);
   }, [audioRef, queueRef, queueIndexRef]);
 
-  // ── Audio focus: OS-initiated pause/play (calls, other apps) ─────────────
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    let osPaused = false;
-
-    const onPause = () => {
-      if (isPlayingRef.current) {
-        osPaused = true;
-        pauseRef.current();
-        if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
-      }
-    };
-    const onPlay = () => {
-      if (osPaused) {
-        osPaused = false;
-        resumeRef.current();
-        if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "playing";
-      }
-    };
-
-    audio.addEventListener("pause", onPause);
-    audio.addEventListener("play",  onPlay);
-    return () => {
-      audio.removeEventListener("pause", onPause);
-      audio.removeEventListener("play",  onPlay);
-    };
-  }, [audioRef]);
 
   // ── 1. Metadata ───────────────────────────────────────────────────────────
   useEffect(() => {

@@ -491,13 +491,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const handlePause = () => {
       // Ignore pauses fired during song transitions (src swap)
       if (isTransitioningRef.current) return;
-      // If we intended to play (intendToPlayRef), this pause came from the OS
-      // (phone call, another app). Don't fight it — sync React state.
-      // useMediaSession's audio focus listener will handle the resumePlayback call.
-      if (!intendToPlayRef.current) {
-        setIsPlaying(false);
-        if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
-      }
+      // Sync React state and player intent when the audio actually pauses (OS call, user pause, bluetooth pause)
+      setIsPlaying(false);
+      intendToPlayRef.current = false;
+      if ("mediaSession" in navigator) navigator.mediaSession.playbackState = "paused";
     };
 
     const handleWaiting = () => {
