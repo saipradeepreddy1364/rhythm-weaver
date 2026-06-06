@@ -48,31 +48,11 @@ export function mapApiSong(item: any): Song {
     "";
 
   // ── Audio URL ──────────────────────────────────────────────────────────────
-  // Try all known download/stream URL shapes
-  const audioUrl =
-    item.downloadUrl?.[4]?.url ||
-    item.downloadUrl?.[4]?.link ||
-    item.downloadUrl?.[3]?.url ||
-    item.downloadUrl?.[3]?.link ||
-    item.downloadUrl?.[2]?.url ||
-    item.downloadUrl?.[2]?.link ||
-    item.downloadUrl?.[1]?.url ||
-    item.downloadUrl?.[1]?.link ||
-    item.downloadUrl?.[0]?.url ||
-    item.downloadUrl?.[0]?.link ||
-    (Array.isArray(item.downloadUrl) && typeof item.downloadUrl[0] === "string"
-      ? item.downloadUrl[0]
-      : "") ||
-    item.streamUrl ||
-    item.stream_url ||
-    item.audioUrl ||
-    item.audio_url ||
-    item.mediaUrl ||
-    item.media_url ||
-    item.url ||
-    item.playbackUrl ||
-    item.playback_url ||
-    "";
+  // Bind directly to our Spring Boot backend redirect stream endpoint
+  const songId = String(item.id || item.songId || item.song_id || "");
+  const audioUrl = songId
+    ? `https://musicbackend-xg4u.onrender.com/api/songs/${songId}/stream`
+    : "";
 
   // ── Artists ────────────────────────────────────────────────────────────────
   let artist = "Unknown";

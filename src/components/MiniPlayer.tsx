@@ -1,7 +1,7 @@
 import { usePlayer } from "@/context/PlayerContext";
-import { Play, Pause, Music2, Volume2, VolumeX, ListPlus } from "lucide-react";
+import { Play, Pause, Music2, ListPlus } from "lucide-react";
 import { LikeButton } from "@/components/LikeButton";
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 
 interface MiniPlayerProps {
   onRequireAuth?: () => void;
@@ -14,28 +14,11 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
     togglePlay,
     progress,
     duration,
-    volume,
-    setVolume,
     setShowPlayer,
     addToQueue,
   } = usePlayer();
 
-  const [showVolume, setShowVolume] = useState(false);
-  const [prevVolume, setPrevVolume] = useState(0.7);
   const [queuedFlash, setQueuedFlash] = useState(false);
-  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const resetHideTimer = () => {
-    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-    hideTimerRef.current = setTimeout(() => setShowVolume(false), 3000);
-  };
-
-  useEffect(() => {
-    if (showVolume) resetHideTimer();
-    return () => {
-      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-    };
-  }, [showVolume]);
 
   if (!currentSong) return null;
 
@@ -51,24 +34,6 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
   const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
   const strokeDashoffset = CIRCUMFERENCE - (pct / 100) * CIRCUMFERENCE;
 
-  const isMuted = volume === 0;
-
-  const toggleMute = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (isMuted) {
-      setVolume(prevVolume || 0.7);
-    } else {
-      setPrevVolume(volume);
-      setVolume(0);
-    }
-    resetHideTimer();
-  };
-
-  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setVolume(parseFloat(e.target.value));
-    resetHideTimer();
-  };
-
   const handleAddToQueue = (e: React.MouseEvent) => {
     e.stopPropagation();
     addToQueue(currentSong);
@@ -78,128 +43,6 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
 
   return (
     <div className="fixed bottom-14 left-0 right-0 z-50 px-3 pb-2 pointer-events-none">
-      <style>{`
-        .mini-vol-slider {
-          -webkit-appearance: none;
-          appearance: none;
-          background: transparent;
-          width: 100%;
-          cursor: pointer;
-          height: 20px;
-        }
-        .mini-vol-slider::-webkit-slider-thumb {
-          -webkit-appearance: none;
-          width: 14px;
-          height: 14px;
-          border-radius: 50%;
-          background: #ffffff;
-          cursor: pointer;
-          margin-top: -5px;
-          box-shadow: 0 1px 6px rgba(0,0,0,0.6);
-          transition: transform 0.15s;
-        }
-        .mini-vol-slider:hover::-webkit-slider-thumb {
-          transform: scale(1.2);
-        }
-        .mini-vol-slider::-moz-range-thumb {
-          width: 14px;
-          height: 14px;
-          border-radius: 50%;
-          background: #ffffff;
-          cursor: pointer;
-          border: none;
-          box-shadow: 0 1px 6px rgba(0,0,0,0.6);
-        }
-        .mini-vol-slider::-webkit-slider-runnable-track {
-          height: 4px;
-          background: transparent;
-          border-radius: 2px;
-        }
-        .mini-vol-slider::-moz-range-track {
-          height: 4px;
-          background: transparent;
-          border-radius: 2px;
-        }
-        @keyframes miniVolUp {
-          from { opacity: 0; transform: translateY(8px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
-
-      {/* ── Volume popup — tall & clearly visible bar ── */}
-      {showVolume && (
-        <div
-          className="pointer-events-auto mb-2 mx-2 rounded-2xl px-4 py-4 flex items-center gap-4"
-          style={{
-            background: "rgba(22,14,18,0.98)",
-            backdropFilter: "blur(28px)",
-            border: "1px solid rgba(255,255,255,0.12)",
-            boxShadow: "0 8px 32px rgba(0,0,0,0.7)",
-            animation: "miniVolUp 0.15s ease",
-          }}
-          onClick={(e) => e.stopPropagation()}
-          onMouseMove={resetHideTimer}
-          onTouchMove={resetHideTimer}
-        >
-          {/* Mute toggle icon */}
-          <button
-            onClick={toggleMute}
-            className="flex-shrink-0 active:scale-90 transition-transform"
-            style={{ color: isMuted ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.85)" }}
-          >
-            {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
-          </button>
-
-          {/* Track + filled bar + range input */}
-          <div className="relative flex-1" style={{ height: 20 }}>
-            {/* Background track */}
-            <div
-              className="absolute rounded-full"
-              style={{
-                top: "50%",
-                transform: "translateY(-50%)",
-                left: 0,
-                right: 0,
-                height: 4,
-                background: "rgba(255,255,255,0.18)",
-              }}
-            />
-            {/* Filled portion */}
-            <div
-              className="absolute rounded-full pointer-events-none"
-              style={{
-                top: "50%",
-                transform: "translateY(-50%)",
-                left: 0,
-                height: 4,
-                width: `${volume * 100}%`,
-                background: "linear-gradient(90deg, #e8b4bc, #f4c4cb)",
-                transition: "width 0.05s linear",
-              }}
-            />
-            {/* Range input — sits over the track */}
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={volume}
-              onChange={handleVolumeChange}
-              className="mini-vol-slider absolute inset-0"
-              style={{ margin: 0, padding: 0 }}
-            />
-          </div>
-
-          {/* Percentage label */}
-          <span
-            className="text-xs font-bold w-9 text-right flex-shrink-0"
-            style={{ color: "rgba(255,255,255,0.5)", fontVariantNumeric: "tabular-nums" }}
-          >
-            {Math.round(volume * 100)}%
-          </span>
-        </div>
-      )}
-
       {/* ── Main pill ── */}
       <div
         className="rounded-full overflow-hidden shadow-2xl pointer-events-auto flex items-center gap-3 px-3 py-2"
@@ -271,24 +114,6 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
           }}
         >
           <ListPlus className="w-4 h-4" />
-        </button>
-
-        {/* ── Volume button ── */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            setShowVolume((v) => {
-              if (!v) resetHideTimer();
-              return !v;
-            });
-          }}
-          className="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center transition-all active:scale-90"
-          style={{
-            background: showVolume ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.08)",
-            color: isMuted ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.7)",
-          }}
-        >
-          {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
         </button>
 
         {/* ── Like button ── */}

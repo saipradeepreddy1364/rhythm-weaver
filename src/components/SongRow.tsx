@@ -1,6 +1,6 @@
 import { Song, formatDuration } from "@/data/songs";
 import { usePlayer } from "@/context/PlayerContext";
-import { Play, Pause, ListPlus } from "lucide-react";
+import { Play, Pause, ListPlus, Download } from "lucide-react";
 import { LikeButton } from "@/components/LikeButton";
 import { AddToPlaylistMenu } from "@/components/AddToPlaylistMenu";
 import { useState } from "react";
@@ -120,6 +120,19 @@ export function SongRow({ song, queue, onRequireAuth, fromLibrary }: SongRowProp
           size="sm"
           className="p-2 text-white/40 hover:text-white"
         />
+
+        {/* Download Song */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            window.open(`https://musicbackend-xg4u.onrender.com/api/downloads/${song.id}/audio`, '_blank');
+          }}
+          title="Download Audio"
+          className="p-2 rounded-full transition-all active:scale-90 text-white/40 hover:text-white"
+        >
+          <Download className="w-4 h-4" />
+        </button>
+
         <AddToPlaylistMenu song={song} onRequireAuth={onRequireAuth} />
       </div>
     </div>

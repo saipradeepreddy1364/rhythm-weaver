@@ -1,87 +1,10 @@
 // ─── Base URL ─────────────────────────────────────────────────────────────────
 const BASE_URL =
   (import.meta as any).env?.VITE_API_BACKEND_URL ||
-  "https://musicbackend-g2sp.onrender.com/api";
-
-// ─── Token helper — localStorage for persistent sessions ─────────────────────
-const getToken = () => localStorage.getItem("rw_session_token");
+  "https://musicbackend-xg4u.onrender.com/api";
 
 export const api = {
-
-  // ── Auth ────────────────────────────────────────────────────────────────────
-
-  login: async (email: string, password: string) => {
-    try {
-      const res = await fetch(`${BASE_URL}/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-      const json = await res.json();
-      return json?.data ?? json;
-    } catch {
-      return { success: false, message: "Server unavailable." };
-    }
-  },
-
-  register: async (email: string, password: string, username: string) => {
-    try {
-      const res = await fetch(`${BASE_URL}/auth/register`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, username }),
-      });
-      const json = await res.json();
-      if (json?.data) return json.data;
-      return { success: false, message: json?.error ?? json?.message ?? "Registration failed." };
-    } catch {
-      return { success: false, message: "Server unavailable." };
-    }
-  },
-
-  logout: async () => {
-    try {
-      const token = getToken();
-      const res = await fetch(`${BASE_URL}/auth/logout`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: token ? `Bearer ${token}` : "",
-        },
-      });
-      return res.json();
-    } catch {
-      return { success: true };
-    }
-  },
-
-  verifyToken: async (token: string): Promise<{ valid: boolean; user?: any; networkError?: boolean }> => {
-    try {
-      const res = await fetch(`${BASE_URL}/auth/verify`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (res.status >= 500) {
-        return { valid: true, networkError: true };
-      }
-
-      if (res.status === 401 || res.status === 403) {
-        return { valid: false };
-      }
-
-      const json = await res.json();
-      const data = json?.data ?? json;
-      if (data?.valid === true && data?.user) {
-        return { valid: true, user: data.user };
-      }
-      return { valid: false };
-    } catch {
-      return { valid: true, networkError: true };
-    }
-  },
-
   // ── Music Search ──────────────────────────────────────────────────────────
-
   searchSongs: async (query: string, page = 1, limit = 50) => {
     const res = await fetch(
       `${BASE_URL}/search/songs?query=${encodeURIComponent(query)}&page=${page}&limit=${limit}`
@@ -90,8 +13,16 @@ export const api = {
     return res.json();
   },
 
-  // ── Get Song By ID — fetches fresh audioUrl for liked songs on new devices ─
+  // GET /search?query={q}&page={p}&limit={l} -> Global search
+  globalSearch: async (query: string, page = 1, limit = 50) => {
+    const res = await fetch(
+      `${BASE_URL}/search?query=${encodeURIComponent(query)}&page=${page}&limit=${limit}`
+    );
+    if (!res.ok) throw new Error(`Global Search HTTP ${res.status}`);
+    return res.json();
+  },
 
+  // ── Song Details ──────────────────────────────────────────────────────────
   getSongById: async (songId: string) => {
     try {
       const res = await fetch(`${BASE_URL}/songs/${songId}`);
@@ -102,162 +33,30 @@ export const api = {
     }
   },
 
-  // ── User Library ──────────────────────────────────────────────────────────
-
-  getLikedSongs: async () => {
+  // GET /songs/{id}/suggestions -> Get recommended tracks (returns up to 50 tracks)
+  getSongSuggestions: async (songId: string) => {
     try {
-      const res = await fetch(`${BASE_URL}/user/liked`, {
-        headers: { Authorization: `Bearer ${getToken() ?? ""}` },
-      });
+      const res = await fetch(`${BASE_URL}/songs/${songId}/suggestions`);
+      if (!res.ok) throw new Error(`Suggestions HTTP ${res.status}`);
       return res.json();
     } catch {
       return { success: false, data: [] };
     }
   },
 
-  likeSong: async (songId: string, songTitle?: string, songImage?: string) => {
+  // GET /songs/{id}/video-url -> Returns JSON of available video stream qualities (1080p, 720p, etc.)
+  getSongVideoUrl: async (songId: string) => {
     try {
-      const res = await fetch(`${BASE_URL}/user/like`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${getToken() ?? ""}`,
-        },
-        body: JSON.stringify({ songId, songTitle: songTitle ?? "", songImage: songImage ?? "" }),
-      });
+      const res = await fetch(`${BASE_URL}/songs/${songId}/video-url`);
+      if (!res.ok) throw new Error(`Video URL HTTP ${res.status}`);
       return res.json();
     } catch {
-      return { success: false };
-    }
-  },
-
-  unlikeSong: async (songId: string) => {
-    try {
-      const res = await fetch(`${BASE_URL}/user/unlike`, {
-        method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${getToken() ?? ""}`,
-        },
-        body: JSON.stringify({ songId }),
-      });
-      return res.json();
-    } catch {
-      return { success: false };
-    }
-  },
-
-  getPlaylists: async () => {
-    try {
-      const res = await fetch(`${BASE_URL}/user/playlists`, {
-        headers: { Authorization: `Bearer ${getToken() ?? ""}` },
-      });
-      return res.json();
-    } catch {
-      return { success: false, data: [] };
-    }
-  },
-
-  createPlaylist: async (name: string) => {
-    try {
-      const res = await fetch(`${BASE_URL}/user/playlists`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${getToken() ?? ""}`,
-        },
-        body: JSON.stringify({ name }),
-      });
-      return res.json();
-    } catch {
-      return { success: false };
-    }
-  },
-
-  updatePlaylist: async (playlistId: string, name: string) => {
-    try {
-      const res = await fetch(`${BASE_URL}/user/playlists/${playlistId}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${getToken() ?? ""}`,
-        },
-        body: JSON.stringify({ name }),
-      });
-      return res.json();
-    } catch {
-      return { success: false };
-    }
-  },
-
-  deletePlaylist: async (playlistId: string) => {
-    try {
-      const res = await fetch(`${BASE_URL}/user/playlists/${playlistId}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${getToken() ?? ""}` },
-      });
-      return res.json();
-    } catch {
-      return { success: false };
-    }
-  },
-
-  addToPlaylist: async (playlistId: string, songId: string) => {
-    try {
-      const res = await fetch(`${BASE_URL}/user/playlists/${playlistId}/songs`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${getToken() ?? ""}`,
-        },
-        body: JSON.stringify({ songId }),
-      });
-      return res.json();
-    } catch {
-      return { success: false };
-    }
-  },
-
-  removeFromPlaylist: async (playlistId: string, songId: string) => {
-    try {
-      const res = await fetch(
-        `${BASE_URL}/user/playlists/${playlistId}/songs/${songId}`,
-        {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${getToken() ?? ""}` },
-        }
-      );
-      return res.json();
-    } catch {
-      return { success: false };
-    }
-  },
-
-  getPlaylistSongs: async (playlistId: string) => {
-    try {
-      const res = await fetch(`${BASE_URL}/user/playlists/${playlistId}/songs`, {
-        headers: { Authorization: `Bearer ${getToken() ?? ""}` },
-      });
-      return res.json();
-    } catch {
-      return { success: false, data: [] };
-    }
-  },
-
-  getPlaylist: async (playlistId: string) => {
-    try {
-      const res = await fetch(`${BASE_URL}/playlists/${playlistId}`);
-      if (!res.ok) throw new Error(`Playlist ${playlistId} HTTP ${res.status}`);
-      return res.json();
-    } catch {
-      return { success: false, data: null };
+      return { success: false, streams: [] };
     }
   },
 
   // ── Lyrics ────────────────────────────────────────────────────────────────
   // Maps to GET /songs/{id}/lyrics on the Spring Boot backend.
-  // The backend tries 5 different JioSaavn API paths before giving up.
-  // Returns { success: true, data: { lyrics: "..." } } or { success: false }.
   getSongLyrics: async (songId: string): Promise<{ success: boolean; data?: { lyrics?: string } }> => {
     try {
       const url = `${BASE_URL}/songs/${encodeURIComponent(songId)}/lyrics`;
@@ -281,8 +80,66 @@ export const api = {
       return { success: false };
     }
   },
-};
 
+  // ── Charts ────────────────────────────────────────────────────────────────
+  // GET /charts -> Trending charts and top playlists
+  getCharts: async () => {
+    try {
+      const res = await fetch(`${BASE_URL}/charts`);
+      if (!res.ok) throw new Error(`Charts HTTP ${res.status}`);
+      return res.json();
+    } catch {
+      return { success: false, charts: [] };
+    }
+  },
+
+  // ── Albums ────────────────────────────────────────────────────────────────
+  // GET /albums?id={id} -> Album details and tracklist
+  getAlbumDetails: async (albumId: string) => {
+    try {
+      const res = await fetch(`${BASE_URL}/albums?id=${albumId}`);
+      if (!res.ok) throw new Error(`Album Details HTTP ${res.status}`);
+      return res.json();
+    } catch {
+      return { success: false, data: null };
+    }
+  },
+
+  // ── Artists ───────────────────────────────────────────────────────────────
+  // GET /artists/{id} -> Artist profile
+  getArtistProfile: async (artistId: string) => {
+    try {
+      const res = await fetch(`${BASE_URL}/artists/${artistId}`);
+      if (!res.ok) throw new Error(`Artist Profile HTTP ${res.status}`);
+      return res.json();
+    } catch {
+      return { success: false, data: null };
+    }
+  },
+
+  // GET /artists/{id}/songs?page={p} -> Paginated artist catalogue (up to page 20)
+  getArtistSongs: async (artistId: string, page = 1) => {
+    try {
+      const res = await fetch(`${BASE_URL}/artists/${artistId}/songs?page=${page}`);
+      if (!res.ok) throw new Error(`Artist Catalogue HTTP ${res.status}`);
+      return res.json();
+    } catch {
+      return { success: false, data: [] };
+    }
+  },
+
+  // ── Playlists ─────────────────────────────────────────────────────────────
+  // GET /playlists?id={id} -> Fetch playlist tracks
+  getPlaylist: async (playlistId: string) => {
+    try {
+      const res = await fetch(`${BASE_URL}/playlists?id=${playlistId}`);
+      if (!res.ok) throw new Error(`Playlist HTTP ${res.status}`);
+      return res.json();
+    } catch {
+      return { success: false, data: null };
+    }
+  },
+};
 
 // ─── Lyrics response normaliser ──────────────────────────────────────────────
 // Handles every shape the backend might return:
@@ -308,7 +165,7 @@ function extractLyricsFromResponse(
   if (json.data && typeof json.data === "object") {
     for (const key of keys) {
       if (typeof json.data[key] === "string" && json.data[key].trim()) {
-        return { success: true, data: { lyrics: json.data[key] } };
+         return { success: true, data: { lyrics: json.data[key] } };
       }
     }
   }

@@ -53,25 +53,8 @@ function isUrlStale(songId: string): boolean {
 
 // ─── Resolve a fresh audioUrl using the shared module-level cache ─────────────
 async function resolveSongAudioUrl(song: Song): Promise<Song> {
-  // Always re-resolve if URL might be expired, even if we have one in memory
-  const needsRefresh = !song.audioUrl ||
-    !song.audioUrl.startsWith("http") ||
-    isUrlStale(song.id);
-
-  if (!needsRefresh) return song;
-
-  try {
-    const url = await resolveStreamUrl(song);
-    if (url) {
-      urlFetchedAt.set(song.id, Date.now());
-      return { ...song, audioUrl: url };
-    }
-  } catch (err) {
-    console.error("[PlayerContext] Failed to fetch audioUrl for", song.id, err);
-  }
-  // If re-resolve fails but we have an existing URL, keep using it
-  if (song.audioUrl?.startsWith("http")) return song;
-  return song;
+  const url = `https://musicbackend-xg4u.onrender.com/api/songs/${song.id}/stream`;
+  return { ...song, audioUrl: url };
 }
 
 export function PlayerProvider({ children }: { children: ReactNode }) {

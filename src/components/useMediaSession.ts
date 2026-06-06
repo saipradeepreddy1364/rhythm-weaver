@@ -37,7 +37,7 @@ import { useEffect, useRef } from "react";
 
 const BACKEND_URL =
   (import.meta as any).env?.VITE_API_BACKEND_URL ||
-  "https://musicbackend-g2sp.onrender.com/api";
+  "https://musicbackend-xg4u.onrender.com/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -70,29 +70,7 @@ export const urlCache = new Map<string, string>();
 if (typeof window !== "undefined") (window as any).__rwUrlCache = urlCache;
 
 export async function resolveStreamUrl(song: Song): Promise<string | null> {
-  if (urlCache.has(song.id)) return urlCache.get(song.id)!;
-  try {
-    const res = await fetch(`${BACKEND_URL}/songs/${song.id}`);
-    if (!res.ok) return null;
-    const json = await res.json();
-    const data     = json?.data;
-    const songData = Array.isArray(data) ? data[0] : data;
-    if (!songData) return null;
-    const downloadUrl = songData.downloadUrl ?? songData.audioUrl ?? songData.url;
-    let url: string | null = null;
-    if (Array.isArray(downloadUrl)) {
-      const sorted = [...downloadUrl].sort((a, b) =>
-        (parseInt(String(b.quality)) || 0) - (parseInt(String(a.quality)) || 0)
-      );
-      url = sorted[0]?.url ?? null;
-    } else if (typeof downloadUrl === "string" && downloadUrl.startsWith("http")) {
-      url = downloadUrl;
-    }
-    if (url) urlCache.set(song.id, url);
-    return url;
-  } catch {
-    return null;
-  }
+  return `${BACKEND_URL}/songs/${song.id}/stream`;
 }
 
 // ─── Pre-load pipeline ────────────────────────────────────────────────────────

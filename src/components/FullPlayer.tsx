@@ -2,6 +2,7 @@ import { usePlayer } from "@/context/PlayerContext";
 import { formatDuration } from "@/data/songs";
 import { LikeButton } from "@/components/LikeButton";
 import { useState, useEffect, useRef } from "react";
+import { api } from "@/services/api";
 import {
   Play,
   Pause,
@@ -12,9 +13,10 @@ import {
   Repeat,
   Music2,
   Mic2,
-  Volume2,
-  VolumeX,
+  Video,
+  Download,
   ListPlus,
+  Loader2,
 } from "lucide-react";
 
 interface FullPlayerProps {
@@ -23,7 +25,7 @@ interface FullPlayerProps {
 
 const BACKEND_URL =
   (import.meta as any).env?.VITE_API_BACKEND_URL ||
-  "https://musicbackend-g2sp.onrender.com/api";
+  "https://musicbackend-xg4u.onrender.com/api";
 
 // Strip HTML tags and decode common HTML entities that JioSaavn returns in lyrics
 function cleanLyricsHtml(raw: string): string {
@@ -31,6 +33,7 @@ function cleanLyricsHtml(raw: string): string {
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<[^>]+>/g, "")
     .replace(/&amp;/g, "&")
+    .replace(/&mut;/g, "")
     .replace(/&quot;/g, '"')
     .replace(/&#039;/g, "'")
     .replace(/&apos;/g, "'")
@@ -42,10 +45,8 @@ function cleanLyricsHtml(raw: string): string {
     .trim();
 }
 
-// Extract lyrics text from any response shape the backend / JioSaavn may return.
-// JioSaavn can return lyrics under many different keys depending on version.
+// Extract lyrics text from any response shape the backend / JioSaavn may return
 function extractLyricsText(data: any): string | null {
-  // Unwrap common wrapper shapes first
   const inner = data?.data ?? data;
 
   const candidates = [
@@ -56,7 +57,6 @@ function extractLyricsText(data: any): string | null {
     inner?.lyrics_snippet,
     data?.lyrics,
     data?.snippet,
-    // Sometimes the entire data field is the lyrics string
     typeof inner === "string" ? inner : null,
     typeof data  === "string" ? data  : null,
   ];
@@ -82,6 +82,13 @@ async function fetchLyrics(songId: string): Promise<string | null> {
   }
 }
 
+type TabType = "cover" | "lyrics" | "video";
+
+interface VideoStream {
+  quality: string;
+  url: string;
+}
+
 export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   const {
     currentSong,
@@ -92,8 +99,6 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
     progress,
     duration,
     setProgress,
-    volume,
-    setVolume,
     showPlayer,
     setShowPlayer,
     addToQueue,
@@ -103,35 +108,30 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
     cycleRepeat,
   } = usePlayer();
 
-  const [showLyrics, setShowLyrics] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabType>("cover");
+  
+  // Lyrics State
   const [lyrics, setLyrics] = useState<string | null>(null);
   const [lyricsLoading, setLyricsLoading] = useState(false);
-  const [prevVolume, setPrevVolume] = useState(0.7);
-  const [showVolume, setShowVolume] = useState(false);
+  
+  // Video State
+  const [videoStreams, setVideoStreams] = useState<VideoStream[]>([]);
+  const [selectedStream, setSelectedStream] = useState<VideoStream | null>(null);
+  const [videoLoading, setVideoLoading] = useState(false);
+  const [videoError, setVideoError] = useState<string | null>(null);
+
   const [queuedFlash, setQueuedFlash] = useState(false);
-  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const resetHideTimer = () => {
-    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-    hideTimerRef.current = setTimeout(() => setShowVolume(false), 3000);
-  };
-
+  // Reset tab and video when song changes
   useEffect(() => {
-    if (showVolume) resetHideTimer();
-    return () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current); };
-  }, [showVolume]);
-
-  useEffect(() => {
-    if (showPlayer) setShowLyrics(false);
-  }, [currentSong?.id]); // reset to Cover tab only when song changes, not on every open
-
-  // Reset lyrics when song changes
-  useEffect(() => {
+    setActiveTab("cover");
     setLyrics(null);
-    setLyricsLoading(false);
+    setVideoStreams([]);
+    setSelectedStream(null);
+    setVideoError(null);
   }, [currentSong?.id]);
 
-  // Pre-fetch lyrics as soon as a song is set — so the Lyrics tab opens instantly
+  // Pre-fetch lyrics as soon as a song is set
   useEffect(() => {
     if (!currentSong) return;
     setLyricsLoading(true);
@@ -141,6 +141,33 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
     });
   }, [currentSong?.id]);
 
+  // Fetch video streams when user clicks "Video" tab
+  useEffect(() => {
+    if (activeTab !== "video" || !currentSong) return;
+    if (videoStreams.length > 0) return; // already loaded for this song
+
+    setVideoLoading(true);
+    setVideoError(null);
+
+    api.getSongVideoUrl(currentSong.id)
+      .then((res) => {
+        // Handle streams response array safely
+        const streams: VideoStream[] = res.streams ?? res.data?.streams ?? (Array.isArray(res) ? res : []);
+        if (Array.isArray(streams) && streams.length > 0) {
+          setVideoStreams(streams);
+          // Auto-select highest quality (usually first or custom sorted)
+          setSelectedStream(streams[0]);
+        } else {
+          setVideoError("No video streams available for this song.");
+        }
+        setVideoLoading(false);
+      })
+      .catch(() => {
+        setVideoError("Failed to load video streams.");
+        setVideoLoading(false);
+      });
+  }, [activeTab, currentSong?.id]);
+
   if (!currentSong || !showPlayer) return null;
 
   const totalDuration =
@@ -149,27 +176,15 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
       : (currentSong.duration && currentSong.duration > 1 ? currentSong.duration : 0);
   const pct = totalDuration > 0 ? Math.min(100, (progress / totalDuration) * 100) : 0;
 
-  const isMuted = volume === 0;
-
-  const toggleMute = () => {
-    if (isMuted) {
-      setVolume(prevVolume || 0.7);
-    } else {
-      setPrevVolume(volume);
-      setVolume(0);
-    }
-    resetHideTimer();
-  };
-
-  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setVolume(parseFloat(e.target.value));
-    resetHideTimer();
-  };
-
   const handleAddToQueue = () => {
     addToQueue(currentSong);
     setQueuedFlash(true);
     setTimeout(() => setQueuedFlash(false), 2000);
+  };
+
+  const handleDownload = () => {
+    const downloadUrl = `${BACKEND_URL}/downloads/${currentSong.id}/audio`;
+    window.open(downloadUrl, "_blank");
   };
 
   return (
@@ -203,26 +218,6 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         .lyrics-scroll::-webkit-scrollbar { width: 3px; }
         .lyrics-scroll::-webkit-scrollbar-track { background: transparent; }
         .lyrics-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 99px; }
-
-        .full-vol-slider { -webkit-appearance: none; appearance: none; background: transparent; width: 100%; height: 100%; cursor: pointer; }
-        .full-vol-slider::-webkit-slider-thumb {
-          -webkit-appearance: none;
-          width: 12px; height: 12px;
-          border-radius: 50%;
-          background: #fff;
-          cursor: pointer;
-          margin-top: -4.5px;
-          box-shadow: 0 1px 4px rgba(0,0,0,0.5);
-        }
-        .full-vol-slider::-moz-range-thumb {
-          width: 12px; height: 12px;
-          border-radius: 50%;
-          background: #fff;
-          cursor: pointer;
-          border: none;
-        }
-        .full-vol-slider::-webkit-slider-runnable-track { height: 3px; background: transparent; }
-        .full-vol-slider::-moz-range-track { height: 3px; background: transparent; }
         @keyframes fadeSlideUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
       `}</style>
 
@@ -254,30 +249,41 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         {/* ── Tab switcher ── */}
         <div className="flex items-center justify-center gap-1 mb-4 flex-shrink-0">
           <button
-            onClick={() => setShowLyrics(false)}
-            className="px-5 py-1.5 rounded-full text-xs font-semibold transition-all"
+            onClick={() => setActiveTab("cover")}
+            className="px-4 py-1.5 rounded-full text-xs font-semibold transition-all"
             style={{
-              background: !showLyrics ? "rgba(255,255,255,0.18)" : "transparent",
-              color: !showLyrics ? "#fff" : "rgba(255,255,255,0.4)",
+              background: activeTab === "cover" ? "rgba(255,255,255,0.18)" : "transparent",
+              color: activeTab === "cover" ? "#fff" : "rgba(255,255,255,0.4)",
             }}
           >
             Cover
           </button>
           <button
-            onClick={() => setShowLyrics(true)}
-            className="px-5 py-1.5 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5"
+            onClick={() => setActiveTab("lyrics")}
+            className="px-4 py-1.5 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5"
             style={{
-              background: showLyrics ? "rgba(255,255,255,0.18)" : "transparent",
-              color: showLyrics ? "#fff" : "rgba(255,255,255,0.4)",
+              background: activeTab === "lyrics" ? "rgba(255,255,255,0.18)" : "transparent",
+              color: activeTab === "lyrics" ? "#fff" : "rgba(255,255,255,0.4)",
             }}
           >
             <Mic2 className="w-3 h-3" />
             Lyrics
           </button>
+          <button
+            onClick={() => setActiveTab("video")}
+            className="px-4 py-1.5 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5"
+            style={{
+              background: activeTab === "video" ? "rgba(255,255,255,0.18)" : "transparent",
+              color: activeTab === "video" ? "#fff" : "rgba(255,255,255,0.4)",
+            }}
+          >
+            <Video className="w-3 h-3" />
+            Video
+          </button>
         </div>
 
         {/* ── Cover tab ── */}
-        {!showLyrics && (
+        {activeTab === "cover" && (
           <div className="flex items-center justify-center flex-shrink-0" style={{ height: 230, overflow: "hidden" }}>
             <div
               className="rounded-2xl overflow-hidden"
@@ -297,7 +303,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         )}
 
         {/* ── Lyrics tab ── */}
-        {showLyrics && (
+        {activeTab === "lyrics" && (
           <div className="flex-shrink-0" style={{ height: 230, overflow: "hidden" }}>
             <div
               className="lyrics-scroll w-full h-full rounded-2xl px-5 py-4"
@@ -314,7 +320,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             >
               {lyricsLoading ? (
                 <div className="flex items-center justify-center h-full">
-                  <div className="w-7 h-7 rounded-full border-2 animate-spin"
+                  <Loader2 className="w-7 h-7 rounded-full border-2 animate-spin"
                     style={{ borderColor: "rgba(255,255,255,0.15)", borderTopColor: "#1DB954" }} />
                 </div>
               ) : lyrics && lyrics.length > 0 ? (
@@ -333,7 +339,61 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           </div>
         )}
 
-        {/* ── Song Info + Like ── */}
+        {/* ── Video tab ── */}
+        {activeTab === "video" && (
+          <div className="flex flex-col items-center justify-center flex-shrink-0" style={{ height: 230, overflow: "hidden" }}>
+            {videoLoading ? (
+              <div className="flex items-center justify-center h-full">
+                <Loader2 className="w-8 h-8 animate-spin" style={{ color: "#1DB954" }} />
+              </div>
+            ) : videoError ? (
+              <div className="flex flex-col items-center justify-center gap-2 text-center px-4">
+                <Video className="w-10 h-10 opacity-30" />
+                <p className="text-xs text-white/40">{videoError}</p>
+              </div>
+            ) : selectedStream ? (
+              <div className="flex flex-col items-center w-full h-full gap-2 justify-center">
+                {/* Custom Video Element */}
+                <div className="w-full aspect-video max-h-[170px] bg-black rounded-xl overflow-hidden shadow-2xl relative">
+                  <video
+                    key={selectedStream.url}
+                    src={selectedStream.url}
+                    className="w-full h-full object-contain"
+                    controls
+                    playsInline
+                    autoPlay
+                    onPlay={() => {
+                      // Stop background audio playback when video plays
+                      if (isPlaying) {
+                        togglePlay();
+                      }
+                    }}
+                  />
+                </div>
+                
+                {/* Quality Selector */}
+                <div className="flex items-center gap-1.5 flex-wrap justify-center overflow-y-auto max-h-[48px]">
+                  {videoStreams.map((stream) => (
+                    <button
+                      key={stream.quality}
+                      onClick={() => setSelectedStream(stream)}
+                      className="px-2.5 py-0.5 rounded-full text-[10px] font-bold transition-all border"
+                      style={{
+                        background: selectedStream.quality === stream.quality ? "#1DB954" : "rgba(255,255,255,0.06)",
+                        borderColor: selectedStream.quality === stream.quality ? "#1DB954" : "rgba(255,255,255,0.12)",
+                        color: selectedStream.quality === stream.quality ? "#000" : "rgba(255,255,255,0.6)"
+                      }}
+                    >
+                      {stream.quality}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        )}
+
+        {/* ── Song Info + Actions (Like / Download) ── */}
         <div className="flex items-center gap-3 mt-4 mb-2 flex-shrink-0">
           <div className="flex-1 min-w-0">
             <h2 className="text-xl font-bold text-white truncate leading-tight">{currentSong.title}</h2>
@@ -346,7 +406,26 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
               </p>
             )}
           </div>
-          <LikeButton song={currentSong} onRequireAuth={onRequireAuth} size="lg" className="flex-shrink-0" />
+          
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Download Button */}
+            <button
+              onClick={handleDownload}
+              title="Download Audio"
+              className="w-11 h-11 rounded-full flex items-center justify-center transition-all active:scale-90"
+              style={{
+                background: "rgba(255,255,255,0.08)",
+                color: "rgba(255,255,255,0.7)",
+              }}
+            >
+              <Download className="w-5 h-5 text-white" />
+            </button>
+
+            {/* Like Button */}
+            <div className="w-11 h-11 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.08)" }}>
+              <LikeButton song={currentSong} onRequireAuth={onRequireAuth} size="lg" className="flex-shrink-0" />
+            </div>
+          </div>
         </div>
 
         {/* ── Seek Bar with percentage ── */}
@@ -381,7 +460,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         </div>
 
         {/* ── Playback Controls ── */}
-        <div className="flex items-center justify-between mb-4 flex-shrink-0">
+        <div className="flex items-center justify-between mb-8 flex-shrink-0">
           <button
             onClick={toggleShuffle}
             className="p-3 active:scale-90 transition-transform relative"
@@ -423,75 +502,6 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             {repeat !== "off" && (
               <span className="absolute bottom-2 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-green-400" />
             )}
-          </button>
-        </div>
-
-        {/* ── Volume popup — appears above the volume toggle button ── */}
-        {showVolume && (
-          <div
-            className="flex-shrink-0 mb-3 rounded-2xl px-4 py-3 flex items-center gap-3"
-            style={{
-              background: "rgba(22,14,18,0.95)",
-              border: "1px solid rgba(255,255,255,0.09)",
-              boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
-              animation: "fadeSlideUp 0.15s ease",
-            }}
-            onMouseMove={resetHideTimer}
-            onTouchMove={resetHideTimer}
-          >
-            <button
-              onClick={toggleMute}
-              className="flex-shrink-0 active:scale-90 transition-transform"
-              style={{ color: isMuted ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.75)" }}
-            >
-              {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-            </button>
-
-            {/* Slim 3px YouTube-style volume bar */}
-            <div className="relative flex-1" style={{ height: 3 }}>
-              <div className="absolute inset-0 rounded-full" style={{ background: "rgba(255,255,255,0.15)" }} />
-              <div
-                className="absolute top-0 left-0 h-full rounded-full pointer-events-none"
-                style={{
-                  width: `${volume * 100}%`,
-                  background: "linear-gradient(90deg, #1DB954, #1ed760)",
-                }}
-              />
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                value={volume}
-                onChange={handleVolumeChange}
-                className="full-vol-slider absolute"
-                style={{ top: "50%", transform: "translateY(-50%)", left: 0 }}
-              />
-            </div>
-
-            <span className="text-xs font-semibold w-8 text-right flex-shrink-0" style={{ color: "rgba(255,255,255,0.4)" }}>
-              {Math.round(volume * 100)}%
-            </span>
-          </div>
-        )}
-
-        {/* ── Volume toggle button ── */}
-        <div className="flex items-center justify-center flex-shrink-0 pb-2">
-          <button
-            onClick={() => {
-              setShowVolume((v) => {
-                if (!v) resetHideTimer();
-                return !v;
-              });
-            }}
-            className="flex items-center gap-2 px-5 py-2 rounded-full transition-all active:scale-95"
-            style={{
-              background: showVolume ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.06)",
-              color: isMuted ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.6)",
-            }}
-          >
-            {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-            <span className="text-xs font-semibold">{Math.round(volume * 100)}%</span>
           </button>
         </div>
       </div>

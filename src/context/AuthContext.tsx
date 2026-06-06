@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
-import { api } from "@/services/api";
+import { supabase } from "@/lib/supabase/client";
 
 interface User {
   id: string;
@@ -18,84 +18,82 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const SESSION_KEY = "rw_session_token";
-const USER_KEY    = "rw_user_data";
-
-// ── Persistent storage helpers ────────────────────────────────────────────────
-const saveSession = (token: string, user: User) => {
-  localStorage.setItem(SESSION_KEY, token);
-  localStorage.setItem(USER_KEY, JSON.stringify(user));
-};
-
-const loadToken    = () => localStorage.getItem(SESSION_KEY);
-const loadUser     = (): User | null => {
-  try {
-    const raw = localStorage.getItem(USER_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
-};
-
-const clearSession = () => {
-  localStorage.removeItem(SESSION_KEY);
-  localStorage.removeItem(USER_KEY);
-};
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const clearAuth = useCallback(() => {
-    clearSession();
-    setUser(null);
+  const fetchProfile = useCallback(async (authUser: any) => {
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", authUser.id)
+        .single();
+
+      if (data) {
+        setUser({
+          id: authUser.id,
+          email: authUser.email || "",
+          username: data.username || authUser.user_metadata?.username || "User",
+        });
+      } else {
+        setUser({
+          id: authUser.id,
+          email: authUser.email || "",
+          username: authUser.user_metadata?.username || "User",
+        });
+      }
+    } catch {
+      setUser({
+        id: authUser.id,
+        email: authUser.email || "",
+        username: authUser.user_metadata?.username || "User",
+      });
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   const checkAuth = useCallback(async () => {
-    const token     = loadToken();
-    const savedUser = loadUser();
-
-    if (!token || !savedUser) {
+    setLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        await fetchProfile(session.user);
+      } else {
+        setUser(null);
+        setLoading(false);
+      }
+    } catch {
       setUser(null);
       setLoading(false);
-      return;
     }
-
-    // Restore immediately from localStorage so UI feels instant
-    setUser(savedUser);
-    setLoading(false);
-
-    // Verify in background — only clear if server EXPLICITLY rejects (401/403)
-    try {
-      const result = await api.verifyToken(token);
-
-      if (!result) return; // unexpected falsy — keep session
-
-      if (result.valid === false) {
-        // Server explicitly rejected token (expired, user deleted, etc.)
-        clearAuth();
-      } else if (result.valid === true && !result.networkError && result.user) {
-        // Refresh user data from server
-        setUser(result.user as User);
-        localStorage.setItem(USER_KEY, JSON.stringify(result.user));
-      }
-      // networkError === true (502, offline, etc.) → do nothing, keep session
-    } catch {
-      // Unexpected error — keep existing session, don't log out
-    }
-  }, [clearAuth]);
+  }, [fetchProfile]);
 
   useEffect(() => {
+    // Initial check
     checkAuth();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Listen for auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user) {
+        await fetchProfile(session.user);
+      } else {
+        setUser(null);
+        setLoading(false);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [checkAuth, fetchProfile]);
 
   const login = async (email: string, password: string): Promise<string | null> => {
     try {
-      const response = await api.login(email, password);
-      if (response.success && response.token && response.user) {
-        saveSession(response.token, response.user);
-        setUser(response.user);
-        return null;
-      }
-      return response.message || "Login failed. Please check your credentials.";
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) return error.message;
+      return null;
     } catch (err: any) {
       return err.message || "Login failed. Please try again.";
     }
@@ -107,34 +105,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     username: string
   ): Promise<string | null> => {
     try {
-      const response = await api.register(email, password, username);
-      if (response.success) {
-        if (response.token && response.user) {
-          saveSession(response.token, response.user);
-          setUser(response.user);
-        } else {
-          const loginErr = await login(email, password);
-          if (loginErr) return null;
-        }
-        return null;
-      }
-      return response.message || "Registration failed. Please try again.";
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            username: username,
+          },
+        },
+      });
+      if (error) return error.message;
+      return null;
     } catch (err: any) {
-      const msg: string = err?.message || "";
-      if (msg.toLowerCase().includes("already") || msg.toLowerCase().includes("exist")) {
-        return "An account with this email already exists. Please sign in instead.";
-      }
-      return msg || "Registration failed. Please check your connection and try again.";
+      return err.message || "Registration failed. Please check your connection and try again.";
     }
   };
 
   const logout = async () => {
     try {
-      await api.logout();
+      await supabase.auth.signOut();
     } catch {
-      // Ignore logout errors
+      // Ignore signOut errors
     } finally {
-      clearAuth();
+      setUser(null);
     }
   };
 
