@@ -13,7 +13,7 @@ import { WebView } from "react-native-webview";
 import * as Updates from "expo-updates";
 
 // Update this to your deployed web app URL (e.g. Vercel deployment)
-const WEB_APP_URL = "https://rhythm-weaver.vercel.app";
+const WEB_APP_URL = "https://rhythm-weaver-two.vercel.app";
 
 export default function App() {
   const webViewRef = useRef<WebView>(null);
