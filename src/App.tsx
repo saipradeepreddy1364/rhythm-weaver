@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { BrowserRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
+import { HashRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider } from "@/context/AuthContext";
 import { PlayerProvider, usePlayer } from "@/context/PlayerContext";
 import { LibraryProvider } from "@/context/LibraryContext";
@@ -109,7 +109,7 @@ function AppContent() {
 
 function App() {
   return (
-    <BrowserRouter>
+    <HashRouter>
       <AuthProvider>
         <PlayerProvider>
           <LibraryProvider>
@@ -117,7 +117,7 @@ function App() {
           </LibraryProvider>
         </PlayerProvider>
       </AuthProvider>
-    </BrowserRouter>
+    </HashRouter>
   );
 }
 

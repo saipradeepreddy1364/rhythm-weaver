@@ -11,15 +11,17 @@ import {
 } from "react-native";
 import { WebView } from "react-native-webview";
 import * as Updates from "expo-updates";
-
-// Update this to your deployed web app URL (e.g. Vercel deployment)
-const WEB_APP_URL = "https://rhythm-weaver-two.vercel.app";
+import { useAssets } from "expo-asset";
 
 export default function App() {
   const webViewRef = useRef<WebView>(null);
   const [canGoBack, setCanGoBack] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [updateNotification, setUpdateNotification] = useState<string | null>(null);
+
+  // Load the bundled single-file index.html asset
+  const [assets, error] = useAssets([require("./assets/index.html")]);
+  const localHtmlUri = assets?.[0]?.localUri || null;
 
   // Check for OTA updates after 3 seconds, displaying real-time UI notification
   useEffect(() => {
@@ -62,6 +64,17 @@ export default function App() {
     }
   }, [canGoBack]);
 
+  // Render a loading state while asset is loading
+  if (!assets && !error) {
+    return (
+      <View style={styles.splashContainer}>
+        <Text style={styles.brandTitle}>RhythmWeaver</Text>
+        <ActivityIndicator size="large" color="#1DB954" style={styles.spinner} />
+        <Text style={styles.loadingText}>Tuning your beats...</Text>
+      </View>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0a0a0a" />
@@ -69,8 +82,12 @@ export default function App() {
       {/* WebView Layer */}
       <WebView
         ref={webViewRef}
-        source={{ uri: WEB_APP_URL }}
+        source={localHtmlUri ? { uri: localHtmlUri } : { html: "<h1>Unable to load app assets</h1>" }}
         style={styles.webview}
+        originWhitelist={["*"]}
+        allowFileAccess={true}
+        allowUniversalAccessFromFileURLs={true}
+        allowFileAccessFromFileURLs={true}
         onNavigationStateChange={(navState) => {
           setCanGoBack(navState.canGoBack);
         }}
@@ -86,7 +103,7 @@ export default function App() {
           <View style={styles.splashContainer}>
             <Text style={styles.brandTitle}>RhythmWeaver</Text>
             <ActivityIndicator size="large" color="#1DB954" style={styles.spinner} />
-            <Text style={styles.loadingText}>Tuning your beats...</Text>
+            <Text style={styles.loadingText}>Loading assets...</Text>
           </View>
         )}
       />
