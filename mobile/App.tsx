@@ -5,6 +5,11 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { PaperProvider } from "react-native-paper";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Updates from "expo-updates";
+import TrackPlayer from "react-native-track-player";
+import { PlaybackService } from "./playbackService";
+
+// Register playback service for background lock screen controls
+TrackPlayer.registerPlaybackService(() => PlaybackService);
 
 // Import Providers (these will be migrated to React Native next)
 import { AuthProvider, useAuth } from "../src/context/AuthContext";

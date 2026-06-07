@@ -8,7 +8,15 @@ import React, {
   useCallback,
   ReactNode,
 } from "react";
-import { Audio } from "expo-av";
+import TrackPlayer, {
+  Capability,
+  State,
+  Event,
+  useProgress,
+  usePlaybackState,
+  useActiveTrack,
+  RepeatMode,
+} from "react-native-track-player";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Song, mapApiSong } from "../data/songs";
 import { api } from "../services/api";
@@ -45,31 +53,24 @@ const FAVORITES_KEY = "rw_favorites";
 
 export function PlayerProvider({ children }: { children: ReactNode }) {
   const [currentSong, setCurrentSong] = useState<Song | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
   const [queue, setQueue] = useState<Song[]>([]);
   const [queueIndex, setQueueIndex] = useState(0);
-  const [progress, setProgressState] = useState(0);
-  const [duration, setDuration] = useState(0);
   const [volume, setVolumeState] = useState(0.7);
   const [showPlayer, setShowPlayer] = useState(false);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [shuffle, setShuffle] = useState(false);
+  const [originalQueue, setOriginalQueue] = useState<Song[]>([]);
   const [repeat, setRepeat] = useState<"off" | "one" | "all">("off");
   const [isRadioMode, setIsRadioMode] = useState(false);
 
-  const soundRef = useRef<Audio.Sound | null>(null);
-  const currentSongRef = useRef<Song | null>(null);
   const queueRef = useRef<Song[]>([]);
   const queueIndexRef = useRef(0);
-  const shuffleRef = useRef(false);
   const repeatRef = useRef<"off" | "one" | "all">("off");
   const radioFetchingRef = useRef(false);
 
   useEffect(() => { queueRef.current = queue; }, [queue]);
   useEffect(() => { queueIndexRef.current = queueIndex; }, [queueIndex]);
-  useEffect(() => { shuffleRef.current = shuffle; }, [shuffle]);
   useEffect(() => { repeatRef.current = repeat; }, [repeat]);
-  useEffect(() => { currentSongRef.current = currentSong; }, [currentSong]);
 
   // Load favorites from AsyncStorage
   useEffect(() => {
@@ -85,63 +86,72 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
   }, [favorites]);
 
-  // Configure Audio for background play
-  useEffect(() => {
-    Audio.setAudioModeAsync({
-      allowsRecordingIOS: false,
-      staysActiveInBackground: true,
-      playsInSilentModeIOS: true,
-      playThroughEarpieceAndroid: false,
-    }).catch(() => {});
+  // TrackPlayer Hooks
+  const playbackState = usePlaybackState();
+  const activeTrack = useActiveTrack();
+  const progressData = useProgress(500);
 
-    return () => {
-      if (soundRef.current) {
-        soundRef.current.unloadAsync().catch(() => {});
+  const isPlaying = playbackState ? playbackState.state === State.Playing : false;
+  const progress = progressData.position;
+  const duration = progressData.duration;
+
+  // TrackPlayer Setup on mount
+  useEffect(() => {
+    const init = async () => {
+      try {
+        await TrackPlayer.setupPlayer({});
+        await TrackPlayer.updateOptions({
+          capabilities: [
+            Capability.Play,
+            Capability.Pause,
+            Capability.SkipToNext,
+            Capability.SkipToPrevious,
+            Capability.SeekTo,
+          ],
+          compactCapabilities: [
+            Capability.Play,
+            Capability.Pause,
+            Capability.SkipToNext,
+          ],
+        });
+        await TrackPlayer.setVolume(volume);
+      } catch (e) {
+        // Suppress error if already setup
       }
     };
+    init();
   }, []);
 
-  // Play audio natively using expo-av
-  const playAudioDirectly = useCallback(async (song: Song) => {
-    if (!song.audioUrl) return;
-    try {
-      if (soundRef.current) {
-        await soundRef.current.unloadAsync().catch(() => {});
+  // Sync active track changes back to currentSong and queueIndex
+  useEffect(() => {
+    if (activeTrack) {
+      const matched = queueRef.current.find(s => s.id === activeTrack.id);
+      if (matched) {
+        setCurrentSong(matched);
+      } else {
+        setCurrentSong({
+          id: activeTrack.id,
+          title: activeTrack.title || "",
+          artist: activeTrack.artist || "",
+          audioUrl: activeTrack.url,
+          albumArt: activeTrack.artwork,
+        } as any);
       }
-
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: song.audioUrl },
-        { shouldPlay: true, volume: volume },
-        onPlaybackStatusUpdate
-      );
-      soundRef.current = sound;
-      setIsPlaying(true);
-    } catch (err) {
-      console.warn("[PlayerContext] Native play failed, skipping to next:", err);
-      setTimeout(() => nextSongInternal(), 1000);
-    }
-  }, [volume]);
-
-  // Handle updates from native sound playback
-  const onPlaybackStatusUpdate = useCallback((status: any) => {
-    if (!status.isLoaded) {
-      if (status.error) {
-        console.error(`[PlayerContext] expo-av playback error: ${status.error}`);
-        nextSongInternal();
-      }
-      return;
+    } else {
+      setCurrentSong(null);
     }
 
-    setProgressState(status.positionMillis / 1000);
-    if (status.durationMillis) {
-      setDuration(status.durationMillis / 1000);
-    }
-    setIsPlaying(status.isPlaying);
-
-    if (status.didJustFinish) {
-      nextSongInternal();
-    }
-  }, []);
+    // Sync queueIndex
+    const syncIndex = async () => {
+      try {
+        const idx = await TrackPlayer.getActiveTrackIndex();
+        if (idx !== undefined && idx !== null) {
+          setQueueIndex(idx);
+        }
+      } catch {}
+    };
+    syncIndex();
+  }, [activeTrack]);
 
   // Radio suggestions fetching
   const fetchRadioSongs = useCallback(async (seed: Song): Promise<Song[]> => {
@@ -170,65 +180,58 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const nextSongInternal = useCallback(() => {
-    const q = queueRef.current;
-    const idx = queueIndexRef.current;
-    if (q.length === 0) return;
+  const nextSongInternal = useCallback(async () => {
+    try {
+      await TrackPlayer.skipToNext();
+    } catch (err) {
+      const q = queueRef.current;
+      const idx = queueIndexRef.current;
+      if (q.length === 0) return;
 
-    if (repeatRef.current === "one") {
-      if (soundRef.current) {
-        soundRef.current.setPositionAsync(0).then(() => soundRef.current?.playAsync()).catch(() => {});
-      }
-      setProgressState(0);
-      return;
-    }
-
-    let nextIdx: number;
-
-    if (shuffleRef.current) {
-      if (q.length === 1) nextIdx = 0;
-      else {
-        do { nextIdx = Math.floor(Math.random() * q.length); }
-        while (nextIdx === idx);
-      }
-    } else if (repeatRef.current === "off") {
-      if (idx >= q.length - 1) {
-        // Queue finished, fall back to radio suggestions
-        const seed = q[idx];
-        if (!radioFetchingRef.current && seed) {
-          radioFetchingRef.current = true;
-          setIsRadioMode(true);
-          fetchRadioSongs(seed).then((radioSongs) => {
-            radioFetchingRef.current = false;
-            if (radioSongs.length === 0) {
-              setIsRadioMode(false);
-              setIsPlaying(false);
-              if (soundRef.current) soundRef.current.pauseAsync().catch(() => {});
-              return;
-            }
-            const newQ = [...queueRef.current, ...radioSongs];
-            const newIdx = queueRef.current.length;
-            setQueue(newQ);
-            setQueueIndex(newIdx);
-            setCurrentSong(newQ[newIdx]);
-            playAudioDirectly(newQ[newIdx]);
-          });
-        } else {
-          setIsPlaying(false);
-          if (soundRef.current) soundRef.current.pauseAsync().catch(() => {});
-        }
+      if (repeatRef.current === "one") {
+        await TrackPlayer.seekTo(0);
+        await TrackPlayer.play();
         return;
       }
-      nextIdx = idx + 1;
-    } else {
-      nextIdx = (idx + 1) % q.length;
-    }
 
-    const nextSongObj = q[nextIdx];
-    setQueueIndex(nextIdx);
-    setCurrentSong(nextSongObj);
-    playAudioDirectly(nextSongObj);
-  }, [fetchRadioSongs, playAudioDirectly]);
+      if (repeatRef.current === "off") {
+        if (idx >= q.length - 1) {
+          const seed = q[idx];
+          if (!radioFetchingRef.current && seed) {
+            radioFetchingRef.current = true;
+            setIsRadioMode(true);
+            const radioSongs = await fetchRadioSongs(seed);
+            radioFetchingRef.current = false;
+
+            if (radioSongs.length === 0) {
+              setIsRadioMode(false);
+              await TrackPlayer.pause();
+              return;
+            }
+
+            const newQ = [...queueRef.current, ...radioSongs];
+            setQueue(newQ);
+
+            // Add new tracks to TrackPlayer
+            const tracksToAdd = radioSongs.map((s) => ({
+              id: s.id,
+              url: s.audioUrl || "",
+              title: s.title,
+              artist: s.artist,
+              album: s.album || s.movie || "",
+              artwork: s.albumArt || "",
+            }));
+            await TrackPlayer.add(tracksToAdd);
+            await TrackPlayer.skip(queueRef.current.length);
+            await TrackPlayer.play();
+          } else {
+            await TrackPlayer.pause();
+          }
+          return;
+        }
+      }
+    }
+  }, [fetchRadioSongs]);
 
   const playSong = useCallback(
     async (song: Song, songQueue?: Song[]) => {
@@ -242,54 +245,61 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setQueue(q);
       setQueueIndex(safeIdx);
       setCurrentSong(song);
-      playAudioDirectly(song);
+
+      try {
+        await TrackPlayer.reset();
+        const tracks = q.map((s) => ({
+          id: s.id,
+          url: s.audioUrl || "",
+          title: s.title,
+          artist: s.artist,
+          album: s.album || s.movie || "",
+          artwork: s.albumArt || "",
+        }));
+        await TrackPlayer.add(tracks);
+        await TrackPlayer.skip(safeIdx);
+        await TrackPlayer.play();
+      } catch (err) {
+        console.warn("[PlayerContext] TrackPlayer play failed:", err);
+      }
     },
-    [playAudioDirectly]
+    []
   );
 
   const togglePlay = useCallback(async () => {
-    if (!soundRef.current) return;
     try {
-      if (isPlaying) {
-        await soundRef.current.pauseAsync();
-        setIsPlaying(false);
+      const stateObj = await TrackPlayer.getPlaybackState();
+      if (stateObj.state === State.Playing) {
+        await TrackPlayer.pause();
       } else {
-        await soundRef.current.playAsync();
-        setIsPlaying(true);
+        await TrackPlayer.play();
       }
     } catch {}
-  }, [isPlaying]);
+  }, []);
 
-  const prevSong = useCallback(() => {
+  const prevSong = useCallback(async () => {
     const q = queueRef.current;
-    const idx = queueIndexRef.current;
     if (q.length === 0) return;
 
     if (progress > 3) {
-      if (soundRef.current) soundRef.current.setPositionAsync(0).catch(() => {});
-      setProgressState(0);
+      await TrackPlayer.seekTo(0);
       return;
     }
 
-    const prevIdx = (idx - 1 + q.length) % q.length;
-    const prevSongObj = q[prevIdx];
-    setQueueIndex(prevIdx);
-    setCurrentSong(prevSongObj);
-    playAudioDirectly(prevSongObj);
-  }, [progress, playAudioDirectly]);
+    try {
+      await TrackPlayer.skipToPrevious();
+    } catch {
+      // Fallback
+    }
+  }, [progress]);
 
   const setProgress = useCallback((value: number) => {
-    if (soundRef.current) {
-      soundRef.current.setPositionAsync(value * 1000).catch(() => {});
-      setProgressState(value);
-    }
+    TrackPlayer.seekTo(value).catch(() => {});
   }, []);
 
   const setVolume = useCallback((value: number) => {
     setVolumeState(value);
-    if (soundRef.current) {
-      soundRef.current.setVolumeAsync(value).catch(() => {});
-    }
+    TrackPlayer.setVolume(value).catch(() => {});
   }, []);
 
   const toggleFavorite = useCallback((songId: string) => {
@@ -303,28 +313,123 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     [favorites]
   );
 
-  const toggleShuffle = useCallback(() => { setShuffle((v) => !v); }, []);
+  const toggleShuffle = useCallback(async () => {
+    const newShuffle = !shuffle;
+    setShuffle(newShuffle);
 
-  const cycleRepeat = useCallback(() => {
-    setRepeat((v) => v === "off" ? "one" : v === "one" ? "all" : "off");
-  }, []);
+    if (newShuffle) {
+      setOriginalQueue(queue);
+      if (queue.length > 1 && currentSong) {
+        const remaining = queue.filter((s) => s.id !== currentSong.id);
+        const shuffled = [...remaining].sort(() => Math.random() - 0.5);
+        const newQ = [currentSong, ...shuffled];
+        setQueue(newQ);
+        setQueueIndex(0);
+
+        try {
+          await TrackPlayer.reset();
+          const tracks = newQ.map((s) => ({
+            id: s.id,
+            url: s.audioUrl || "",
+            title: s.title,
+            artist: s.artist,
+            album: s.album || s.movie || "",
+            artwork: s.albumArt || "",
+          }));
+          await TrackPlayer.add(tracks);
+          await TrackPlayer.play();
+        } catch {}
+      }
+    } else {
+      if (originalQueue.length > 0) {
+        setQueue(originalQueue);
+        const idx = originalQueue.findIndex((s) => s.id === currentSong?.id);
+        const safeIdx = idx >= 0 ? idx : 0;
+        setQueueIndex(safeIdx);
+
+        try {
+          await TrackPlayer.reset();
+          const tracks = originalQueue.map((s) => ({
+            id: s.id,
+            url: s.audioUrl || "",
+            title: s.title,
+            artist: s.artist,
+            album: s.album || s.movie || "",
+            artwork: s.albumArt || "",
+          }));
+          await TrackPlayer.add(tracks);
+          await TrackPlayer.skip(safeIdx);
+          await TrackPlayer.play();
+        } catch {}
+      }
+    }
+  }, [shuffle, queue, currentSong, originalQueue]);
+
+  const cycleRepeat = useCallback(async () => {
+    let newMode: "off" | "one" | "all";
+    let nativeMode: RepeatMode;
+
+    if (repeat === "off") {
+      newMode = "one";
+      nativeMode = RepeatMode.Track;
+    } else if (repeat === "one") {
+      newMode = "all";
+      nativeMode = RepeatMode.Queue;
+    } else {
+      newMode = "off";
+      nativeMode = RepeatMode.Off;
+    }
+
+    setRepeat(newMode);
+    try {
+      await TrackPlayer.setRepeatMode(nativeMode);
+    } catch {}
+  }, [repeat]);
 
   const addToQueue = useCallback((song: Song) => {
     setQueue((prev) => {
       if (prev.some((s) => s.id === song.id)) return prev;
-      return [...prev, song];
+      const newQ = [...prev, song];
+
+      TrackPlayer.add({
+        id: song.id,
+        url: song.audioUrl || "",
+        title: song.title,
+        artist: song.artist,
+        album: song.album || song.movie || "",
+        artwork: song.albumArt || "",
+      }).catch(() => {});
+
+      return newQ;
     });
   }, []);
 
   return (
     <PlayerContext.Provider
       value={{
-        currentSong, isPlaying, queue, queueIndex, progress, duration,
-        volume, showPlayer, shuffle, repeat, isRadioMode,
-        playSong, togglePlay, nextSong: nextSongInternal, prevSong,
-        setProgress, setVolume, setShowPlayer,
-        toggleFavorite, isFavorite, addToQueue,
-        toggleShuffle, cycleRepeat,
+        currentSong,
+        isPlaying,
+        queue,
+        queueIndex,
+        progress,
+        duration,
+        volume,
+        showPlayer,
+        shuffle,
+        repeat,
+        isRadioMode,
+        playSong,
+        togglePlay,
+        nextSong: nextSongInternal,
+        prevSong,
+        setProgress,
+        setVolume,
+        setShowPlayer,
+        toggleFavorite,
+        isFavorite,
+        addToQueue,
+        toggleShuffle,
+        cycleRepeat,
       }}
     >
       {children}

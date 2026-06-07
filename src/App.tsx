@@ -4,6 +4,10 @@ import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { PaperProvider } from "react-native-paper";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import TrackPlayer from "react-native-track-player";
+
+// Register playback service for background lock screen controls
+TrackPlayer.registerPlaybackService(() => async () => {});
 
 // Import Providers
 import { AuthProvider, useAuth } from "./context/AuthContext";
