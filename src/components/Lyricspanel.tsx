@@ -1,8 +1,7 @@
-import { useEffect, useState, useRef } from "react";
-import { Mic2, RefreshCw, X } from "lucide-react";
-import { api } from "@/services/api";
-
-// ─── Types ────────────────────────────────────────────────────────────────────
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native'
+import React, { useEffect, useState, useRef } from "react";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { api } from "../services/api";
 
 interface LyricsPanelProps {
   /** JioSaavn song ID of the currently playing song */
@@ -20,9 +19,6 @@ type LyricsState =
   | { status: "missing" }
   | { status: "error" };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Split raw lyrics into paragraphs, stripping leading/trailing blank lines */
 function parseLyrics(raw: string): string[] {
   return raw
     .split(/\n{2,}/)
@@ -30,17 +26,13 @@ function parseLyrics(raw: string): string[] {
     .filter(Boolean);
 }
 
-/** In-memory cache so we never re-fetch the same song in one session */
 const lyricsCache = new Map<string, string | null>();
-
-// ─── Component ────────────────────────────────────────────────────────────────
 
 export function LyricsPanel({ songId, songTitle, onClose }: LyricsPanelProps) {
   const [state, setState] = useState<LyricsState>({ status: "idle" });
   const abortRef          = useRef<AbortController | null>(null);
 
   const fetchLyrics = async (id: string) => {
-    // Hit the cache first
     if (lyricsCache.has(id)) {
       const cached = lyricsCache.get(id);
       setState(cached ? { status: "found", text: cached } : { status: "missing" });
@@ -49,7 +41,6 @@ export function LyricsPanel({ songId, songTitle, onClose }: LyricsPanelProps) {
 
     setState({ status: "loading" });
 
-    // Cancel any in-flight request for a previous song
     abortRef.current?.abort();
     abortRef.current = new AbortController();
 
@@ -73,67 +64,54 @@ export function LyricsPanel({ songId, songTitle, onClose }: LyricsPanelProps) {
   };
 
   useEffect(() => {
-    if (!songId) { setState({ status: "idle" }); return; }
+    if (!songId) {
+      setState({ status: "idle" });
+      return;
+    }
     fetchLyrics(songId);
     return () => abortRef.current?.abort();
   }, [songId]);
 
-  // ── Render ─────────────────────────────────────────────────────────────────
-
   return (
-    <div
-      className="flex flex-col h-full"
-      style={{ background: "rgba(0,0,0,0.6)", borderRadius: "1rem" }}
-    >
+    <View style={styles.container}>
       {/* Header */}
-      <div
-        className="flex items-center justify-between px-4 py-3 flex-shrink-0"
-        style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}
-      >
-        <div className="flex items-center gap-2">
-          <Mic2 className="w-4 h-4" style={{ color: "#1DB954" }} />
-          <span className="text-sm font-bold text-white">Lyrics</span>
-          {songTitle && (
-            <span
-              className="text-xs truncate max-w-[140px]"
-              style={{ color: "rgba(255,255,255,0.4)" }}
-            >
-              · {songTitle}
-            </span>
-          )}
-        </div>
+      <View style={styles.header}>
+        <View style={styles.headerLeft}>
+          <MaterialCommunityIcons name="microphone" size={16} color="#1DB954" style={{ marginRight: 6 }} />
+          <Text style={styles.headerTitle}>Lyrics</Text>
+          {songTitle ? (
+            <Text style={styles.headerSubtitle} numberOfLines={1}>
+              {" "}· {songTitle}
+            </Text>
+          ) : null}
+        </View>
 
-        <div className="flex items-center gap-2">
-          {/* Retry button shown on error or missing */}
+        <View style={styles.headerRight}>
           {(state.status === "error" || state.status === "missing") && songId && (
-            <button
-              onClick={() => fetchLyrics(songId)}
-              className="w-7 h-7 rounded-full flex items-center justify-center transition-all active:scale-90"
-              style={{ background: "rgba(255,255,255,0.08)" }}
-              title="Try again"
+            <TouchableOpacity
+              onPress={() => fetchLyrics(songId)}
+              style={styles.circleBtn}
+              activeOpacity={0.7}
             >
-              <RefreshCw className="w-3.5 h-3.5 text-white/60" />
-            </button>
+              <MaterialCommunityIcons name="refresh" size={16} color="rgba(255,255,255,0.6)" />
+            </TouchableOpacity>
           )}
           {onClose && (
-            <button
-              onClick={onClose}
-              className="w-7 h-7 rounded-full flex items-center justify-center transition-all active:scale-90"
-              style={{ background: "rgba(255,255,255,0.08)" }}
+            <TouchableOpacity
+              onPress={onClose}
+              style={styles.circleBtn}
+              activeOpacity={0.7}
             >
-              <X className="w-3.5 h-3.5 text-white/60" />
-            </button>
+              <MaterialCommunityIcons name="close" size={16} color="rgba(255,255,255,0.6)" />
+            </TouchableOpacity>
           )}
-        </div>
-      </div>
+        </View>
+      </View>
 
-      {/* Body */}
-      <div
-        className="flex-1 overflow-y-auto px-5 py-4"
-        style={{ WebkitOverflowScrolling: "touch" }}
-      >
+      {/* Body scroll */}
+      <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
         {state.status === "idle" && (
-          <EmptyState icon="🎵" message="Play a song to see lyrics" />
+          <EmptyState icon="music-note" message="Play a song to see lyrics" />
         )}
 
         {state.status === "loading" && <LoadingSpinner />}
@@ -143,14 +121,14 @@ export function LyricsPanel({ songId, songTitle, onClose }: LyricsPanelProps) {
         )}
 
         {state.status === "missing" && (
-          <EmptyState icon="📄" message="Lyrics not available for this song" />
+          <EmptyState icon="file-document-outline" message="Lyrics not available for this song" />
         )}
 
         {state.status === "error" && (
-          <EmptyState icon="⚠️" message="Could not load lyrics. Tap retry to try again." />
+          <EmptyState icon="alert-circle-outline" message="Could not load lyrics. Tap retry to try again." />
         )}
-      </div>
-    </div>
+      </ScrollView>
+    </View>
   );
 }
 
@@ -158,26 +136,19 @@ export function LyricsPanel({ songId, songTitle, onClose }: LyricsPanelProps) {
 
 function LoadingSpinner() {
   return (
-    <div className="flex flex-col items-center justify-center py-16 gap-3">
-      <div
-        className="w-8 h-8 rounded-full border-2 animate-spin"
-        style={{ borderColor: "rgba(255,255,255,0.15)", borderTopColor: "#1DB954" }}
-      />
-      <p className="text-sm" style={{ color: "rgba(255,255,255,0.35)" }}>
-        Fetching lyrics…
-      </p>
-    </div>
+    <View style={styles.centerContainer}>
+      <ActivityIndicator size="large" color="#1DB954" />
+      <Text style={styles.loadingText}>Fetching lyrics…</Text>
+    </View>
   );
 }
 
 function EmptyState({ icon, message }: { icon: string; message: string }) {
   return (
-    <div className="flex flex-col items-center justify-center py-16 gap-3 text-center px-4">
-      <span className="text-3xl">{icon}</span>
-      <p className="text-sm leading-relaxed" style={{ color: "rgba(255,255,255,0.35)" }}>
-        {message}
-      </p>
-    </div>
+    <View style={styles.centerContainer}>
+      <MaterialCommunityIcons name={icon as any} size={48} color="rgba(255,255,255,0.15)" />
+      <Text style={styles.emptyText}>{message}</Text>
+    </View>
   );
 }
 
@@ -185,18 +156,95 @@ function LyricsBody({ text }: { text: string }) {
   const paragraphs = parseLyrics(text);
 
   return (
-    <div className="space-y-5 pb-10">
+    <View style={styles.lyricsContainer}>
       {paragraphs.map((para, i) => (
-        <p
-          key={i}
-          className="text-sm leading-7 whitespace-pre-line"
-          style={{ color: "rgba(255,255,255,0.85)" }}
-        >
+        <Text key={i} style={styles.lyricsParagraph}>
           {para}
-        </p>
+        </Text>
       ))}
-    </div>
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    borderRadius: 16,
+    overflow: "hidden",
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.07)",
+  },
+  headerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  headerTitle: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#fff",
+  },
+  headerSubtitle: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.4)",
+    flex: 1,
+  },
+  headerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  circleBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 8,
+  },
+  body: {
+    flex: 1,
+  },
+  bodyContent: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  centerContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 60,
+    paddingHorizontal: 20,
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 13,
+    color: "rgba(255,255,255,0.35)",
+  },
+  emptyText: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.35)",
+    textAlign: "center",
+    marginTop: 12,
+    lineHeight: 18,
+  },
+  lyricsContainer: {
+    paddingBottom: 40,
+  },
+  lyricsParagraph: {
+    fontSize: 14,
+    lineHeight: 26,
+    color: "rgba(255, 255, 255, 0.85)",
+    textAlign: "center",
+    marginVertical: 10,
+  },
+});
 
 export default LyricsPanel;

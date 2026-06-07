@@ -1,41 +1,84 @@
-import { useLocation } from "react-router-dom";
-import { useEffect } from "react";
-import { Music2 } from "lucide-react";
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native'
+import React from "react";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 
-const NotFound = () => {
-  const location = useLocation();
+interface NotFoundProps {
+  onGoBack?: () => void;
+}
 
-  useEffect(() => {
-    console.error("404 Error: User attempted to access non-existent route:", location.pathname);
-  }, [location.pathname]);
-
+export function NotFound({ onGoBack }: NotFoundProps) {
   return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ background: "#121212" }}
-    >
-      <div className="text-center px-8">
-        <div
-          className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6"
-          style={{ background: "rgba(255,255,255,0.06)" }}
-        >
-          <Music2 className="w-9 h-9" style={{ color: "rgba(255,255,255,0.3)" }} />
-        </div>
-        <h1 className="text-6xl font-black text-white mb-3">404</h1>
-        <p className="text-lg font-bold text-white mb-2">Page not found</p>
-        <p className="text-sm mb-8" style={{ color: "rgba(255,255,255,0.5)" }}>
+    <View style={styles.container}>
+      <View style={styles.content}>
+        <View style={styles.iconWrapper}>
+          <MaterialCommunityIcons name="music-note-off" size={36} color="rgba(255,255,255,0.3)" />
+        </View>
+        <Text style={styles.title}>404</Text>
+        <Text style={styles.subtitle}>Page not found</Text>
+        <Text style={styles.description}>
           The page you're looking for doesn't exist.
-        </p>
-        <a
-          href="/"
-          className="inline-block px-8 py-3 rounded-full text-sm font-bold text-black transition-all active:scale-95"
-          style={{ background: "#1DB954" }}
+        </Text>
+        <TouchableOpacity
+          onPress={onGoBack}
+          style={styles.button}
+          activeOpacity={0.7}
         >
-          Go home
-        </a>
-      </div>
-    </div>
+          <Text style={styles.buttonText}>Go Back</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
   );
-};
+}
 
 export default NotFound;
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#121212",
+  },
+  content: {
+    alignItems: "center",
+    paddingHorizontal: 32,
+  },
+  iconWrapper: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    marginBottom: 24,
+  },
+  title: {
+    fontSize: 60,
+    fontWeight: "900",
+    color: "#fff",
+    marginBottom: 6,
+  },
+  subtitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#fff",
+    marginBottom: 8,
+  },
+  description: {
+    fontSize: 14,
+    color: "rgba(255,255,255,0.5)",
+    textAlign: "center",
+    marginBottom: 32,
+  },
+  button: {
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+    borderRadius: 24,
+    backgroundColor: "#1DB954",
+  },
+  buttonText: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#000",
+  },
+});

@@ -1,5 +1,6 @@
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image } from 'react-native'
 import { useState } from "react";
-import { Heart } from "lucide-react";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useLibrary } from "@/context/LibraryContext";
 import { useAuth } from "@/context/AuthContext";
 import type { Song } from "@/data/songs";
@@ -7,14 +8,12 @@ import type { Song } from "@/data/songs";
 interface LikeButtonProps {
   song: Song;
   onRequireAuth?: () => void;
-  className?: string;
   size?: "sm" | "md" | "lg";
 }
 
 export function LikeButton({
   song,
   onRequireAuth,
-  className = "",
   size = "md",
 }: LikeButtonProps) {
   const { user } = useAuth();
@@ -23,15 +22,13 @@ export function LikeButton({
 
   const liked = isLiked(song.id);
 
-  const sizeClasses = {
-    sm: "w-3.5 h-3.5",
-    md: "w-4 h-4",
-    lg: "w-5 h-5",
+  const sizeMap = {
+    sm: 16,
+    md: 20,
+    lg: 24,
   };
 
-  const handleClick = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-
+  const handlePress = async () => {
     if (!user) {
       onRequireAuth?.();
       return;
@@ -43,20 +40,29 @@ export function LikeButton({
   };
 
   return (
-    <button
-      onClick={handleClick}
-      title={liked ? "Remove from Liked Songs" : "Add to Liked Songs"}
-      className={`flex items-center justify-center transition-all ${
-        liked
-          ? "text-rose-500 hover:text-rose-400"
-          : "text-white/40 hover:text-white"
-      } ${animating ? "scale-125" : "scale-100"} ${className}`}
-      style={{ transition: "transform 0.2s cubic-bezier(.17,.67,.41,1.4)" }}
+    <TouchableOpacity
+      onPress={handlePress}
+      activeOpacity={0.7}
+      style={[
+        styles.button,
+        animating && styles.animated
+      ]}
     >
-      <Heart
-        className={sizeClasses[size]}
-        fill={liked ? "currentColor" : "none"}
+      <MaterialCommunityIcons
+        name={liked ? "heart" : "heart-outline"}
+        size={sizeMap[size]}
+        color={liked ? "#f43f5e" : "rgba(255,255,255,0.4)"}
       />
-    </button>
+    </TouchableOpacity>
   );
 }
+
+const styles = StyleSheet.create({
+  button: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  animated: {
+    transform: [{ scale: 1.2 }],
+  },
+});

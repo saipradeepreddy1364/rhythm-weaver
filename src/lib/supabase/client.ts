@@ -1,19 +1,24 @@
 import { createClient } from "@supabase/supabase-js";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { Database } from "./types";
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+const SUPABASE_URL =
+  (typeof process !== "undefined" && process.env?.VITE_SUPABASE_URL) ||
+  // @ts-ignore
+  (import.meta as any).env?.VITE_SUPABASE_URL ||
+  "https://zoxztfjptjkuapqldlha.supabase.co";
 
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  console.error(
-    "Missing Supabase env vars. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to your .env file."
-  );
-}
+const SUPABASE_ANON_KEY =
+  (typeof process !== "undefined" && process.env?.VITE_SUPABASE_ANON_KEY) ||
+  // @ts-ignore
+  (import.meta as any).env?.VITE_SUPABASE_ANON_KEY ||
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpveHp0ZmpwdGprdWFwcWxkbGhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0NTYzNzQsImV4cCI6MjA5MTAzMjM3NH0.1dweJWsNFFmSN_Q17l4N_FjiE-i79dwHnFj-i4ucqPs";
 
 export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
+    storage: AsyncStorage,
     autoRefreshToken: true,
     persistSession: true,
-    detectSessionInUrl: true,
+    detectSessionInUrl: false,
   },
 });

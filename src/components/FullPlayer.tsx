@@ -1,33 +1,24 @@
-import { usePlayer } from "@/context/PlayerContext";
-import { formatDuration } from "@/data/songs";
-import { LikeButton } from "@/components/LikeButton";
-import { useState, useEffect, useRef } from "react";
-import { api } from "@/services/api";
-import {
-  Play,
-  Pause,
-  SkipBack,
-  SkipForward,
-  ChevronDown,
-  Shuffle,
-  Repeat,
-  Music2,
-  Mic2,
-  Video,
-  Download,
-  ListPlus,
-  Loader2,
-} from "lucide-react";
+import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Modal, ActivityIndicator, Linking, Platform } from 'react-native'
+import React, { useState, useEffect } from "react";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { usePlayer } from "../context/PlayerContext";
+import { formatDuration } from "../data/songs";
+import { LikeButton } from "./LikeButton";
+import { api } from "../services/api";
+import { Video, ResizeMode } from "expo-av";
 
 interface FullPlayerProps {
   onRequireAuth?: () => void;
 }
 
-const BACKEND_URL =
-  (import.meta as any).env?.VITE_API_BACKEND_URL ||
-  "https://musicbackend-xg4u.onrender.com/api";
+type TabType = "cover" | "lyrics" | "video";
 
-// Strip HTML tags and decode common HTML entities that JioSaavn returns in lyrics
+interface VideoStream {
+  quality: string;
+  url: string;
+}
+
+// Clean lyrics utility matching web app regex cleaning
 function cleanLyricsHtml(raw: string): string {
   return raw
     .replace(/<br\s*\/?>/gi, "\n")
@@ -45,10 +36,8 @@ function cleanLyricsHtml(raw: string): string {
     .trim();
 }
 
-// Extract lyrics text from any response shape the backend / JioSaavn may return
 function extractLyricsText(data: any): string | null {
   const inner = data?.data ?? data;
-
   const candidates = [
     inner?.lyrics,
     inner?.snippet,
@@ -72,7 +61,7 @@ function extractLyricsText(data: any): string | null {
 
 async function fetchLyrics(songId: string): Promise<string | null> {
   try {
-    const res = await fetch(`${BACKEND_URL}/songs/${songId}/lyrics`);
+    const res = await fetch(`https://musicbackend-xg4u.onrender.com/api/songs/${songId}/lyrics`);
     if (res.status === 404) return null;
     if (!res.ok) return null;
     const data = await res.json();
@@ -80,13 +69,6 @@ async function fetchLyrics(songId: string): Promise<string | null> {
   } catch {
     return null;
   }
-}
-
-type TabType = "cover" | "lyrics" | "video";
-
-interface VideoStream {
-  quality: string;
-  url: string;
 }
 
 export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
@@ -109,20 +91,16 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   } = usePlayer();
 
   const [activeTab, setActiveTab] = useState<TabType>("cover");
-  
-  // Lyrics State
   const [lyrics, setLyrics] = useState<string | null>(null);
   const [lyricsLoading, setLyricsLoading] = useState(false);
-  
-  // Video State
   const [videoStreams, setVideoStreams] = useState<VideoStream[]>([]);
   const [selectedStream, setSelectedStream] = useState<VideoStream | null>(null);
   const [videoLoading, setVideoLoading] = useState(false);
   const [videoError, setVideoError] = useState<string | null>(null);
-
   const [queuedFlash, setQueuedFlash] = useState(false);
+  const [progressBarWidth, setProgressBarWidth] = useState(0);
 
-  // Reset tab and video when song changes
+  // Reset states when song changes
   useEffect(() => {
     setActiveTab("cover");
     setLyrics(null);
@@ -131,31 +109,29 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
     setVideoError(null);
   }, [currentSong?.id]);
 
-  // Pre-fetch lyrics as soon as a song is set
+  // Load lyrics
   useEffect(() => {
-    if (!currentSong) return;
+    if (!currentSong || !showPlayer) return;
     setLyricsLoading(true);
     fetchLyrics(currentSong.id).then((l) => {
       setLyrics(l ?? "");
       setLyricsLoading(false);
     });
-  }, [currentSong?.id]);
+  }, [currentSong?.id, showPlayer]);
 
-  // Fetch video streams when user clicks "Video" tab
+  // Load video streams
   useEffect(() => {
-    if (activeTab !== "video" || !currentSong) return;
-    if (videoStreams.length > 0) return; // already loaded for this song
+    if (activeTab !== "video" || !currentSong || !showPlayer) return;
+    if (videoStreams.length > 0) return;
 
     setVideoLoading(true);
     setVideoError(null);
 
     api.getSongVideoUrl(currentSong.id)
       .then((res) => {
-        // Handle streams response array safely
         const streams: VideoStream[] = res.streams ?? res.data?.streams ?? (Array.isArray(res) ? res : []);
         if (Array.isArray(streams) && streams.length > 0) {
           setVideoStreams(streams);
-          // Auto-select highest quality (usually first or custom sorted)
           setSelectedStream(streams[0]);
         } else {
           setVideoError("No video streams available for this song.");
@@ -166,7 +142,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         setVideoError("Failed to load video streams.");
         setVideoLoading(false);
       });
-  }, [activeTab, currentSong?.id]);
+  }, [activeTab, currentSong?.id, showPlayer]);
 
   if (!currentSong || !showPlayer) return null;
 
@@ -174,6 +150,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
     duration && isFinite(duration) && duration > 1
       ? duration
       : (currentSong.duration && currentSong.duration > 1 ? currentSong.duration : 0);
+
   const pct = totalDuration > 0 ? Math.min(100, (progress / totalDuration) * 100) : 0;
 
   const handleAddToQueue = () => {
@@ -183,328 +160,595 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   };
 
   const handleDownload = () => {
-    const downloadUrl = `${BACKEND_URL}/downloads/${currentSong.id}/audio`;
-    window.open(downloadUrl, "_blank");
+    const downloadUrl = `https://musicbackend-xg4u.onrender.com/api/downloads/${currentSong.id}/audio`;
+    Linking.openURL(downloadUrl).catch((err: any) => {
+      console.warn("Failed to open download link:", err);
+    });
+  };
+
+  const handleProgressBarPress = (event: any) => {
+    if (totalDuration <= 0 || progressBarWidth <= 0) return;
+    const { locationX } = event.nativeEvent;
+    const ratio = Math.max(0, Math.min(1, locationX / progressBarWidth));
+    setProgress(Math.floor(ratio * totalDuration));
   };
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex flex-col animate-fade-in"
-      style={{ background: "#0a0a0a", overflow: "hidden" }}
+    <Modal
+      visible={showPlayer}
+      animationType="slide"
+      presentationStyle="fullScreen"
+      onRequestClose={() => setShowPlayer(false)}
     >
-      {/* ── Blurred album art background ── */}
-      {currentSong.albumArt && (
-        <div
-          className="absolute inset-0 opacity-25"
-          style={{
-            backgroundImage: `url(${currentSong.albumArt})`,
-            backgroundSize: "cover",
-            backgroundPosition: "center",
-            filter: "blur(60px) saturate(2.5)",
-            transform: "scale(1.2)",
-          }}
-        />
-      )}
-
-      <div
-        className="absolute inset-0"
-        style={{
-          background:
-            "linear-gradient(to bottom, rgba(10,10,10,0.50) 0%, rgba(10,10,10,0.90) 55%, rgba(10,10,10,0.98) 100%)",
-        }}
-      />
-
-      <style>{`
-        .lyrics-scroll::-webkit-scrollbar { width: 3px; }
-        .lyrics-scroll::-webkit-scrollbar-track { background: transparent; }
-        .lyrics-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 99px; }
-        @keyframes fadeSlideUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-      `}</style>
-
-      <div className="relative flex flex-col w-full h-full px-6" style={{ overflow: "hidden" }}>
-        {/* ── Header ── */}
-        <div className="flex items-center justify-between pt-10 pb-2 flex-shrink-0">
-          <button
-            onClick={() => setShowPlayer(false)}
-            className="w-10 h-10 rounded-full flex items-center justify-center"
-            style={{ background: "rgba(255,255,255,0.08)" }}
-          >
-            <ChevronDown className="w-5 h-5 text-white" />
-          </button>
-          <p className="text-xs text-white/40 uppercase tracking-widest font-semibold">Now Playing</p>
-          {/* Add to Queue button in header */}
-          <button
-            onClick={handleAddToQueue}
-            title="Play next"
-            className="w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-90"
-            style={{
-              background: queuedFlash ? "rgba(29,185,84,0.2)" : "rgba(255,255,255,0.08)",
-              color: queuedFlash ? "#1DB954" : "rgba(255,255,255,0.6)",
-            }}
-          >
-            <ListPlus className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* ── Tab switcher ── */}
-        <div className="flex items-center justify-center gap-1 mb-4 flex-shrink-0">
-          <button
-            onClick={() => setActiveTab("cover")}
-            className="px-4 py-1.5 rounded-full text-xs font-semibold transition-all"
-            style={{
-              background: activeTab === "cover" ? "rgba(255,255,255,0.18)" : "transparent",
-              color: activeTab === "cover" ? "#fff" : "rgba(255,255,255,0.4)",
-            }}
-          >
-            Cover
-          </button>
-          <button
-            onClick={() => setActiveTab("lyrics")}
-            className="px-4 py-1.5 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5"
-            style={{
-              background: activeTab === "lyrics" ? "rgba(255,255,255,0.18)" : "transparent",
-              color: activeTab === "lyrics" ? "#fff" : "rgba(255,255,255,0.4)",
-            }}
-          >
-            <Mic2 className="w-3 h-3" />
-            Lyrics
-          </button>
-          <button
-            onClick={() => setActiveTab("video")}
-            className="px-4 py-1.5 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5"
-            style={{
-              background: activeTab === "video" ? "rgba(255,255,255,0.18)" : "transparent",
-              color: activeTab === "video" ? "#fff" : "rgba(255,255,255,0.4)",
-            }}
-          >
-            <Video className="w-3 h-3" />
-            Video
-          </button>
-        </div>
-
-        {/* ── Cover tab ── */}
-        {activeTab === "cover" && (
-          <div className="flex items-center justify-center flex-shrink-0" style={{ height: 230, overflow: "hidden" }}>
-            <div
-              className="rounded-2xl overflow-hidden"
-              style={{ width: 210, height: 210, boxShadow: "0 24px 64px -12px rgba(0,0,0,0.9)" }}
-            >
-              {currentSong.albumArt ? (
-                <img src={currentSong.albumArt} alt={currentSong.title} className="w-full h-full object-cover"
-                  onError={(e) => { (e.target as HTMLImageElement).src = "https://via.placeholder.com/400x400?text=🎵"; }}
-                />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-green-500 to-emerald-600">
-                  <Music2 className="w-16 h-16 text-black/50" />
-                </div>
-              )}
-            </div>
-          </div>
+      <View style={styles.container}>
+        {/* Blurred background representation */}
+        {currentSong.albumArt && (
+          <Image
+            source={{ uri: currentSong.albumArt }}
+            style={styles.backgroundImage}
+            blurRadius={Platform.OS === 'ios' ? 25 : 12}
+            resizeMode="cover"
+          />
         )}
+        <View style={styles.overlay} />
 
-        {/* ── Lyrics tab ── */}
-        {activeTab === "lyrics" && (
-          <div className="flex-shrink-0" style={{ height: 230, overflow: "hidden" }}>
-            <div
-              className="lyrics-scroll w-full h-full rounded-2xl px-5 py-4"
-              style={{
-                background: "rgba(255,255,255,0.05)",
-                border: "1px solid rgba(255,255,255,0.08)",
-                overflowY: "auto",
-                overflowX: "hidden",
-                WebkitOverflowScrolling: "touch",
-                overscrollBehavior: "contain",
-                scrollbarWidth: "thin",
-                scrollbarColor: "rgba(255,255,255,0.2) transparent",
-              }}
+        {/* Inner Content wrapper */}
+        <View style={styles.contentContainer}>
+          {/* Header */}
+          <View style={styles.header}>
+            <TouchableOpacity
+              onPress={() => setShowPlayer(false)}
+              style={styles.headerButton}
+              activeOpacity={0.7}
             >
-              {lyricsLoading ? (
-                <div className="flex items-center justify-center h-full">
-                  <Loader2 className="w-7 h-7 rounded-full border-2 animate-spin"
-                    style={{ borderColor: "rgba(255,255,255,0.15)", borderTopColor: "#1DB954" }} />
-                </div>
-              ) : lyrics && lyrics.length > 0 ? (
-                <p className="text-sm leading-8 whitespace-pre-wrap text-center" style={{ color: "rgba(255,255,255,0.82)" }}>
-                  {lyrics}
-                </p>
-              ) : (
-                <div className="flex flex-col items-center justify-center h-full gap-3">
-                  <Mic2 className="w-10 h-10" style={{ color: "rgba(255,255,255,0.15)" }} />
-                  <p className="text-xs font-medium text-center" style={{ color: "rgba(255,255,255,0.35)" }}>
-                    Lyrics not available for this song
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+              <MaterialCommunityIcons name="chevron-down" size={24} color="#fff" />
+            </TouchableOpacity>
 
-        {/* ── Video tab ── */}
-        {activeTab === "video" && (
-          <div className="flex flex-col items-center justify-center flex-shrink-0" style={{ height: 230, overflow: "hidden" }}>
-            {videoLoading ? (
-              <div className="flex items-center justify-center h-full">
-                <Loader2 className="w-8 h-8 animate-spin" style={{ color: "#1DB954" }} />
-              </div>
-            ) : videoError ? (
-              <div className="flex flex-col items-center justify-center gap-2 text-center px-4">
-                <Video className="w-10 h-10 opacity-30" />
-                <p className="text-xs text-white/40">{videoError}</p>
-              </div>
-            ) : selectedStream ? (
-              <div className="flex flex-col items-center w-full h-full gap-2 justify-center">
-                {/* Custom Video Element */}
-                <div className="w-full aspect-video max-h-[170px] bg-black rounded-xl overflow-hidden shadow-2xl relative">
-                  <video
-                    key={selectedStream.url}
-                    src={selectedStream.url}
-                    className="w-full h-full object-contain"
-                    controls
-                    playsInline
-                    autoPlay
-                    onPlay={() => {
-                      // Stop background audio playback when video plays
-                      if (isPlaying) {
-                        togglePlay();
-                      }
-                    }}
-                  />
-                </div>
-                
-                {/* Quality Selector */}
-                <div className="flex items-center gap-1.5 flex-wrap justify-center overflow-y-auto max-h-[48px]">
-                  {videoStreams.map((stream) => (
-                    <button
-                      key={stream.quality}
-                      onClick={() => setSelectedStream(stream)}
-                      className="px-2.5 py-0.5 rounded-full text-[10px] font-bold transition-all border"
-                      style={{
-                        background: selectedStream.quality === stream.quality ? "#1DB954" : "rgba(255,255,255,0.06)",
-                        borderColor: selectedStream.quality === stream.quality ? "#1DB954" : "rgba(255,255,255,0.12)",
-                        color: selectedStream.quality === stream.quality ? "#000" : "rgba(255,255,255,0.6)"
+            <Text style={styles.headerTitle}>Now Playing</Text>
+
+            <TouchableOpacity
+              onPress={handleAddToQueue}
+              style={styles.headerButton}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons
+                name="playlist-plus"
+                size={22}
+                color={queuedFlash ? "#1DB954" : "rgba(255,255,255,0.7)"}
+              />
+            </TouchableOpacity>
+          </View>
+
+          {/* Tab Switcher */}
+          <View style={styles.tabBar}>
+            {(["cover", "lyrics", "video"] as TabType[]).map((tab) => {
+              const isActive = activeTab === tab;
+              return (
+                <TouchableOpacity
+                  key={tab}
+                  onPress={() => setActiveTab(tab)}
+                  style={[styles.tabButton, isActive && styles.activeTabButton]}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.tabButtonText, isActive && styles.activeTabButtonText]}>
+                    {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {/* Body content based on tab selection */}
+          <View style={styles.mainContent}>
+            {/* Cover Tab */}
+            {activeTab === "cover" && (
+              <View style={styles.coverWrapper}>
+                <View style={styles.largeArtShadow}>
+                  {currentSong.albumArt ? (
+                    <Image
+                      source={{ uri: currentSong.albumArt }}
+                      style={styles.largeArt}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View style={[styles.largeArt, styles.largeArtPlaceholder]}>
+                      <MaterialCommunityIcons name="music" size={80} color="rgba(0,0,0,0.3)" />
+                    </View>
+                  )}
+                </View>
+              </View>
+            )}
+
+            {/* Lyrics Tab */}
+            {activeTab === "lyrics" && (
+              <View style={styles.lyricsWrapper}>
+                <ScrollView style={styles.lyricsScroll} contentContainerStyle={styles.lyricsScrollContent}>
+                  {lyricsLoading ? (
+                    <ActivityIndicator size="large" color="#1DB954" style={{ marginTop: 60 }} />
+                  ) : lyrics && lyrics.length > 0 ? (
+                    <Text style={styles.lyricsText}>{lyrics}</Text>
+                  ) : (
+                    <View style={styles.emptyLyrics}>
+                      <MaterialCommunityIcons name="microphone-off" size={48} color="rgba(255,255,255,0.2)" />
+                      <Text style={styles.emptyLyricsText}>Lyrics not available for this song</Text>
+                    </View>
+                  )}
+                </ScrollView>
+              </View>
+            )}
+
+            {/* Video Tab */}
+            {activeTab === "video" && (
+              <View style={styles.videoWrapper}>
+                {videoLoading ? (
+                  <ActivityIndicator size="large" color="#1DB954" />
+                ) : videoError ? (
+                  <View style={styles.videoErrorContainer}>
+                    <MaterialCommunityIcons name="video-off-outline" size={48} color="rgba(255,255,255,0.2)" />
+                    <Text style={styles.videoErrorText}>{videoError}</Text>
+                  </View>
+                ) : selectedStream ? (
+                  <View style={styles.videoPlayerContainer}>
+                    <Video
+                      source={{ uri: selectedStream.url }}
+                      rate={1.0}
+                      volume={1.0}
+                      isMuted={false}
+                      resizeMode={ResizeMode.CONTAIN}
+                      shouldPlay={true}
+                      useNativeControls
+                      style={styles.nativeVideo}
+                      onPlaybackStatusUpdate={(status: any) => {
+                        if (status.isLoaded && status.isPlaying) {
+                          if (isPlaying) {
+                            togglePlay();
+                          }
+                        }
                       }}
-                    >
-                      {stream.quality}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </div>
-        )}
-
-        {/* ── Song Info + Actions (Like / Download) ── */}
-        <div className="flex items-center gap-3 mt-4 mb-2 flex-shrink-0">
-          <div className="flex-1 min-w-0">
-            <h2 className="text-xl font-bold text-white truncate leading-tight">{currentSong.title}</h2>
-            <p className="text-sm mt-0.5 truncate" style={{ color: "rgba(255,255,255,0.5)" }}>
-              {currentSong.artist}
-            </p>
-            {currentSong.movie && (
-              <p className="text-xs mt-0.5 truncate" style={{ color: "rgba(255,255,255,0.3)" }}>
-                {currentSong.movie}
-              </p>
+                    />
+                    
+                    {/* Quality list */}
+                    <ScrollView horizontal style={styles.qualityList} contentContainerStyle={styles.qualityListContent}>
+                      {videoStreams.map((stream) => {
+                        const isSel = selectedStream.quality === stream.quality;
+                        return (
+                          <TouchableOpacity
+                            key={stream.quality}
+                            onPress={() => setSelectedStream(stream)}
+                            style={[styles.qualityPill, isSel && styles.activeQualityPill]}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={[styles.qualityText, isSel && styles.activeQualityText]}>
+                              {stream.quality}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                ) : null}
+              </View>
             )}
-          </div>
-          
-          <div className="flex items-center gap-2 flex-shrink-0">
-            {/* Download Button */}
-            <button
-              onClick={handleDownload}
-              title="Download Audio"
-              className="w-11 h-11 rounded-full flex items-center justify-center transition-all active:scale-90"
-              style={{
-                background: "rgba(255,255,255,0.08)",
-                color: "rgba(255,255,255,0.7)",
-              }}
+          </View>
+
+          {/* Song Info Section */}
+          <View style={styles.songMeta}>
+            <View style={styles.metaTextContainer}>
+              <Text style={styles.metaTitle} numberOfLines={1}>{currentSong.title}</Text>
+              <Text style={styles.metaArtist} numberOfLines={1}>{currentSong.artist}</Text>
+              {currentSong.movie ? (
+                <Text style={styles.metaMovie} numberOfLines={1}>{currentSong.movie}</Text>
+              ) : null}
+            </View>
+
+            <View style={styles.metaActions}>
+              <TouchableOpacity onPress={handleDownload} style={styles.metaButton} activeOpacity={0.7}>
+                <MaterialCommunityIcons name="download" size={20} color="#fff" />
+              </TouchableOpacity>
+
+              <View style={styles.metaLikeWrapper}>
+                <LikeButton song={currentSong} onRequireAuth={onRequireAuth} size="lg" />
+              </View>
+            </View>
+          </View>
+
+          {/* Progress Seek Bar */}
+          <View style={styles.progressSection}>
+            <TouchableOpacity
+              style={styles.progressBarTrack}
+              onLayout={(e: any) => setProgressBarWidth(e.nativeEvent.layout.width)}
+              onPress={handleProgressBarPress}
+              activeOpacity={1}
             >
-              <Download className="w-5 h-5 text-white" />
-            </button>
+              <View style={[styles.progressBarFill, { width: `${pct}%` }]} />
+              <View style={[styles.progressBarThumb, { left: `${pct}%`, marginLeft: -6 }]} />
+            </TouchableOpacity>
 
-            {/* Like Button */}
-            <div className="w-11 h-11 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.08)" }}>
-              <LikeButton song={currentSong} onRequireAuth={onRequireAuth} size="lg" className="flex-shrink-0" />
-            </div>
-          </div>
-        </div>
+            <View style={styles.timeLabels}>
+              <Text style={styles.timeText}>
+                {totalDuration > 0 ? formatDuration(Math.floor(progress)) : "0:00"}
+              </Text>
+              <Text style={styles.percentageText}>
+                {totalDuration > 0 ? `${Math.round(pct)}%` : "…"}
+              </Text>
+              <Text style={styles.timeText}>
+                {totalDuration > 0 ? formatDuration(Math.floor(totalDuration)) : "0:00"}
+              </Text>
+            </View>
+          </View>
 
-        {/* ── Seek Bar with percentage ── */}
-        <div className="mb-3 flex-shrink-0">
-          <div
-            className="relative h-1.5 rounded-full cursor-pointer"
-            style={{ background: "rgba(255,255,255,0.15)" }}
-            onClick={(e) => {
-              if (totalDuration <= 0) return;
-              const rect = e.currentTarget.getBoundingClientRect();
-              const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-              setProgress(Math.floor(ratio * totalDuration));
-            }}
-          >
-            <div
-              className="absolute top-0 left-0 h-full rounded-full transition-all duration-100"
-              style={{ width: `${pct}%`, background: "linear-gradient(90deg, #1DB954, #1ed760)" }}
-            />
-            <div
-              className="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-white shadow-md"
-              style={{ left: `calc(${pct}% - 8px)` }}
-            />
-          </div>
-          <div className="flex justify-between items-center text-xs mt-1.5" style={{ color: "rgba(255,255,255,0.4)" }}>
-            <span>{totalDuration > 0 ? formatDuration(Math.floor(progress)) : "--:--"}</span>
-            {/* Percentage in center */}
-            <span className="font-semibold" style={{ color: "rgba(255,255,255,0.55)" }}>
-              {totalDuration > 0 ? `${Math.round(pct)}%` : "…"}
-            </span>
-            <span>{totalDuration > 0 ? formatDuration(Math.floor(totalDuration)) : "--:--"}</span>
-          </div>
-        </div>
+          {/* Playback controls */}
+          <View style={styles.controlsSection}>
+            <TouchableOpacity onPress={toggleShuffle} style={styles.controlBtn} activeOpacity={0.7}>
+              <MaterialCommunityIcons
+                name="shuffle"
+                size={22}
+                color={shuffle ? "#1DB954" : "rgba(255,255,255,0.5)"}
+              />
+              {shuffle && <View style={styles.dotIndicator} />}
+            </TouchableOpacity>
 
-        {/* ── Playback Controls ── */}
-        <div className="flex items-center justify-between mb-8 flex-shrink-0">
-          <button
-            onClick={toggleShuffle}
-            className="p-3 active:scale-90 transition-transform relative"
-            style={{ color: shuffle ? "#1DB954" : "rgba(255,255,255,0.5)" }}
-          >
-            <Shuffle className="w-5 h-5" />
-            {shuffle && (
-              <span className="absolute bottom-2 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-green-400" />
-            )}
-          </button>
-          <button onClick={prevSong} className="p-3 text-white active:scale-90 transition-transform">
-            <SkipBack className="w-7 h-7 fill-current" />
-          </button>
-          <button
-            onClick={togglePlay}
-            className="w-16 h-16 rounded-full flex items-center justify-center shadow-2xl active:scale-90 transition-transform"
-            style={{ background: "linear-gradient(135deg, #1DB954, #1ed760)" }}
-          >
-            {isPlaying
-              ? <Pause className="w-7 h-7 text-black fill-black" />
-              : <Play className="w-7 h-7 text-black fill-black ml-1" />
-            }
-          </button>
-          <button onClick={nextSong} className="p-3 text-white active:scale-90 transition-transform">
-            <SkipForward className="w-7 h-7 fill-current" />
-          </button>
-          <button
-            onClick={cycleRepeat}
-            className="p-3 active:scale-90 transition-transform relative"
-            style={{ color: repeat !== "off" ? "#1DB954" : "rgba(255,255,255,0.5)" }}
-          >
-            <Repeat className="w-5 h-5" />
-            {repeat === "one" && (
-              <span
-                className="absolute top-2 right-2 text-[8px] font-bold leading-none"
-                style={{ color: "#1DB954" }}
-              >1</span>
-            )}
-            {repeat !== "off" && (
-              <span className="absolute bottom-2 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-green-400" />
-            )}
-          </button>
-        </div>
-      </div>
-    </div>
+            <TouchableOpacity onPress={prevSong} style={styles.controlBtn} activeOpacity={0.7}>
+              <MaterialCommunityIcons name="skip-previous" size={36} color="#fff" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={togglePlay}
+              style={styles.playPauseBtn}
+              activeOpacity={0.8}
+            >
+              <MaterialCommunityIcons
+                name={isPlaying ? "pause" : "play"}
+                size={36}
+                color="#000"
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={nextSong} style={styles.controlBtn} activeOpacity={0.7}>
+              <MaterialCommunityIcons name="skip-next" size={36} color="#fff" />
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={cycleRepeat} style={styles.controlBtn} activeOpacity={0.7}>
+              <View style={{ position: "relative" }}>
+                <MaterialCommunityIcons
+                  name="repeat"
+                  size={22}
+                  color={repeat !== "off" ? "#1DB954" : "rgba(255,255,255,0.5)"}
+                />
+                {repeat === "one" && (
+                  <View style={styles.repeatOneTextWrapper}>
+                    <Text style={styles.repeatOneText}>1</Text>
+                  </View>
+                )}
+              </View>
+              {repeat !== "off" && <View style={styles.dotIndicator} />}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#0a0a0a",
+    position: "relative",
+  },
+  backgroundImage: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.22,
+  },
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(10, 10, 10, 0.85)",
+  },
+  contentContainer: {
+    flex: 1,
+    paddingTop: Platform.OS === 'ios' ? 44 : 24,
+    paddingHorizontal: 24,
+    justifyContent: "space-between",
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    height: 48,
+    marginTop: 8,
+  },
+  headerButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "rgba(255,255,255,0.5)",
+    textTransform: "uppercase",
+    letterSpacing: 1.5,
+  },
+  tabBar: {
+    flexDirection: "row",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderRadius: 20,
+    padding: 4,
+    marginVertical: 12,
+  },
+  tabButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+  },
+  activeTabButton: {
+    backgroundColor: "rgba(255,255,255,0.18)",
+  },
+  tabButtonText: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.4)",
+    fontWeight: "600",
+  },
+  activeTabButtonText: {
+    color: "#fff",
+  },
+  mainContent: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    marginVertical: 10,
+    minHeight: 220,
+  },
+  // Cover View
+  coverWrapper: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  largeArtShadow: {
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.6,
+    shadowRadius: 24,
+    elevation: 16,
+  },
+  largeArt: {
+    width: 230,
+    height: 230,
+    borderRadius: 16,
+  },
+  largeArtPlaceholder: {
+    backgroundColor: "rgba(255,255,255,0.05)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  // Lyrics View
+  lyricsWrapper: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    borderRadius: 16,
+    overflow: "hidden",
+  },
+  lyricsScroll: {
+    flex: 1,
+  },
+  lyricsScrollContent: {
+    paddingHorizontal: 16,
+    paddingVertical: 20,
+  },
+  lyricsText: {
+    fontSize: 14,
+    lineHeight: 28,
+    color: "rgba(255, 255, 255, 0.82)",
+    textAlign: "center",
+  },
+  emptyLyrics: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 60,
+  },
+  emptyLyricsText: {
+    fontSize: 12,
+    color: "rgba(255, 255, 255, 0.35)",
+    marginTop: 10,
+  },
+  // Video View
+  videoWrapper: {
+    width: "100%",
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  videoErrorContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  videoErrorText: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.4)",
+    marginTop: 8,
+  },
+  videoPlayerContainer: {
+    width: "100%",
+    height: "100%",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  nativeVideo: {
+    width: "100%",
+    height: 150,
+    borderRadius: 12,
+    backgroundColor: "#000",
+  },
+  qualityList: {
+    flexDirection: "row",
+    maxHeight: 38,
+    marginTop: 8,
+  },
+  qualityListContent: {
+    alignItems: "center",
+    paddingHorizontal: 10,
+  },
+  qualityPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    marginHorizontal: 4,
+  },
+  activeQualityPill: {
+    backgroundColor: "#1DB954",
+    borderColor: "#1DB954",
+  },
+  qualityText: {
+    fontSize: 10,
+    fontWeight: "bold",
+    color: "rgba(255,255,255,0.6)",
+  },
+  activeQualityText: {
+    color: "#000",
+  },
+  // Meta block
+  songMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: 12,
+  },
+  metaTextContainer: {
+    flex: 1,
+    marginRight: 10,
+  },
+  metaTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#fff",
+  },
+  metaArtist: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.5)",
+    marginTop: 2,
+  },
+  metaMovie: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.3)",
+    marginTop: 2,
+  },
+  metaActions: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  metaButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginHorizontal: 4,
+  },
+  metaLikeWrapper: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginHorizontal: 4,
+  },
+  // Progress bar
+  progressSection: {
+    marginVertical: 10,
+  },
+  progressBarTrack: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "rgba(255, 255, 255, 0.15)",
+    position: "relative",
+    justifyContent: "center",
+  },
+  progressBarFill: {
+    height: "100%",
+    borderRadius: 3,
+    backgroundColor: "#1DB954",
+  },
+  progressBarThumb: {
+    position: "absolute",
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "#fff",
+  },
+  timeLabels: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 6,
+  },
+  timeText: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.4)",
+  },
+  percentageText: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "rgba(255,255,255,0.5)",
+  },
+  // Controls
+  controlsSection: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginVertical: 16,
+    paddingHorizontal: 8,
+  },
+  controlBtn: {
+    padding: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  playPauseBtn: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#1DB954",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#1DB954",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  dotIndicator: {
+    position: "absolute",
+    bottom: -2,
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: "#1DB954",
+  },
+  repeatOneTextWrapper: {
+    position: "absolute",
+    top: -4,
+    right: -4,
+    backgroundColor: "#1DB954",
+    borderRadius: 5,
+    width: 10,
+    height: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  repeatOneText: {
+    color: "#000",
+    fontSize: 7,
+    fontWeight: "bold",
+  },
+});

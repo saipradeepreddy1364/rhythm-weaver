@@ -1,28 +1,41 @@
-import { NavLink as RouterNavLink, NavLinkProps } from "react-router-dom";
-import { forwardRef } from "react";
-import { cn } from "@/lib/utils";
+import { TouchableOpacity, Text, StyleSheet } from 'react-native'
+import React, { forwardRef } from "react";
 
-interface NavLinkCompatProps extends Omit<NavLinkProps, "className"> {
-  className?: string;
-  activeClassName?: string;
-  pendingClassName?: string;
+interface NavLinkProps {
+  to: string;
+  children: React.ReactNode;
+  onPress?: () => void;
+  style?: any;
 }
 
-const NavLink = forwardRef<HTMLAnchorElement, NavLinkCompatProps>(
-  ({ className, activeClassName, pendingClassName, to, ...props }, ref) => {
+export const NavLink = forwardRef<any, NavLinkProps>(
+  ({ to, children, onPress, style, ...props }, ref) => {
     return (
-      <RouterNavLink
+      <TouchableOpacity
         ref={ref}
-        to={to}
-        className={({ isActive, isPending }) =>
-          cn(className, isActive && activeClassName, isPending && pendingClassName)
-        }
+        onPress={onPress}
+        style={[styles.link, style]}
+        activeOpacity={0.7}
         {...props}
-      />
+      >
+        {typeof children === "string" ? (
+          <Text style={styles.text}>{children}</Text>
+        ) : (
+          children
+        )}
+      </TouchableOpacity>
     );
-  },
+  }
 );
 
 NavLink.displayName = "NavLink";
 
-export { NavLink };
+const styles = StyleSheet.create({
+  link: {
+    paddingVertical: 8,
+  },
+  text: {
+    color: "#1DB954",
+    fontSize: 14,
+  },
+});

@@ -1,44 +1,18 @@
-import { useState, useCallback, useRef, useEffect } from "react";
-import { Song, mapApiSong } from "@/data/songs";
-import { api, extractResults } from "@/services/api";
-import { SongRow } from "@/components/SongRow";
-import { useAuth } from "@/context/AuthContext";
-import {
-  Search,
-  X,
-  Loader2,
-  Disc3,
-  Play,
-  User2,
-  Music2,
-  ArrowLeft,
-  Repeat,
-  Shuffle,
-} from "lucide-react";
-import { usePlayer } from "@/context/PlayerContext";
-import { AuthModal } from "@/components/AuthModal";
-import { MiniPlayer } from "@/components/MiniPlayer";
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image, Modal, ActivityIndicator, Dimensions, Platform } from 'react-native'
+import React, { useState, useEffect, useRef } from "react";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { Song, mapApiSong } from "../data/songs";
+import { api, extractResults } from "../services/api";
+import { SongRow } from "../components/SongRow";
+import { usePlayer } from "../context/PlayerContext";
+import { useAuth } from "../context/AuthContext";
+import { useLibrary } from "../context/LibraryContext";
+import { MiniPlayer } from "../components/MiniPlayer";
+import { localStorage, sessionStorage } from "../lib/storage";
 
-interface SearchPageProps {
-  onRequireAuth?: () => void;
-}
-
-interface Album {
-  name: string;
-  coverArt: string;
-  songs: Song[];
-  year?: number;
-}
-
-interface Artist {
-  name: string;
-  coverArt: string;
-  songCount: number;
-  songs: Song[];
-}
+const CURRENT_YEAR = new Date().getFullYear();
 
 // ─── Browse categories ────────────────────────────────────────────────────────
-
 const BROWSE_CATEGORIES = [
   { label: "Trending",     query: "trending hindi songs 2025" },
   { label: "New Releases", query: "new bollywood songs 2025" },
@@ -54,8 +28,6 @@ const BROWSE_CATEGORIES = [
   { label: "Kannada",      query: "trending kannada songs 2025" },
 ];
 
-// ─── Language extra queries for CategoryCard ─────────────────────────────────
-
 const LANGUAGE_EXTRA_QUERIES: Record<string, string[]> = {
   "Hindi":     ["popular hindi songs", "hindi film songs superhit", "hindi songs chartbuster"],
   "Telugu":    ["popular telugu songs", "telugu film songs superhit", "telugu songs chartbuster"],
@@ -65,16 +37,12 @@ const LANGUAGE_EXTRA_QUERIES: Record<string, string[]> = {
   "Punjabi":   ["popular punjabi songs", "punjabi hits", "punjabi new songs"],
 };
 
-// ─── Language search detection ────────────────────────────────────────────────
-
-// All detectable language names (case-insensitive)
 const LANGUAGE_NAMES = [
   "hindi", "telugu", "tamil", "malayalam", "kannada", "punjabi",
   "bengali", "marathi", "odia", "gujarati", "bhojpuri", "haryanvi",
   "rajasthani", "assamese", "english", "Sanskrit",
 ];
 
-// Best recognizable movie per language — used to fetch a beautiful cover image
 const LANGUAGE_BEST_MOVIE: Record<string, string> = {
   hindi:      "Dilwale Dulhania Le Jayenge",
   telugu:     "Baahubali 2 The Conclusion",
@@ -91,184 +59,53 @@ const LANGUAGE_BEST_MOVIE: Record<string, string> = {
   english:    "Avengers Endgame soundtrack",
 };
 
-// 15-18 search queries per language so we can scrape 500-1000+ songs
 const LANGUAGE_SONG_QUERIES: Record<string, string[]> = {
   hindi: [
-    "top hindi songs 2025",
-    "superhit hindi songs 2024",
-    "hindi film songs 2023",
-    "bollywood hits 2022",
-    "hindi chartbusters 2021",
-    "bollywood songs 2020",
-    "hindi romantic songs",
-    "hindi dance songs",
-    "hindi sad songs",
-    "hindi songs 2019",
-    "bollywood 2018 songs",
-    "hindi item songs",
-    "hindi party songs",
-    "bollywood 90s hits",
-    "bollywood 2000s superhits",
-    "hindi melody songs",
-    "bollywood 2010s hits",
-    "hindi old classic songs",
+    "top hindi songs 2025", "superhit hindi songs 2024", "hindi film songs 2023",
+    "bollywood hits 2022", "hindi romantic songs", "hindi sad songs",
   ],
   telugu: [
-    "trending telugu songs 2025",
-    "telugu hits 2024",
-    "telugu film songs 2023",
-    "tollywood songs 2022",
-    "telugu chartbusters 2021",
-    "telugu songs 2020",
-    "telugu romantic songs",
-    "telugu folk songs",
-    "telugu mass songs",
-    "telugu songs 2019",
-    "telugu melody songs",
-    "telugu item songs",
-    "telugu love songs",
-    "telugu devotional songs",
-    "telugu songs 2018",
-    "telugu songs 2017",
-    "telugu songs 2016",
-    "tollywood 2010s hits",
+    "trending telugu songs 2025", "telugu hits 2024", "telugu film songs 2023",
+    "tollywood songs 2022", "telugu romantic songs", "telugu sad songs",
   ],
   tamil: [
-    "trending tamil songs 2025",
-    "tamil hits 2024",
-    "kollywood songs 2023",
-    "tamil film songs 2022",
-    "tamil chartbusters 2021",
-    "tamil songs 2020",
-    "tamil romantic songs",
-    "tamil folk songs",
-    "tamil mass songs",
-    "tamil songs 2019",
-    "tamil melody songs",
-    "tamil dance songs",
-    "tamil love songs",
-    "tamil devotional songs",
-    "tamil songs 2018",
-    "kollywood 2017 songs",
-    "kollywood 2016 songs",
-    "AR Rahman Tamil songs",
+    "trending tamil songs 2025", "tamil hits 2024", "tamil film songs 2023",
+    "tamil romantic songs", "tamil sad songs",
   ],
   malayalam: [
-    "trending malayalam songs 2025",
-    "mollywood songs 2024",
-    "malayalam hits 2023",
-    "malayalam film songs 2022",
-    "malayalam songs 2021",
-    "malayalam songs 2020",
-    "malayalam romantic songs",
-    "malayalam folk songs",
-    "malayalam sad songs",
-    "malayalam songs 2019",
-    "malayalam melody songs",
-    "mollywood 2018 songs",
-    "malayalam love songs",
-    "malayalam devotional songs",
-    "mollywood 2017 songs",
+    "trending malayalam songs 2025", "malayalam hits 2024", "malayalam film songs 2023",
+    "malayalam romantic songs", "malayalam sad songs",
   ],
   kannada: [
-    "trending kannada songs 2025",
-    "sandalwood songs 2024",
-    "kannada hits 2023",
-    "kannada film songs 2022",
-    "kannada songs 2021",
-    "kannada songs 2020",
-    "kannada romantic songs",
-    "kannada folk songs",
-    "kannada mass songs",
-    "kannada songs 2019",
-    "kannada melody songs",
-    "sandalwood 2018 hits",
-    "kannada love songs",
-    "kannada 2017 songs",
+    "trending kannada songs 2025", "kannada hits 2024", "kannada film songs 2023",
+    "kannada romantic songs", "kannada sad songs",
   ],
   punjabi: [
-    "top punjabi songs 2025",
-    "punjabi hits 2024",
-    "punjabi songs 2023",
-    "punjabi songs 2022",
-    "punjabi chartbusters 2021",
-    "punjabi songs 2020",
-    "punjabi love songs",
-    "punjabi folk songs",
-    "punjabi bhangra songs",
-    "punjabi songs 2019",
-    "punjabi sad songs",
-    "punjabi remix songs",
-  ],
-  bengali: [
-    "top bengali songs 2025",
-    "bengali hits 2024",
-    "bengali film songs 2023",
-    "bengali songs 2022",
-    "bengali songs 2021",
-    "bengali romantic songs",
-    "bengali melody songs",
-    "bengali 2020 songs",
-    "bengali folk songs",
-  ],
-  marathi: [
-    "top marathi songs 2025",
-    "marathi hits 2024",
-    "marathi film songs 2023",
-    "marathi songs 2022",
-    "marathi songs 2021",
-    "marathi romantic songs",
-    "marathi folk songs",
-    "marathi 2020 songs",
-  ],
-  english: [
-    "top english songs 2025",
-    "english hits 2024",
-    "pop songs 2023",
-    "english songs 2022",
-    "english chartbusters 2021",
-    "english pop 2020",
-    "english romantic songs",
-    "english dance songs",
-    "english rap songs",
-    "english 2019 hits",
-    "english rock songs",
-    "english pop 2018",
+    "top punjabi songs 2025", "punjabi hits 2024", "punjabi love songs",
+    "punjabi folk songs", "punjabi sad songs",
   ],
 };
 
 function getLanguageQueries(lang: string): string[] {
-  return (
-    LANGUAGE_SONG_QUERIES[lang] || [
-      `top ${lang} songs 2025`,
-      `${lang} hits 2024`,
-      `${lang} film songs 2023`,
-      `${lang} songs 2022`,
-      `${lang} songs 2021`,
-      `${lang} romantic songs`,
-      `${lang} songs 2020`,
-      `${lang} melody songs`,
-      `${lang} songs 2019`,
-    ]
-  );
+  const key = lang.toLowerCase().trim();
+  const def = [`${key} songs`, `${key} hit songs`, `${key} film songs`, `${key} romantic songs`].slice(0, 5);
+  return LANGUAGE_SONG_QUERIES[key] || def;
 }
 
-/** Returns the lowercase language name if query matches a known language, else null */
 function detectLanguageSearch(query: string): string | null {
-  const q = query.trim().toLowerCase();
+  const clean = query.trim().toLowerCase();
   for (const lang of LANGUAGE_NAMES) {
-    if (q === lang.toLowerCase()) return lang.toLowerCase();
+    if (clean === lang) return lang;
+    if (clean === `${lang} songs` || clean === `${lang} song`) return lang;
+    if (clean === `${lang} music`) return lang;
   }
   return null;
 }
-
-// ─── Utility ──────────────────────────────────────────────────────────────────
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-// ─── HTML entity decoder (fixes "&quot;" etc. coming from API) ────────────────
 function decodeHtml(str: string): string {
   if (!str) return str;
   return str
@@ -277,112 +114,95 @@ function decodeHtml(str: string): string {
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
-    .replace(/&apos;/g, "'")
-    .replace(/&#x27;/g, "'")
-    .replace(/&#x2F;/g, "/");
+    .replace(/&apos;/g, "'");
 }
 
 function cleanSong(song: Song): Song {
   return {
     ...song,
     title:  decodeHtml(song.title  || ""),
-    artist: decodeHtml((song as Song & { artist?: string }).artist || ""),
-    album:  decodeHtml((song as Song & { album?: string }).album   || ""),
-    movie:  decodeHtml((song as Song & { movie?: string }).movie   || ""),
-  } as Song;
+    artist: decodeHtml(song.artist || ""),
+    album:  decodeHtml(song.album   || ""),
+    movie:  decodeHtml(song.movie   || ""),
+  };
 }
 
-// ─── Preload cache — reads songs pre-fetched by HomePage's background loader ──
-const PRELOAD_SESSION_KEY = (k: string) => `preload_songs_v2_${k.toLowerCase()}`;
-
+const PRELOAD_SESSION_KEY = (k: string) => `preload_songs_v2_${k}`;
 function getPreloadedSongs(key: string): Song[] {
   try {
-    const raw = sessionStorage.getItem(PRELOAD_SESSION_KEY(key));
+    const raw = sessionStorage.getItem(PRELOAD_SESSION_KEY(key.toLowerCase()));
     if (!raw) return [];
     return JSON.parse(raw) as Song[];
   } catch { return []; }
 }
 
-// ─── Category preload cache ───────────────────────────────────────────────────
-// Module-level fire-and-forget: pre-fetches every Browse category into
-// sessionStorage so clicking a card opens its modal instantly (no spinner).
-const CAT_SESSION_KEY = (label: string) =>
-  `preload_cat_v2_${label.toLowerCase().replace(/\s+/g, "_")}`;
-const CAT_COVER_KEY = (label: string) =>
-  `preload_cat_cover_v2_${label.toLowerCase().replace(/\s+/g, "_")}`;
-
+const CATEGORY_CACHE_KEY = (k: string) => `search_cat_cache_${k.toLowerCase()}`;
 function getCategoryCache(label: string): { songs: Song[]; coverArt: string } {
   try {
-    const songs    = JSON.parse(sessionStorage.getItem(CAT_SESSION_KEY(label)) || "[]") as Song[];
-    const coverArt = sessionStorage.getItem(CAT_COVER_KEY(label)) || "";
-    return { songs, coverArt };
-  } catch { return { songs: [], coverArt: "" }; }
+    const raw = localStorage.getItem(CATEGORY_CACHE_KEY(label));
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed.songs) && parsed.songs.length > 0) {
+        return parsed;
+      }
+    }
+  } catch {}
+  const pre = getPreloadedSongs(label);
+  return { songs: pre, coverArt: pre[0]?.albumArt || "" };
 }
 
 function saveCategoryCache(label: string, songs: Song[], coverArt: string) {
   try {
-    sessionStorage.setItem(CAT_SESSION_KEY(label), JSON.stringify(songs));
-    sessionStorage.setItem(CAT_COVER_KEY(label),   coverArt);
-  } catch { /* storage quota */ }
+    localStorage.setItem(CATEGORY_CACHE_KEY(label), JSON.stringify({ songs, coverArt }));
+  } catch {}
 }
 
 let _catPreloadStarted = false;
 function startCategoryPreload() {
-  if (_catPreloadStarted || typeof window === "undefined") return;
+  if (_catPreloadStarted) return;
   _catPreloadStarted = true;
 
-  // Wait 5 s — lets HomePage preloader (starts at 2 s) get network priority first
   setTimeout(async () => {
     for (const cat of BROWSE_CATEGORIES) {
-      if (sessionStorage.getItem(CAT_SESSION_KEY(cat.label))) continue; // already cached
+      const cache = getCategoryCache(cat.label);
+      if (cache.songs.length > 0) continue;
 
       const extraQueries = LANGUAGE_EXTRA_QUERIES[cat.label] || [];
       const allQueries   = [cat.query, ...extraQueries];
-
-      const seen     = new Set<string>();
-      const all: Song[] = [];
-      let   coverArt = "";
+      const seen         = new Set<string>();
+      const allSongs: Song[] = [];
 
       for (const q of allQueries) {
-        for (let page = 1; page <= 6; page++) {
+        for (let page = 1; page <= 4; page++) {
           try {
-            if (page > 1) await sleep(200);
-            const res   = await api.searchSongs(q, page, 50);
-            const items = extractResults(res);
+            if (page > 1) await new Promise(r => setTimeout(r, 200));
+            const res     = await api.searchSongs(q, page, 50);
+            const items   = extractResults(res);
             if (items.length === 0) break;
-
-            const songs = items
-              .map(mapApiSong)
-              .map(cleanSong)
-              .filter((s: Song) => Boolean(s.audioUrl));
-
+            const songs = items.map(mapApiSong).map(cleanSong).filter((s) => Boolean(s.audioUrl));
             let added = 0;
             for (const s of songs) {
-              if (s.id && !seen.has(s.id)) {
-                seen.add(s.id);
-                all.push(s);
-                if (!coverArt && s.albumArt) coverArt = s.albumArt;
-                added++;
-              }
+              if (s.id && !seen.has(s.id)) { seen.add(s.id); allSongs.push(s); added++; }
             }
             if (items.length < 50 || added === 0) break;
           } catch { break; }
         }
-        await sleep(150);
+        await new Promise(r => setTimeout(r, 200));
       }
 
-      if (all.length > 0) saveCategoryCache(cat.label, all, coverArt);
-      await sleep(800); // brief pause between categories to avoid API flooding
+      if (allSongs.length > 0) {
+        const withArt = allSongs.filter(s => s.albumArt);
+        const art     = withArt.length > 0 ? withArt[0].albumArt! : "";
+        saveCategoryCache(cat.label, allSongs, art);
+      }
+      await new Promise(r => setTimeout(r, 1000));
     }
-  }, 5000);
+  }, 3000);
 }
 
-// Fire once on module import
 startCategoryPreload();
 
-
 // ─── Category Song List Modal ─────────────────────────────────────────────────
-
 function CategorySongModal({
   label,
   songs,
@@ -401,409 +221,235 @@ function CategorySongModal({
   const { playSong } = usePlayer();
 
   return (
-    <div className="fixed inset-0 z-[55] flex flex-col" style={{ background: "#0d0d0d" }}>
-      {coverArt && (
-        <div
-          className="absolute inset-0 opacity-20"
-          style={{
-            backgroundImage: `url(${coverArt})`,
-            backgroundSize: "cover",
-            backgroundPosition: "center",
-            filter: "blur(50px) saturate(2)",
-            transform: "scale(1.3)",
-          }}
-        />
-      )}
-      <div
-        className="absolute inset-0"
-        style={{ background: "linear-gradient(to bottom, rgba(13,13,13,0.6) 0%, rgba(13,13,13,0.95) 40%)" }}
-      />
-
-      <div className="relative flex flex-col h-full overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center gap-3 px-4 pt-12 pb-4 flex-shrink-0">
-          <button
-            onClick={onClose}
-            className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
-            style={{ background: "rgba(255,255,255,0.1)" }}
-          >
-            <ArrowLeft className="w-5 h-5 text-white" />
-          </button>
-          <div className="flex-1 min-w-0">
-            <h2 className="text-lg font-bold text-white truncate">{label}</h2>
-            <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>
-              {loading ? "Loading songs…" : `${songs.length} songs`}
-            </p>
-          </div>
-          {songs.length > 0 && (
-            <button
-              onClick={() => playSong(songs[0], songs)}
-              className="w-11 h-11 rounded-full flex items-center justify-center shadow-xl flex-shrink-0"
-              style={{ background: "#1DB954" }}
-            >
-              <Play className="w-5 h-5 text-black fill-black ml-0.5" />
-            </button>
-          )}
-        </div>
-
-        {/* Cover art */}
+    <Modal visible={true} animationType="slide" onRequestClose={onClose}>
+      <View style={modalStyles.container}>
         {coverArt && (
-          <div className="px-4 mb-4 flex items-center justify-center flex-shrink-0">
-            <div className="rounded-2xl overflow-hidden shadow-2xl" style={{ width: 170, height: 170 }}>
-              <img
-                src={coverArt}
-                alt={label}
-                className="w-full h-full object-cover"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).src = "https://via.placeholder.com/300x300?text=🎵";
-                }}
-              />
-            </div>
-          </div>
+          <Image
+            source={{ uri: coverArt }}
+            style={modalStyles.backgroundImage}
+            blurRadius={20}
+            resizeMode="cover"
+          />
         )}
+        <View style={modalStyles.overlay} />
 
-        {/* Song list */}
-        <div className="flex-1 overflow-y-auto" style={{ WebkitOverflowScrolling: "touch" }}>
-          {loading && songs.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 gap-3">
-              <div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white/70 animate-spin" />
-              <p className="text-sm text-white/40">Loading songs…</p>
-            </div>
-          ) : (
-            <div className="space-y-0.5 px-2 pb-40">
-              {songs.map((song) => (
-                <SongRow key={song.id} song={song} queue={songs} onRequireAuth={onRequireAuth} />
-              ))}
-              {loading && songs.length > 0 && (
-                <div className="flex items-center justify-center py-4 gap-2">
-                  <div className="w-4 h-4 rounded-full border-2 border-white/15 border-t-green-400/60 animate-spin" />
-                  <span className="text-xs" style={{ color: "rgba(255,255,255,0.3)" }}>
-                    Finding more songs…
-                  </span>
-                </div>
-              )}
-              {!loading && songs.length > 0 && (
-                <div className="flex justify-center py-4">
-                  <span
-                    className="text-xs px-4 py-1.5 rounded-full"
-                    style={{ background: "rgba(29,185,84,0.1)", color: "#1DB954" }}
-                  >
-                    ✓ {songs.length} songs
-                  </span>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
+        <View style={modalStyles.content}>
+          {/* Header */}
+          <View style={modalStyles.header}>
+            <TouchableOpacity onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
+              <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
+            </TouchableOpacity>
 
-      <MiniPlayer onRequireAuth={onRequireAuth} />
-    </div>
+            <View style={modalStyles.headerMeta}>
+              <Text style={modalStyles.headerTitle} numberOfLines={1}>{label}</Text>
+              <Text style={modalStyles.headerSubtitle} numberOfLines={1}>
+                {loading ? "Loading songs…" : `${songs.length} songs`}
+              </Text>
+            </View>
+
+            {songs.length > 0 ? (
+              <TouchableOpacity
+                onPress={() => playSong(songs[0], songs)}
+                style={modalStyles.playBtn}
+                activeOpacity={0.8}
+              >
+                <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          {/* Large cover art */}
+          {coverArt ? (
+            <View style={modalStyles.coverWrapper}>
+              <Image source={{ uri: coverArt }} style={modalStyles.coverImage} resizeMode="cover" />
+            </View>
+          ) : null}
+
+          {/* Songs list */}
+          <ScrollView style={modalStyles.songsScroll} contentContainerStyle={modalStyles.songsScrollContent}>
+            {loading && songs.length === 0 ? (
+              <View style={modalStyles.centerLoading}>
+                <ActivityIndicator size="large" color="#1DB954" />
+                <Text style={modalStyles.loadingText}>Loading songs…</Text>
+              </View>
+            ) : (
+              <View style={{ paddingBottom: 60 }}>
+                {songs.map((song) => (
+                  <SongRow key={song.id} song={song} queue={songs} onRequireAuth={onRequireAuth} />
+                ))}
+
+                {loading && songs.length > 0 ? (
+                  <View style={modalStyles.fetchingMoreRow}>
+                    <ActivityIndicator size="small" color="#1DB954" />
+                    <Text style={modalStyles.fetchingMoreText}>Finding more songs…</Text>
+                  </View>
+                ) : null}
+              </View>
+            )}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
 // ─── Language Album Modal ─────────────────────────────────────────────────────
-// Shown when the user searches for a language name (e.g. "Hindi", "Telugu", etc.)
-// Fetches thousands of songs progressively and shows them in a single album view
-// with the best recognizable movie's cover image.
-
 function LanguageAlbumModal({
   language,
   onClose,
   onRequireAuth,
 }: {
-  language: string;           // lowercase language name
+  language: string;
   onClose: () => void;
   onRequireAuth: () => void;
 }) {
   const { playSong } = usePlayer();
   const [songs, setSongs]               = useState<Song[]>([]);
-  const [coverArt, setCoverArt]         = useState<string>("");
+  const [loadingMore, setLoadingMore]   = useState(true);
   const [loadingCover, setLoadingCover] = useState(true);
-  const [loadingMore, setLoadingMore]   = useState(false);
+  const [coverArt, setCoverArt]         = useState<string | null>(null);
   const [totalFetched, setTotalFetched] = useState(0);
-  const [shuffled, setShuffled]         = useState(false);
-  const fetchedRef                      = useRef(false);
-  const seenIds                         = useRef(new Set<string>());
 
-  // Display name with first letter capitalised
   const displayName = language.charAt(0).toUpperCase() + language.slice(1);
 
   useEffect(() => {
-    if (fetchedRef.current) return;
-    fetchedRef.current = true;
+    let unmounted = false;
+    setLoadingMore(true);
+    setLoadingCover(true);
 
-    const run = async () => {
-      // ── Step 0: Load preloaded songs instantly from sessionStorage ──────────
-      const preloaded = getPreloadedSongs(language);
-      if (preloaded.length > 0) {
-        for (const s of preloaded) seenIds.current.add(s.id);
-        setSongs(preloaded);
-        setTotalFetched(preloaded.length);
-        const withArt = preloaded.filter((s) => s.albumArt);
-        if (withArt.length > 0) setCoverArt(withArt[0].albumArt!);
+    const bestMovie = LANGUAGE_BEST_MOVIE[language.toLowerCase()];
+    if (bestMovie) {
+      api.searchSongs(bestMovie, 1, 1).then((res) => {
+        if (unmounted) return;
+        const items = extractResults(res);
+        if (items[0]?.image) {
+          const mapped = mapApiSong(items[0]);
+          if (mapped.albumArt) setCoverArt(mapped.albumArt);
+        }
         setLoadingCover(false);
-        setLoadingMore(true); // continue fetching more in background
-      }
-
-      // ── Step 1: Fetch cover art from the best recognisable movie ──
-      if (!coverArt) {
-        const movieQuery = LANGUAGE_BEST_MOVIE[language] || `${displayName} superhit movie`;
-        try {
-          const coverRes = await api.searchSongs(movieQuery, 1, 5);
-          const coverItems = extractResults(coverRes).map(mapApiSong).map(cleanSong);
-          const withArt = coverItems.filter((s: Song) => s.albumArt);
-          if (withArt.length > 0) setCoverArt(withArt[0].albumArt!);
-        } catch { /* continue without cover */ }
-      }
+      }).catch(() => {
+        if (!unmounted) setLoadingCover(false);
+      });
+    } else {
       setLoadingCover(false);
-      setLoadingMore(true);
+    }
 
-      // ── Step 2: Fetch songs from all language queries progressively ──
-      const queries = getLanguageQueries(language);
+    const queries = getLanguageQueries(language);
+    const seen    = new Set<string>();
+    let allSongs: Song[] = [];
 
+    (async () => {
       for (const q of queries) {
-        for (let page = 1; page <= 40; page++) {
+        if (unmounted) break;
+        for (let page = 1; page <= 6; page++) {
+          if (unmounted) break;
           try {
             if (page > 1) await sleep(200);
-            const res = await api.searchSongs(q, page, 50);
-            const items = extractResults(res)
-              .map(mapApiSong)
-              .map(cleanSong)
-              .filter((s: Song) => Boolean(s.audioUrl));
-
-            const fresh: Song[] = [];
-            for (const s of items) {
-              if (s.id && !seenIds.current.has(s.id)) {
-                seenIds.current.add(s.id);
-                fresh.push(s);
+            const res     = await api.searchSongs(q, page, 50);
+            const items   = extractResults(res);
+            if (items.length === 0) break;
+            const mapped = items.map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
+            let added = 0;
+            for (const s of mapped) {
+              if (s.id && !seen.has(s.id)) {
+                seen.add(s.id);
+                allSongs = [...allSongs, s];
+                added++;
               }
             }
-
-            if (fresh.length > 0) {
-              if (!coverArt) {
-                const withArt = fresh.filter((s) => s.albumArt);
-                if (withArt.length > 0) setCoverArt(withArt[0].albumArt!);
-              }
-              setSongs((prev) => {
-                const next = [...prev, ...fresh];
-                setTotalFetched(next.length);
-                return next;
-              });
+            if (!unmounted) {
+              setSongs(allSongs);
+              setTotalFetched(allSongs.length);
             }
-
-            if (items.length < 50) break;
-          } catch { break; }
+            if (items.length < 50 || added === 0) break;
+          } catch {
+            break;
+          }
         }
-        await sleep(100);
+        await sleep(150);
       }
+      if (!unmounted) setLoadingMore(false);
+    })();
 
-      setLoadingMore(false);
-    };
-
-    run().catch(() => {
-      setLoadingCover(false);
-      setLoadingMore(false);
-    });
-  }, [language]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Build the playback queue — optionally shuffled
-  const buildQueue = (songList: Song[]): Song[] => {
-    if (!shuffled) return songList;
-    const arr = [...songList];
-    for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
-    return arr;
-  };
-
-  const handlePlayAll = () => {
-    if (songs.length === 0) return;
-    const queue = buildQueue(songs);
-    playSong(queue[0], queue);
-  };
-
-  const handleShuffle = () => {
-    setShuffled(true);
-    if (songs.length === 0) return;
-    const queue = buildQueue(songs);
-    playSong(queue[0], queue);
-  };
+    return () => { unmounted = true; };
+  }, [language]);
 
   return (
-    <div className="fixed inset-0 z-[60] flex flex-col" style={{ background: "#0d0d0d" }}>
-      {/* Blurred background */}
-      {coverArt && (
-        <div
-          className="absolute inset-0 opacity-25"
-          style={{
-            backgroundImage: `url(${coverArt})`,
-            backgroundSize: "cover",
-            backgroundPosition: "center",
-            filter: "blur(60px) saturate(2.5)",
-            transform: "scale(1.4)",
-          }}
-        />
-      )}
-      <div
-        className="absolute inset-0"
-        style={{
-          background:
-            "linear-gradient(to bottom, rgba(13,13,13,0.55) 0%, rgba(13,13,13,0.97) 38%)",
-        }}
-      />
+    <Modal visible={true} animationType="slide" onRequestClose={onClose}>
+      <View style={modalStyles.container}>
+        {coverArt && (
+          <Image
+            source={{ uri: coverArt }}
+            style={modalStyles.backgroundImage}
+            blurRadius={20}
+            resizeMode="cover"
+          />
+        )}
+        <View style={modalStyles.overlay} />
 
-      <div className="relative flex flex-col h-full overflow-hidden">
-        {/* ── Header ── */}
-        <div className="flex items-center gap-3 px-4 pt-12 pb-4 flex-shrink-0">
-          <button
-            onClick={onClose}
-            className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
-            style={{ background: "rgba(255,255,255,0.1)" }}
-          >
-            <ArrowLeft className="w-5 h-5 text-white" />
-          </button>
-          <div className="flex-1 min-w-0">
-            <h2 className="text-lg font-bold text-white truncate">{displayName} Songs</h2>
-            <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.45)" }}>
-              {loadingMore
-                ? `${totalFetched} songs loaded…`
-                : `${songs.length} songs · tap play to loop all`}
-            </p>
-          </div>
-        </div>
+        <View style={modalStyles.content}>
+          {/* Header */}
+          <View style={modalStyles.header}>
+            <TouchableOpacity onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
+              <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
+            </TouchableOpacity>
 
-        {/* ── Cover art + Play / Shuffle buttons ── */}
-        <div className="px-4 mb-4 flex flex-col items-center flex-shrink-0">
-          {/* Cover image */}
-          <div
-            className="rounded-2xl overflow-hidden shadow-2xl mb-4"
-            style={{ width: 180, height: 180 }}
-          >
-            {loadingCover ? (
-              <div
-                className="w-full h-full flex items-center justify-center"
-                style={{ background: "rgba(255,255,255,0.07)" }}
+            <View style={modalStyles.headerMeta}>
+              <Text style={modalStyles.headerTitle} numberOfLines={1}>{displayName} Music</Text>
+              <Text style={modalStyles.headerSubtitle} numberOfLines={1}>
+                {loadingMore ? `Loading (${totalFetched} songs…)` : `${songs.length} songs`}
+              </Text>
+            </View>
+
+            {songs.length > 0 ? (
+              <TouchableOpacity
+                onPress={() => playSong(songs[0], songs)}
+                style={modalStyles.playBtn}
+                activeOpacity={0.8}
               >
-                <div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white/60 animate-spin" />
-              </div>
-            ) : coverArt ? (
-              <img
-                src={coverArt}
-                alt={displayName}
-                className="w-full h-full object-cover"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).src =
-                    "https://via.placeholder.com/300x300?text=🎵";
-                }}
-              />
+                <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          {/* Large cover art */}
+          {coverArt ? (
+            <View style={modalStyles.coverWrapper}>
+              <Image source={{ uri: coverArt }} style={modalStyles.coverImage} resizeMode="cover" />
+            </View>
+          ) : null}
+
+          {/* Songs list */}
+          <ScrollView style={modalStyles.songsScroll} contentContainerStyle={modalStyles.songsScrollContent}>
+            {songs.length === 0 && (loadingCover || loadingMore) ? (
+              <View style={modalStyles.centerLoading}>
+                <ActivityIndicator size="large" color="#1DB954" />
+                <Text style={modalStyles.loadingText}>Fetching {displayName} songs…</Text>
+              </View>
             ) : (
-              <div
-                className="w-full h-full flex items-center justify-center"
-                style={{
-                  background: "linear-gradient(135deg,#1DB954 0%,#158a3b 100%)",
-                }}
-              >
-                <Music2 className="w-14 h-14 text-black opacity-60" />
-              </div>
+              <View style={{ paddingBottom: 60 }}>
+                {songs.map((song) => (
+                  <SongRow key={song.id} song={song} queue={songs} onRequireAuth={onRequireAuth} />
+                ))}
+
+                {loadingMore && (
+                  <View style={modalStyles.fetchingMoreRow}>
+                    <ActivityIndicator size="small" color="#1DB954" />
+                    <Text style={modalStyles.fetchingMoreText}>
+                      Loading more songs ({totalFetched} so far)…
+                    </Text>
+                  </View>
+                )}
+              </View>
             )}
-          </div>
-
-          {/* Play All + Shuffle row */}
-          <div className="flex items-center gap-4">
-            <button
-              onClick={handlePlayAll}
-              disabled={songs.length === 0}
-              className="flex items-center gap-2 px-6 py-2.5 rounded-full text-sm font-bold text-black active:scale-95 transition-transform disabled:opacity-40"
-              style={{ background: "#1DB954" }}
-            >
-              <Play className="w-4 h-4 fill-black" />
-              Play All
-            </button>
-            <button
-              onClick={handleShuffle}
-              disabled={songs.length === 0}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold active:scale-95 transition-transform disabled:opacity-40"
-              style={{
-                background: "rgba(255,255,255,0.1)",
-                color: shuffled ? "#1DB954" : "rgba(255,255,255,0.8)",
-              }}
-            >
-              <Shuffle className="w-4 h-4" />
-              Shuffle
-            </button>
-            <button
-              onClick={handlePlayAll}
-              disabled={songs.length === 0}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold active:scale-95 transition-transform disabled:opacity-40"
-              style={{
-                background: "rgba(255,255,255,0.1)",
-                color: "rgba(255,255,255,0.8)",
-              }}
-            >
-              <Repeat className="w-4 h-4" />
-              Loop
-            </button>
-          </div>
-        </div>
-
-        {/* ── Song list ── */}
-        <div className="flex-1 overflow-y-auto" style={{ WebkitOverflowScrolling: "touch" }}>
-          {songs.length === 0 && (loadingCover || loadingMore) ? (
-            <div className="flex flex-col items-center justify-center py-12 gap-3">
-              <div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white/70 animate-spin" />
-              <p className="text-sm" style={{ color: "rgba(255,255,255,0.4)" }}>
-                Fetching {displayName} songs…
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-0.5 px-2 pb-40">
-              {songs.map((song) => (
-                <SongRow
-                  key={song.id}
-                  song={song}
-                  queue={songs}
-                  onRequireAuth={onRequireAuth}
-                />
-              ))}
-
-              {/* Loading indicator shown while more songs arrive */}
-              {loadingMore && (
-                <div className="flex items-center justify-center py-5 gap-2">
-                  <div className="w-5 h-5 rounded-full border-2 border-white/20 border-t-green-400 animate-spin" />
-                  <span className="text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>
-                    Loading more songs ({totalFetched} so far)…
-                  </span>
-                </div>
-              )}
-
-              {/* Finished loading */}
-              {!loadingMore && songs.length > 0 && (
-                <div className="flex items-center justify-center py-4">
-                  <span
-                    className="text-xs px-4 py-1.5 rounded-full"
-                    style={{
-                      background: "rgba(29,185,84,0.12)",
-                      color: "#1DB954",
-                    }}
-                  >
-                    ✓ {songs.length} songs loaded
-                  </span>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-
-      <MiniPlayer onRequireAuth={onRequireAuth} />
-    </div>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
 // ─── Category Card ────────────────────────────────────────────────────────────
-
 interface CategoryCardProps {
   label: string;
   query: string;
@@ -811,12 +457,11 @@ interface CategoryCardProps {
 }
 
 function CategoryCard({ label, query, onSelect }: CategoryCardProps) {
-  // ── Seed from preload cache immediately so the card shows cover + count ──
   const cached                  = getCategoryCache(label);
   const [coverArt, setCoverArt] = useState<string | null>(cached.coverArt || null);
   const [songs, setSongs]       = useState<Song[]>(cached.songs);
   const [loaded, setLoaded]     = useState(cached.songs.length > 0);
-  const fetchedRef              = useRef(cached.songs.length > 0); // skip fetch if already cached
+  const fetchedRef              = useRef(cached.songs.length > 0);
 
   useEffect(() => {
     if (fetchedRef.current) return;
@@ -857,1266 +502,871 @@ function CategoryCard({ label, query, onSelect }: CategoryCardProps) {
     };
 
     fetchAll().catch(() => setLoaded(true));
-  }, [query, label]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query, label]);
 
   return (
-    <button
-      onClick={() => onSelect(label, songs, coverArt || "")}
-      className="flex flex-col items-start text-left active:scale-95 transition-transform"
-      style={{ width: "100%" }}
+    <TouchableOpacity
+      onPress={() => onSelect(label, songs, coverArt || "")}
+      style={styles.categoryBtn}
+      activeOpacity={0.8}
     >
-      <div
-        className="relative rounded-xl overflow-hidden w-full shadow-md"
-        style={{ aspectRatio: "1 / 1", background: "rgba(255,255,255,0.07)" }}
-      >
+      <View style={styles.categoryCoverWrapper}>
         {coverArt ? (
-          <img
-            src={coverArt}
-            alt={label}
-            className="absolute inset-0 w-full h-full object-cover"
-            onError={() => setCoverArt(null)}
-          />
+          <Image source={{ uri: coverArt }} style={styles.categoryCover} />
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center">
+          <View style={[styles.categoryCover, styles.categoryCoverPlaceholder]}>
             {!loaded ? (
-              <div className="w-6 h-6 rounded-full border-2 border-white/20 border-t-white/60 animate-spin" />
+              <ActivityIndicator size="small" color="#fff" />
             ) : (
-              <Music2 className="w-8 h-8" style={{ color: "rgba(255,255,255,0.2)" }} />
+              <MaterialCommunityIcons name="music" size={24} color="rgba(255,255,255,0.2)" />
             )}
-          </div>
+          </View>
         )}
 
-        <div
-          className="absolute bottom-2 right-2 w-8 h-8 rounded-full flex items-center justify-center shadow-lg"
-          style={{ background: "rgba(29,185,84,0.92)" }}
-        >
-          <Play className="w-3.5 h-3.5 text-black fill-black ml-0.5" />
-        </div>
-      </div>
+        <View style={styles.categoryPlayOverlay}>
+          <MaterialCommunityIcons name="play" size={14} color="#000" style={{ marginLeft: 1 }} />
+        </View>
+      </View>
 
-      <p className="mt-2 text-sm font-semibold text-white truncate w-full leading-tight">
+      <Text style={styles.categoryLabel} numberOfLines={1}>
         {label}
-      </p>
-      <p className="text-xs mt-0.5 truncate w-full" style={{ color: "rgba(255,255,255,0.4)" }}>
-        {loaded && songs.length > 0 ? `${songs.length} songs` : "Browse"}
-      </p>
-    </button>
+      </Text>
+      <Text style={styles.categorySongCount} numberOfLines={1}>
+        {loaded ? `${songs.length} songs` : "Loading…"}
+      </Text>
+    </TouchableOpacity>
   );
 }
 
-// ─── Album Detail Modal — loads ALL songs ─────────────────────────────────────
-
-function shuffleArray<T>(arr: T[]): T[] {
-  const out = [...arr];
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]];
-  }
-  return out;
+// ─── Album Detail Modal ───────────────────────────────────────────────────────
+interface Album {
+  title: string;
+  coverArt: string;
+  songs: Song[];
+  type: string;
+  query: string;
 }
 
 function AlbumModal({
   album,
-  allSongs,
   onClose,
   onRequireAuth,
 }: {
   album: Album;
-  allSongs: Song[];
   onClose: () => void;
   onRequireAuth: () => void;
 }) {
-  const { playSong }       = usePlayer();
-  // Shuffle initial songs on every open so order is always different
-  const [fullAlbumSongs, setFullAlbumSongs] = useState<Song[]>(() => shuffleArray(album.songs));
-  const [loadingFull, setLoadingFull]       = useState(true);
-  const [loadedCount, setLoadedCount]       = useState(album.songs.length);
-  const fetchedRef                          = useRef(false);
-
-  useEffect(() => {
-    if (fetchedRef.current) return;
-    fetchedRef.current = true;
-
-    const fetchAllAlbumSongs = async () => {
-      const seen     = new Set<string>(album.songs.map((s) => s.id));
-      const all: Song[] = [...album.songs];
-      const pageSize = 50;
-
-      // Use multiple query variants to maximise unique song discovery
-      const queryVariants = [
-        album.name,
-        `${album.name} songs`,
-        `${album.name} full album`,
-        `${album.name} all songs`,
-      ];
-
-      for (const q of queryVariants) {
-        // Up to 40 pages per variant (40 × 50 = 2000 per variant)
-        for (let page = 1; page <= 40; page++) {
-          try {
-            if (page > 1) await sleep(200);
-            const res   = await api.searchSongs(q, page, pageSize);
-            const items = extractResults(res);
-            const songs = items.map(mapApiSong).map(cleanSong).filter((s: Song) => Boolean(s.audioUrl));
-
-            const albumSongs = songs.filter(
-              (s: Song) =>
-                s.album?.toLowerCase().includes(album.name.toLowerCase()) ||
-                s.movie?.toLowerCase().includes(album.name.toLowerCase()) ||
-                album.name.toLowerCase().includes(s.album?.toLowerCase() || "") ||
-                album.name.toLowerCase().includes(s.movie?.toLowerCase() || "")
-            );
-
-            const toAdd = albumSongs.length >= 1 ? albumSongs : songs;
-            let added = 0;
-            for (const s of toAdd) {
-              if (s.id && !seen.has(s.id)) {
-                seen.add(s.id);
-                all.push(s);
-                added++;
-              }
-            }
-
-            if (added > 0) {
-              // Shuffle on every update so new arrivals are mixed in randomly
-              setFullAlbumSongs(shuffleArray([...all]));
-              setLoadedCount(all.length);
-            }
-
-            if (items.length < pageSize) break;
-            if (all.length >= 3000) break;
-          } catch { break; }
-        }
-        await sleep(120);
-        if (all.length >= 3000) break;
-      }
-
-      setFullAlbumSongs(shuffleArray([...all]));
-      setLoadedCount(all.length);
-      setLoadingFull(false);
-    };
-
-    fetchAllAlbumSongs().catch(() => setLoadingFull(false));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const albumSongIds  = new Set(fullAlbumSongs.map((s) => s.id));
-  const remainingSongs = allSongs.filter((s) => !albumSongIds.has(s.id));
-  const fullQueue     = [...fullAlbumSongs, ...remainingSongs];
-
+  const { playSong } = usePlayer();
   return (
-    <div className="fixed inset-0 z-[55] flex flex-col" style={{ background: "#0d0d0d" }}>
-      {album.coverArt && (
-        <div
-          className="absolute inset-0 opacity-20"
-          style={{
-            backgroundImage: `url(${album.coverArt})`,
-            backgroundSize: "cover",
-            backgroundPosition: "center",
-            filter: "blur(50px) saturate(2)",
-            transform: "scale(1.3)",
-          }}
-        />
-      )}
-      <div
-        className="absolute inset-0"
-        style={{
-          background:
-            "linear-gradient(to bottom, rgba(13,13,13,0.6) 0%, rgba(13,13,13,0.95) 35%)",
-        }}
-      />
+    <Modal visible={true} animationType="slide" onRequestClose={onClose}>
+      <View style={modalStyles.container}>
+        {album.coverArt && (
+          <Image
+            source={{ uri: album.coverArt }}
+            style={modalStyles.backgroundImage}
+            blurRadius={20}
+            resizeMode="cover"
+          />
+        )}
+        <View style={modalStyles.overlay} />
 
-      <div className="relative flex flex-col h-full overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center gap-3 px-4 pt-12 pb-4 flex-shrink-0">
-          <button
-            onClick={onClose}
-            className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
-            style={{ background: "rgba(255,255,255,0.1)" }}
-          >
-            <ArrowLeft className="w-5 h-5 text-white" />
-          </button>
-          <div className="flex-1 min-w-0">
-            <h2 className="text-lg font-bold text-white truncate">{album.name}</h2>
-            <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>
-              {loadingFull
-                ? `${loadedCount} songs loaded…`
-                : `${fullAlbumSongs.length} song${fullAlbumSongs.length !== 1 ? "s" : ""} · shuffled`}
-              {album.year ? ` · ${album.year}` : ""}
-            </p>
-          </div>
-          <button
-            onClick={() => playSong(fullAlbumSongs[0], fullQueue)}
-            className="w-11 h-11 rounded-full flex items-center justify-center shadow-xl flex-shrink-0"
-            style={{ background: "#1DB954" }}
-          >
-            <Play className="w-5 h-5 text-black fill-black ml-0.5" />
-          </button>
-        </div>
+        <View style={modalStyles.content}>
+          {/* Header */}
+          <View style={modalStyles.header}>
+            <TouchableOpacity onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
+              <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
+            </TouchableOpacity>
 
-        {/* Cover art */}
-        <div className="px-4 mb-4 flex items-center justify-center flex-shrink-0">
-          <div className="rounded-2xl overflow-hidden shadow-2xl" style={{ width: 170, height: 170 }}>
-            {album.coverArt ? (
-              <img
-                src={album.coverArt}
-                alt={album.name}
-                className="w-full h-full object-cover"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).src =
-                    "https://via.placeholder.com/300x300?text=🎵";
-                }}
-              />
-            ) : (
-              <div
-                className="w-full h-full flex items-center justify-center"
-                style={{ background: "rgba(255,255,255,0.08)" }}
+            <View style={modalStyles.headerMeta}>
+              <Text style={modalStyles.headerTitle} numberOfLines={1}>{album.title}</Text>
+              <Text style={modalStyles.headerSubtitle} numberOfLines={1}>
+                Album · {album.songs.length} songs
+              </Text>
+            </View>
+
+            {album.songs.length > 0 ? (
+              <TouchableOpacity
+                onPress={() => playSong(album.songs[0], album.songs)}
+                style={modalStyles.playBtn}
+                activeOpacity={0.8}
               >
-                <Disc3 className="w-12 h-12" style={{ color: "rgba(255,255,255,0.2)" }} />
-              </div>
-            )}
-          </div>
-        </div>
+                <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
+              </TouchableOpacity>
+            ) : null}
+          </View>
 
-        {/* Songs */}
-        <div className="flex-1 overflow-y-auto" style={{ WebkitOverflowScrolling: "touch" }}>
-          <div className="space-y-0.5 px-2 pb-40">
-            {fullAlbumSongs.map((song) => (
-              <SongRow
-                key={song.id}
-                song={song}
-                queue={fullQueue}
-                onRequireAuth={onRequireAuth}
-              />
-            ))}
-            {loadingFull && (
-              <div className="flex items-center justify-center py-4 gap-2">
-                <div className="w-5 h-5 rounded-full border-2 border-white/20 border-t-white/60 animate-spin" />
-                <span className="text-xs text-white/40">
-                  Loading more songs ({loadedCount} so far)…
-                </span>
-              </div>
-            )}
-            {!loadingFull && fullAlbumSongs.length > 0 && (
-              <div className="flex items-center justify-center py-4">
-                <span
-                  className="text-xs px-4 py-1.5 rounded-full"
-                  style={{ background: "rgba(29,185,84,0.12)", color: "#1DB954" }}
-                >
-                  ✓ {fullAlbumSongs.length} songs loaded · order shuffled
-                </span>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+          {/* Large cover art */}
+          {album.coverArt ? (
+            <View style={modalStyles.coverWrapper}>
+              <Image source={{ uri: album.coverArt }} style={modalStyles.coverImage} resizeMode="cover" />
+            </View>
+          ) : null}
 
-      <MiniPlayer onRequireAuth={onRequireAuth} />
-    </div>
+          {/* Songs list */}
+          <ScrollView style={modalStyles.songsScroll} contentContainerStyle={modalStyles.songsScrollContent}>
+            <View style={{ paddingBottom: 60 }}>
+              {album.songs.map((song) => (
+                <SongRow key={song.id} song={song} queue={album.songs} onRequireAuth={onRequireAuth} />
+              ))}
+            </View>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
-// ─── Artist Detail Modal — loads 500-600 songs ───────────────────────────────
+async function fetchAllPages(query: string, maxPages = 60, seen?: Set<string>): Promise<Song[]> {
+  const all: Song[] = [];
+  const localSeen = seen || new Set<string>();
+  for (let page = 1; page <= maxPages; page++) {
+    try {
+      if (page > 1) await sleep(200);
+      const res   = await api.searchSongs(query, page, 50);
+      const items = extractResults(res);
+      if (items.length === 0) break;
+      const songs = items.map(mapApiSong).map(cleanSong).filter((s) => Boolean(s.audioUrl));
+      let added = 0;
+      for (const s of songs) {
+        if (s.id && !localSeen.has(s.id)) {
+          localSeen.add(s.id);
+          all.push(s);
+          added++;
+        }
+      }
+      if (items.length < 50 || added === 0) break;
+    } catch {
+      break;
+    }
+  }
+  return all;
+}
+
+async function fetchAllArtistSongs(artistName: string): Promise<Song[]> {
+  const queries = [
+    `${artistName} songs`, `${artistName} hits`, `${artistName} movie songs`,
+    `${artistName} romantic songs`, `${artistName} album songs`,
+  ];
+  const seen = new Set<string>();
+  const all: Song[] = [];
+  for (const q of queries) {
+    try {
+      const songs = await fetchAllPages(q, 8, seen);
+      all.push(...songs);
+    } catch { /* continue */ }
+  }
+  return all;
+}
+
+// ─── Artist Profile Modal ─────────────────────────────────────────────────────
+interface Artist {
+  name: string;
+  coverArt: string;
+  songs: Song[];
+}
 
 function ArtistModal({
   artist,
-  allSongs,
   onClose,
   onRequireAuth,
 }: {
   artist: Artist;
-  allSongs: Song[];
   onClose: () => void;
   onRequireAuth: () => void;
 }) {
-  const { playSong }   = usePlayer();
-  const [fullSongs, setFullSongs]   = useState<Song[]>(artist.songs);
-  const [loading, setLoading]       = useState(true);
-  const [loadedCount, setLoadedCount] = useState(artist.songs.length);
-  const fetchedRef                  = useRef(false);
+  const { playSong } = usePlayer();
+  const [songs, setSongs] = useState<Song[]>(artist.songs);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (fetchedRef.current) return;
-    fetchedRef.current = true;
+    let unmounted = false;
+    setLoading(true);
 
-    const fetchAll = async () => {
-      const seen     = new Set<string>(artist.songs.map((s) => s.id));
-      const all: Song[] = [...artist.songs];
-      const pageSize = 50;
-
-      // Multiple query variations to maximise unique song discovery
-      const queryVariants = [
-        artist.name,
-        `${artist.name} songs`,
-        `${artist.name} hits`,
-        `${artist.name} all songs`,
-        `${artist.name} best songs`,
-        `${artist.name} latest songs`,
-        `${artist.name} new songs`,
-        `${artist.name} popular songs`,
-      ];
-
-      for (const q of queryVariants) {
-        // Up to 20 pages per query variant → 20 × 50 = 1000 per variant
-        for (let page = 1; page <= 40; page++) {
-          try {
-            if (page > 1) await sleep(250);
-            const res   = await api.searchSongs(q, page, pageSize);
-            const items = extractResults(res);
-            const songs = items
-              .map(mapApiSong).map(cleanSong)
-              .filter((s: Song) => Boolean(s.audioUrl));
-
-            // Filter to songs by this artist (relaxed match)
-            const artistSongs = songs.filter(
-              (s: Song) =>
-                s.artist?.toLowerCase().includes(artist.name.toLowerCase()) ||
-                artist.name.toLowerCase().includes(s.artist?.toLowerCase() || "")
-            );
-
-            // Use filtered if we get at least 2 matches, else use all (helps
-            // for artists where the API doesn't always return exact artist field)
-            const toAdd = artistSongs.length >= 2 ? artistSongs : songs;
-
-            let added = 0;
-            for (const s of toAdd) {
-              if (s.id && !seen.has(s.id)) {
-                seen.add(s.id);
-                all.push(s);
-                added++;
-              }
-            }
-
-            if (added > 0) {
-              // Progressive update so user sees songs arriving in real-time
-              setFullSongs([...all]);
-              setLoadedCount(all.length);
-            }
-
-            if (items.length < pageSize) break; // no more pages for this query
-            if (all.length >= 1000) break;       // hit our target — stop
-          } catch { break; }
+    fetchAllArtistSongs(artist.name)
+      .then((fetched: Song[]) => {
+        if (!unmounted) {
+          if (fetched.length > 0) setSongs(fetched);
+          setLoading(false);
         }
+      })
+      .catch(() => {
+        if (!unmounted) setLoading(false);
+      });
 
-        await sleep(120); // brief pause between query variants
-        if (all.length >= 1000) break;
-      }
-
-      setFullSongs([...all]);
-      setLoadedCount(all.length);
-      setLoading(false);
-    };
-
-    fetchAll().catch(() => setLoading(false));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => { unmounted = true; };
+  }, [artist.name]);
 
   return (
-    <div className="fixed inset-0 z-[60] flex flex-col" style={{ background: "#0d0d0d" }}>
-      {artist.coverArt && (
-        <div
-          className="absolute inset-0 opacity-20"
-          style={{
-            backgroundImage: `url(${artist.coverArt})`,
-            backgroundSize: "cover",
-            backgroundPosition: "center",
-            filter: "blur(50px) saturate(2)",
-            transform: "scale(1.3)",
-          }}
-        />
-      )}
-      <div
-        className="absolute inset-0"
-        style={{
-          background:
-            "linear-gradient(to bottom, rgba(13,13,13,0.6) 0%, rgba(13,13,13,0.95) 35%)",
-        }}
-      />
+    <Modal visible={true} animationType="slide" onRequestClose={onClose}>
+      <View style={modalStyles.container}>
+        {artist.coverArt && (
+          <Image
+            source={{ uri: artist.coverArt }}
+            style={modalStyles.backgroundImage}
+            blurRadius={20}
+            resizeMode="cover"
+          />
+        )}
+        <View style={modalStyles.overlay} />
 
-      <div className="relative flex flex-col h-full overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center gap-3 px-4 pt-12 pb-4 flex-shrink-0">
-          <button
-            onClick={onClose}
-            className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
-            style={{ background: "rgba(255,255,255,0.1)" }}
-          >
-            <ArrowLeft className="w-5 h-5 text-white" />
-          </button>
-          <div className="flex-1 min-w-0">
-            <h2 className="text-lg font-bold text-white truncate">{artist.name}</h2>
-            <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>
-              {loading
-                ? `${loadedCount} songs loaded…`
-                : `${fullSongs.length} songs`}
-            </p>
-          </div>
-          {fullSongs.length > 0 && (
-            <button
-              onClick={() => playSong(fullSongs[0], fullSongs)}
-              className="w-11 h-11 rounded-full flex items-center justify-center shadow-xl flex-shrink-0"
-              style={{ background: "#1DB954" }}
-            >
-              <Play className="w-5 h-5 text-black fill-black ml-0.5" />
-            </button>
-          )}
-        </div>
+        <View style={modalStyles.content}>
+          {/* Header */}
+          <View style={modalStyles.header}>
+            <TouchableOpacity onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
+              <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
+            </TouchableOpacity>
 
-        {/* Artist avatar */}
-        <div className="px-4 mb-4 flex items-center justify-center flex-shrink-0">
-          <div
-            className="rounded-full overflow-hidden shadow-2xl"
-            style={{
-              width: 130,
-              height: 130,
-              border: "3px solid rgba(255,255,255,0.1)",
-            }}
-          >
-            {artist.coverArt ? (
-              <img
-                src={artist.coverArt}
-                alt={artist.name}
-                className="w-full h-full object-cover"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).src =
-                    "https://via.placeholder.com/200x200?text=🎵";
-                }}
-              />
-            ) : (
-              <div
-                className="w-full h-full flex items-center justify-center"
-                style={{ background: "rgba(255,255,255,0.08)" }}
+            <View style={modalStyles.headerMeta}>
+              <Text style={modalStyles.headerTitle} numberOfLines={1}>{artist.name}</Text>
+              <Text style={modalStyles.headerSubtitle} numberOfLines={1}>
+                Artist · {songs.length} songs
+              </Text>
+            </View>
+
+            {songs.length > 0 ? (
+              <TouchableOpacity
+                onPress={() => playSong(songs[0], songs)}
+                style={modalStyles.playBtn}
+                activeOpacity={0.8}
               >
-                <User2 className="w-14 h-14" style={{ color: "rgba(255,255,255,0.2)" }} />
-              </div>
-            )}
-          </div>
-        </div>
+                <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
+              </TouchableOpacity>
+            ) : null}
+          </View>
 
-        {/* Songs */}
-        <div className="flex-1 overflow-y-auto" style={{ WebkitOverflowScrolling: "touch" }}>
-          <div className="space-y-0.5 px-2 pb-40">
-            {fullSongs.map((song) => (
-              <SongRow
-                key={song.id}
-                song={song}
-                queue={fullSongs}
-                onRequireAuth={onRequireAuth}
-              />
-            ))}
-            {loading && (
-              <div className="flex items-center justify-center py-4 gap-2">
-                <div className="w-5 h-5 rounded-full border-2 border-white/20 border-t-white/60 animate-spin" />
-                <span className="text-xs text-white/40">
-                  Loading more songs ({loadedCount} so far)…
-                </span>
-              </div>
-            )}
-            {!loading && fullSongs.length > 0 && (
-              <div className="flex items-center justify-center py-4">
-                <span
-                  className="text-xs px-4 py-1.5 rounded-full"
-                  style={{ background: "rgba(29,185,84,0.12)", color: "#1DB954" }}
-                >
-                  ✓ {fullSongs.length} songs loaded
-                </span>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+          {/* Large cover art */}
+          {artist.coverArt ? (
+            <View style={modalStyles.coverWrapper}>
+              <Image source={{ uri: artist.coverArt }} style={[modalStyles.coverImage, { borderRadius: 80 }]} resizeMode="cover" />
+            </View>
+          ) : null}
 
-      <MiniPlayer onRequireAuth={onRequireAuth} />
-    </div>
+          {/* Songs list */}
+          <ScrollView style={modalStyles.songsScroll} contentContainerStyle={modalStyles.songsScrollContent}>
+            {loading && songs.length === artist.songs.length ? (
+              <View style={modalStyles.centerLoading}>
+                <ActivityIndicator size="large" color="#1DB954" />
+                <Text style={modalStyles.loadingText}>Loading discography…</Text>
+              </View>
+            ) : (
+              <View style={{ paddingBottom: 60 }}>
+                {songs.map((song) => (
+                  <SongRow key={song.id} song={song} queue={songs} onRequireAuth={onRequireAuth} />
+                ))}
+              </View>
+            )}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
+// ─── Helpers: group search results into structured objects ────────────────────
 function groupIntoAlbums(songs: Song[]): Album[] {
   const map = new Map<string, Album>();
-  songs.forEach((song) => {
-    const key = (song.album || song.movie || "").trim();
-    if (!key) return;
+  for (const s of songs) {
+    const title = s.album || s.movie || "";
+    if (!title) continue;
+    const key = title.toLowerCase().trim();
     if (!map.has(key)) {
-      map.set(key, { name: key, coverArt: song.albumArt || "", songs: [], year: song.year });
+      map.set(key, {
+        title,
+        coverArt: s.albumArt || "",
+        songs: [],
+        type: "movie",
+        query: `${title} songs`,
+      });
     }
-    map.get(key)!.songs.push(song);
-  });
-  // Sort by song count DESC, then lightly shuffle within same-count groups for variety
-  const sorted = Array.from(map.values()).sort((a, b) => b.songs.length - a.songs.length);
-  // Shuffle albums that have the same song count so order varies each search
-  for (let i = 0; i < sorted.length - 1; ) {
-    let j = i;
-    while (j < sorted.length && sorted[j].songs.length === sorted[i].songs.length) j++;
-    if (j - i > 1) {
-      const slice = sorted.slice(i, j);
-      for (let k = slice.length - 1; k > 0; k--) {
-        const r = Math.floor(Math.random() * (k + 1));
-        [slice[k], slice[r]] = [slice[r], slice[k]];
-      }
-      sorted.splice(i, j - i, ...slice);
-    }
-    i = j;
+    const album = map.get(key)!;
+    if (!album.coverArt && s.albumArt) album.coverArt = s.albumArt;
+    album.songs.push(s);
   }
-  return sorted;
+  return [...map.values()];
 }
 
 function groupIntoArtists(songs: Song[]): Artist[] {
   const map = new Map<string, Artist>();
-  songs.forEach((song) => {
-    const name = (song.artist || "").trim();
-    if (!name) return;
-    if (!map.has(name)) {
-      map.set(name, { name, coverArt: song.albumArt || "", songCount: 0, songs: [] });
+  for (const s of songs) {
+    const name = s.artist;
+    if (!name) continue;
+    const cleanName = name.split(",")[0]?.trim();
+    if (!cleanName || cleanName.length < 2) continue;
+    const key = cleanName.toLowerCase();
+    if (!map.has(key)) {
+      map.set(key, {
+        name: cleanName,
+        coverArt: s.albumArt || "",
+        songs: [],
+      });
     }
-    const a = map.get(name)!;
-    a.songCount++;
-    a.songs.push(song);
-  });
-  return Array.from(map.values()).sort((a, b) => b.songCount - a.songCount);
+    const artist = map.get(key)!;
+    if (!artist.coverArt && s.albumArt) artist.coverArt = s.albumArt;
+    artist.songs.push(s);
+  }
+  return [...map.values()];
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
+// ─── Main Component ───────────────────────────────────────────────────────────
+interface SearchPageProps {
+  onRequireAuth?: () => void;
+}
 
 export default function SearchPage({ onRequireAuth }: SearchPageProps) {
-  const { playSong }    = usePlayer();
-  const { user }        = useAuth();
-  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [query, setQuery]             = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [results, setResults]         = useState<Song[]>([]);
+  const [loading, setLoading]         = useState(false);
+  const [activeTab, setActiveTab]     = useState<"all" | "songs" | "albums" | "artists">("all");
 
-  const [query, setQuery]           = useState("");
-  const [songs, setSongs]           = useState<Song[]>([]);
-  const [albums, setAlbums]         = useState<Album[]>([]);
-  const [artists, setArtists]       = useState<Artist[]>([]);
-  const [loading, setLoading]       = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [searched, setSearched]     = useState(false);
-  const [page, setPage]             = useState(1);
-  const [hasMore, setHasMore]       = useState(false);
-  const [showAllArtists, setShowAllArtists] = useState(false);
-  const [expandedArtists, setExpandedArtists] = useState<Set<string>>(new Set());
-  const [activeAlbum, setActiveAlbum]   = useState<Album | null>(null);
-  const [activeArtist, setActiveArtist] = useState<Artist | null>(null);
+  const [activeCategory, setActiveCategory] = useState<{ label: string; songs: Song[]; coverArt: string } | null>(null);
+  const [activeLangAlbum, setActiveLangAlbum] = useState<string | null>(null);
+  const [activeAlbum, setActiveAlbum]       = useState<Album | null>(null);
+  const [activeArtist, setActiveArtist]     = useState<Artist | null>(null);
 
-  // Language album modal state
-  const [activeLanguage, setActiveLanguage] = useState<string | null>(null);
+  // Debounce query
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedQuery(query);
+    }, 400);
+    return () => clearTimeout(handler);
+  }, [query]);
 
-  const [categoryModal, setCategoryModal] = useState<{
-    label: string;
-    songs: Song[];
-    coverArt: string;
-    loading: boolean;
-  } | null>(null);
+  // Handle Search Queries
+  useEffect(() => {
+    const clean = debouncedQuery.trim();
+    if (!clean) {
+      setResults([]);
+      setLoading(false);
+      return;
+    }
 
-  // ── Recent searches (persisted in localStorage) ──────────────────────────
-  const [recentSearches, setRecentSearches] = useState<string[]>(() => {
-    try {
-      return JSON.parse(localStorage.getItem("recentSearches") || "[]");
-    } catch { return []; }
-  });
+    // If it is just a language query, open the LanguageAlbumModal right away
+    const langDetected = detectLanguageSearch(clean);
+    if (langDetected) {
+      setActiveLangAlbum(langDetected);
+      setQuery("");
+      return;
+    }
 
-  const saveRecentSearch = (q: string) => {
-    const trimmed = q.trim();
-    if (!trimmed) return;
-    setRecentSearches((prev) => {
-      const updated = [trimmed, ...prev.filter((s) => s !== trimmed)].slice(0, 10);
-      try { localStorage.setItem("recentSearches", JSON.stringify(updated)); } catch { /**/ }
-      return updated;
-    });
-  };
-
-  const clearRecentSearches = () => {
-    setRecentSearches([]);
-    try { localStorage.removeItem("recentSearches"); } catch { /**/ }
-  };
-
-  const inputRef     = useRef<HTMLInputElement>(null);
-  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const PAGE_SIZE = 50;
+    setLoading(true);
+    api.globalSearch(clean, 1, 60)
+      .then((res) => {
+        const raw = extractResults(res);
+        const songs = raw.map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
+        setResults(songs);
+        setLoading(false);
+      })
+      .catch(() => {
+        setResults([]);
+        setLoading(false);
+      });
+  }, [debouncedQuery]);
 
   const handleRequireAuth = () => {
     if (onRequireAuth) onRequireAuth();
-    setShowAuthModal(true);
   };
 
-  // Handle category card click — open modal with songs
-  // ── Open category modal — instantly from cache, then keep loading more ────────
-  const handleCategorySelect = (label: string, catSongs: Song[], coverArt: string) => {
-    // 1. Try sessionStorage cache first (populated by startCategoryPreload)
-    const cached = getCategoryCache(label);
-    const initSongs = cached.songs.length > 0 ? cached.songs
-      : catSongs.length > 0 ? catSongs
-      : [];
-    const initCover = cached.coverArt || coverArt || "";
-
-    // Open modal immediately — never show a blank spinner if we have anything
-    setCategoryModal({ label, songs: initSongs, coverArt: initCover, loading: initSongs.length === 0 });
-
-    const cat = BROWSE_CATEGORIES.find((c) => c.label === label);
-    if (!cat) return;
-
-    // 2. Continue fetching MORE songs in the background (progressive enrichment)
-    const extraQueries = LANGUAGE_EXTRA_QUERIES[label] || [];
-    const allQueries   = [cat.query, ...extraQueries];
-
-    const fetchMore = async () => {
-      const seen = new Set<string>(initSongs.map((s) => s.id));
-      const all  = [...initSongs];
-      let   cover = initCover;
-
-      for (const q of allQueries) {
-        for (let page = 1; page <= 8; page++) {
-          try {
-            if (page > 1) await sleep(200);
-            const res   = await api.searchSongs(q, page, 50);
-            const items = extractResults(res);
-            const fetched = items.map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
-            let added = 0;
-            for (const s of fetched) {
-              if (s.id && !seen.has(s.id)) {
-                seen.add(s.id);
-                all.push(s);
-                if (!cover && s.albumArt) cover = s.albumArt;
-                added++;
-              }
-            }
-            if (added > 0) {
-              setCategoryModal((prev) =>
-                prev?.label === label
-                  ? { ...prev, songs: [...all], coverArt: cover, loading: false }
-                  : prev
-              );
-            }
-            if (items.length < 50 || added === 0) break;
-          } catch { break; }
-        }
-        await sleep(150);
-        if (all.length >= 800) break;
-      }
-
-      // Persist updated cache so next open is instant
-      if (all.length > 0) saveCategoryCache(label, all, cover);
-      setCategoryModal((prev) =>
-        prev?.label === label ? { ...prev, loading: false } : prev
-      );
-    };
-
-    fetchMore().catch(() =>
-      setCategoryModal((prev) => (prev ? { ...prev, loading: false } : null))
-    );
-  };
-
-  // Real-time search — detects language names and routes to LanguageAlbumModal
-  const doSearch = useCallback((q: string, pg = 1) => {
-    const trimmed = q.trim();
-    if (!trimmed) {
-      setSearched(false);
-      setSongs([]);
-      setAlbums([]);
-      setArtists([]);
-      return;
-    }
-
-    // ── Language detection ──
-    const detectedLanguage = detectLanguageSearch(trimmed);
-    if (detectedLanguage) {
-      saveRecentSearch(trimmed);
-      setActiveLanguage(detectedLanguage);
-      setSearched(false);
-      return;
-    }
-
-    if (pg === 1) {
-      setLoading(true);
-      setSearched(true);
-      setExpandedArtists(new Set());
-      setShowAllArtists(false);
-      setActiveAlbum(null);
-      setActiveArtist(null);
-      setActiveLanguage(null);
-      setPage(1);
-      saveRecentSearch(trimmed);
-
-      // Each search call gets a unique shuffle salt so repeated identical queries
-      // always produce a different ordering — no song is permanently pinned.
-      const searchSalt = Date.now() + Math.floor(Math.random() * 999983);
-
-      const fetchAllPages = async () => {
-        const seen = new Set<string>();
-        let accumulated: Song[] = [];
-        const PAGE_LIMIT = 40;
-
-        // ── Step 0: seed with preloaded songs if query matches a known key ──
-        // This covers: "anirudh", "arijit singh", "ar rahman", "sid sriram", etc.
-        const preloadKey = trimmed.toLowerCase();
-        const preloaded  = getPreloadedSongs(preloadKey);
-        if (preloaded.length > 0) {
-          for (const s of preloaded) {
-            if (s.id && !seen.has(s.id)) { seen.add(s.id); accumulated.push(s); }
-          }
-          // Show preloaded immediately so UI is never empty
-          setSongs(accumulated);
-          setAlbums(groupIntoAlbums(accumulated));
-          setArtists(groupIntoArtists(accumulated));
-          setLoading(false);
-        }
-
-        for (let page = 1; page <= PAGE_LIMIT; page++) {
-          try {
-            if (page > 1) await sleep(200);
-            const res     = await api.searchSongs(trimmed, page, PAGE_SIZE);
-            const results = extractResults(res).map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
-
-            const fresh: Song[] = [];
-            for (const s of results) {
-              if (s.id && !seen.has(s.id)) {
-                seen.add(s.id);
-                fresh.push(s);
-              }
-            }
-
-            if (fresh.length > 0) {
-              accumulated = [...accumulated, ...fresh];
-
-              // ── Order songs: exact title match first, then partial title,
-              //    then album/movie songs, then artist songs, then rest ──
-              const lq = trimmed.toLowerCase();
-              const exactTitle  = accumulated.filter((s) => s.title.toLowerCase() === lq);
-              const titleMatch  = accumulated.filter((s) => s.title.toLowerCase() !== lq && s.title.toLowerCase().includes(lq));
-              const albumMatch  = accumulated.filter((s) =>
-                !s.title.toLowerCase().includes(lq) &&
-                (s.album?.toLowerCase().includes(lq) || s.movie?.toLowerCase().includes(lq))
-              );
-              const artistMatch = accumulated.filter((s) =>
-                !s.title.toLowerCase().includes(lq) &&
-                !(s.album?.toLowerCase().includes(lq) || s.movie?.toLowerCase().includes(lq)) &&
-                s.artist?.toLowerCase().includes(lq)
-              );
-              const rest        = accumulated.filter((s) =>
-                !s.title.toLowerCase().includes(lq) &&
-                !(s.album?.toLowerCase().includes(lq) || s.movie?.toLowerCase().includes(lq)) &&
-                !s.artist?.toLowerCase().includes(lq)
-              );
-
-              // Shuffle EVERY group (including title matches) with unique salt
-              // so same query → different ordering every time
-              const saltedShuffle = <T,>(arr: T[]): T[] => {
-                const out = [...arr];
-                let seed = searchSalt + arr.length * 7919;
-                for (let i = out.length - 1; i > 0; i--) {
-                  seed = (seed * 1664525 + 1013904223) & 0xffffffff;
-                  const j = Math.abs(seed) % (i + 1);
-                  [out[i], out[j]] = [out[j], out[i]];
-                }
-                return out;
-              };
-
-              // Sections order: exact match (shuffled among themselves) → partial title →
-              // album songs → artist songs → rest
-              // This means song name first, then movie album, then artist.
-              const ordered = [
-                ...saltedShuffle(exactTitle),
-                ...saltedShuffle(titleMatch),
-                ...saltedShuffle(albumMatch),
-                ...saltedShuffle(artistMatch),
-                ...saltedShuffle(rest),
-              ];
-
-              setSongs(ordered);
-              setAlbums(groupIntoAlbums(ordered));
-              setArtists(groupIntoArtists(ordered));
-
-              // Auto-open ArtistModal if artist name exactly matches query
-              if (page === 1) {
-                const grouped = groupIntoArtists(results);
-                const topArtist = grouped[0];
-                if (
-                  topArtist &&
-                  topArtist.songCount >= 3 &&
-                  topArtist.name.toLowerCase().includes(trimmed.toLowerCase())
-                ) {
-                  setActiveArtist(topArtist);
-                }
-              }
-            }
-
-            setLoading(false);
-
-            // Stop early if API has no more results
-            if (results.length < PAGE_SIZE) break;
-          } catch { break; }
-        }
-
-        setHasMore(false);
-        setLoading(false);
-        setLoadingMore(false);
-      };
-
-      fetchAllPages();
+  const handleCategorySelect = (label: string, songs: Song[], coverArt: string) => {
+    const lang = detectLanguageSearch(label);
+    if (lang) {
+      setActiveLangAlbum(lang);
     } else {
-      // Legacy load-more (kept for manual "load more" button, though auto-fetch covers it)
-      setLoadingMore(true);
-      api
-        .searchSongs(trimmed, pg, PAGE_SIZE)
-        .then((res) => {
-          const results = extractResults(res).map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
-          setSongs((prev) => {
-            const merged = [...prev, ...results];
-            setAlbums(groupIntoAlbums(merged));
-            setArtists(groupIntoArtists(merged));
-            return merged;
-          });
-          setHasMore(results.length >= PAGE_SIZE);
-        })
-        .catch(() => setHasMore(false))
-        .finally(() => {
-          setLoading(false);
-          setLoadingMore(false);
-        });
+      setActiveCategory({ label, songs, coverArt });
     }
-  }, []);
-
-  // Debounce: 150 ms for near-instant results on each keystroke
-  useEffect(() => {
-    if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    if (query.trim()) {
-      debounceTimer.current = setTimeout(() => doSearch(query, 1), 150);
-    } else {
-      setSearched(false);
-      setSongs([]);
-      setAlbums([]);
-      setArtists([]);
-      setActiveLanguage(null);
-    }
-    return () => {
-      if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    };
-  }, [query, doSearch]);
-
-  const loadMore = () => {
-    const nextPage = page + 1;
-    setPage(nextPage);
-    doSearch(query, nextPage);
   };
 
-  const visibleArtists = showAllArtists ? artists : artists.slice(0, 8);
+  const songsResult = results;
+  const albumsResult = groupIntoAlbums(results);
+  const artistsResult = groupIntoArtists(results);
 
   return (
-    <div className="w-full min-h-screen" style={{ background: "#121212", paddingBottom: "9rem" }}>
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Search</Text>
 
-      {/* Category song list modal */}
-      {categoryModal && (
+        {/* Search TextInput Input bar */}
+        <View style={styles.searchBar}>
+          <MaterialCommunityIcons name="magnify" size={20} color="rgba(255,255,255,0.4)" style={{ marginRight: 8 }} />
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Artists, songs, or movie soundtracks..."
+            placeholderTextColor="rgba(255, 255, 255, 0.4)"
+            style={styles.textInput}
+            clearButtonMode="while-editing"
+            autoCapitalize="none"
+          />
+        </View>
+
+        {/* Search Results filter tabs */}
+        {query.trim().length > 0 ? (
+          <View style={styles.filterTabs}>
+            {(["all", "songs", "albums", "artists"] as const).map((tab) => {
+              const isActive = activeTab === tab;
+              return (
+                <TouchableOpacity
+                  key={tab}
+                  onPress={() => setActiveTab(tab)}
+                  style={[styles.filterTabBtn, isActive && styles.activeFilterTabBtn]}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.filterTabText, isActive && styles.activeFilterTabText]}>
+                    {tab.toUpperCase()}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        ) : null}
+      </View>
+
+      <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
+        {query.trim().length === 0 ? (
+          // Category Grid View (when query is empty)
+          <View>
+            <Text style={styles.sectionTitle}>Browse Categories</Text>
+            <View style={styles.grid}>
+              {BROWSE_CATEGORIES.map((cat) => (
+                <View key={cat.label} style={styles.gridCell}>
+                  <CategoryCard
+                    label={cat.label}
+                    query={cat.query}
+                    onSelect={handleCategorySelect}
+                  />
+                </View>
+              ))}
+            </View>
+          </View>
+        ) : loading ? (
+          // Loader Spinner
+          <View style={styles.centerLoading}>
+            <ActivityIndicator size="large" color="#1DB954" />
+            <Text style={styles.loadingText}>Searching RyhthmWeaver…</Text>
+          </View>
+        ) : results.length === 0 ? (
+          // Empty state
+          <View style={styles.emptyContainer}>
+            <MaterialCommunityIcons name="magnify-close" size={48} color="rgba(255,255,255,0.15)" />
+            <Text style={styles.emptyTitle}>No results found</Text>
+            <Text style={styles.emptySubtitle}>Check your spelling, or search a different query.</Text>
+          </View>
+        ) : (
+          // Results list view
+          <View style={{ paddingBottom: 60 }}>
+            {/* All / Songs */}
+            {(activeTab === "all" || activeTab === "songs") && songsResult.length > 0 ? (
+              <View style={styles.resultSection}>
+                {activeTab === "all" && <Text style={styles.sectionSubHeader}>Songs</Text>}
+                {songsResult.slice(0, activeTab === "all" ? 6 : undefined).map((song) => (
+                  <SongRow key={song.id} song={song} queue={songsResult} onRequireAuth={handleRequireAuth} />
+                ))}
+              </View>
+            ) : null}
+
+            {/* All / Albums */}
+            {(activeTab === "all" || activeTab === "albums") && albumsResult.length > 0 ? (
+              <View style={styles.resultSection}>
+                {activeTab === "all" && <Text style={styles.sectionSubHeader}>Albums</Text>}
+                {albumsResult.slice(0, activeTab === "all" ? 6 : undefined).map((album) => (
+                  <TouchableOpacity
+                    key={album.title}
+                    onPress={() => setActiveAlbum(album)}
+                    style={styles.albumRowItem}
+                    activeOpacity={0.7}
+                  >
+                    {album.coverArt ? (
+                      <Image source={{ uri: album.coverArt }} style={styles.albumCoverImage} />
+                    ) : (
+                      <View style={[styles.albumCoverImage, styles.albumCoverPlaceholder]}>
+                        <MaterialCommunityIcons name="disc" size={20} color="rgba(255,255,255,0.2)" />
+                      </View>
+                    )}
+                    <View style={styles.albumMeta}>
+                      <Text style={styles.albumTitleText} numberOfLines={1}>{album.title}</Text>
+                      <Text style={styles.albumSubtitleText}>{album.songs.length} songs</Text>
+                    </View>
+                    <MaterialCommunityIcons name="chevron-right" size={18} color="rgba(255,255,255,0.4)" />
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : null}
+
+            {/* All / Artists */}
+            {(activeTab === "all" || activeTab === "artists") && artistsResult.length > 0 ? (
+              <View style={styles.resultSection}>
+                {activeTab === "all" && <Text style={styles.sectionSubHeader}>Artists</Text>}
+                {artistsResult.slice(0, activeTab === "all" ? 6 : undefined).map((artist) => (
+                  <TouchableOpacity
+                    key={artist.name}
+                    onPress={() => setActiveArtist(artist)}
+                    style={styles.albumRowItem}
+                    activeOpacity={0.7}
+                  >
+                    {artist.coverArt ? (
+                      <Image source={{ uri: artist.coverArt }} style={[styles.albumCoverImage, { borderRadius: 22 }]} />
+                    ) : (
+                      <View style={[styles.albumCoverImage, styles.albumCoverPlaceholder, { borderRadius: 22 }]}>
+                        <MaterialCommunityIcons name="account" size={20} color="rgba(255,255,255,0.2)" />
+                      </View>
+                    )}
+                    <View style={styles.albumMeta}>
+                      <Text style={styles.albumTitleText} numberOfLines={1}>{artist.name}</Text>
+                      <Text style={styles.albumSubtitleText}>Artist profile</Text>
+                    </View>
+                    <MaterialCommunityIcons name="chevron-right" size={18} color="rgba(255,255,255,0.4)" />
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : null}
+          </View>
+        )}
+      </ScrollView>
+
+      {/* Sub modals overlays */}
+      {activeCategory ? (
         <CategorySongModal
-          label={categoryModal.label}
-          songs={categoryModal.songs}
-          coverArt={categoryModal.coverArt}
-          loading={categoryModal.loading}
-          onClose={() => setCategoryModal(null)}
+          label={activeCategory.label}
+          songs={activeCategory.songs}
+          coverArt={activeCategory.coverArt}
+          loading={false}
+          onClose={() => setActiveCategory(null)}
           onRequireAuth={handleRequireAuth}
         />
-      )}
+      ) : null}
 
-      {/* Album detail modal */}
-      {activeAlbum && (
+      {activeLangAlbum ? (
+        <LanguageAlbumModal
+          language={activeLangAlbum}
+          onClose={() => setActiveLangAlbum(null)}
+          onRequireAuth={handleRequireAuth}
+        />
+      ) : null}
+
+      {activeAlbum ? (
         <AlbumModal
           album={activeAlbum}
-          allSongs={songs}
           onClose={() => setActiveAlbum(null)}
           onRequireAuth={handleRequireAuth}
         />
-      )}
+      ) : null}
 
-      {/* Artist detail modal */}
-      {activeArtist && (
+      {activeArtist ? (
         <ArtistModal
           artist={activeArtist}
-          allSongs={songs}
           onClose={() => setActiveArtist(null)}
           onRequireAuth={handleRequireAuth}
         />
-      )}
+      ) : null}
 
-      {/* Language album modal */}
-      {activeLanguage && (
-        <LanguageAlbumModal
-          language={activeLanguage}
-          onClose={() => setActiveLanguage(null)}
-          onRequireAuth={handleRequireAuth}
-        />
-      )}
-
-      {/* ── Sticky search bar ── */}
-      <div
-        className="sticky top-0 z-20 px-4 pt-12 pb-3"
-        style={{ background: "rgba(18,18,18,0.97)", backdropFilter: "blur(20px)" }}
-      >
-        <div
-          className="flex items-center gap-3 rounded-xl px-4 py-3"
-          style={{ background: "rgba(255,255,255,0.08)" }}
-        >
-          <Search className="w-4 h-4 text-white/40 flex-shrink-0" />
-          <input
-            ref={inputRef}
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Songs, artists, movies, languages…"
-            autoComplete="off"
-            className="flex-1 bg-transparent text-sm text-white placeholder:text-white/30 focus:outline-none"
-          />
-          {query && (
-            <button
-              onClick={() => {
-                setQuery("");
-                setActiveLanguage(null);
-                inputRef.current?.focus();
-              }}
-              className="text-white/40 hover:text-white transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
-          {loading && (
-            <Loader2 className="w-4 h-4 animate-spin text-white/40 flex-shrink-0" />
-          )}
-        </div>
-      </div>
-
-      {/* ── Empty state: recent searches or prompt ── */}
-      {!searched && !query && (
-        <div className="px-4 pt-4">
-          {recentSearches.length > 0 ? (
-            <>
-              <div className="flex items-center justify-between mb-4">
-                <p className="text-base font-bold text-white">Recent Searches</p>
-                <button
-                  onClick={clearRecentSearches}
-                  className="text-xs font-semibold"
-                  style={{ color: "rgba(255,255,255,0.35)" }}
-                >
-                  Clear all
-                </button>
-              </div>
-              <div className="space-y-2">
-                {recentSearches.map((term) => (
-                  <button
-                    key={term}
-                    onClick={() => setQuery(term)}
-                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl active:scale-[0.98] transition-transform text-left"
-                    style={{ background: "rgba(255,255,255,0.06)" }}
-                  >
-                    <Search className="w-4 h-4 flex-shrink-0" style={{ color: "rgba(255,255,255,0.35)" }} />
-                    <span className="text-sm font-medium text-white truncate flex-1">{term}</span>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const updated = recentSearches.filter((s) => s !== term);
-                        setRecentSearches(updated);
-                        try { localStorage.setItem("recentSearches", JSON.stringify(updated)); } catch { /**/ }
-                      }}
-                      className="ml-2 flex-shrink-0 p-1"
-                    >
-                      <X className="w-3.5 h-3.5" style={{ color: "rgba(255,255,255,0.25)" }} />
-                    </button>
-                  </button>
-                ))}
-              </div>
-            </>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-24 gap-4">
-              <div
-                className="w-16 h-16 rounded-full flex items-center justify-center"
-                style={{ background: "rgba(255,255,255,0.06)" }}
-              >
-                <Search className="w-7 h-7" style={{ color: "rgba(255,255,255,0.25)" }} />
-              </div>
-              <div className="text-center">
-                <p className="text-base font-semibold text-white/60">Search for anything</p>
-                <p className="text-sm mt-1" style={{ color: "rgba(255,255,255,0.3)" }}>
-                  Songs, artists, movies, languages…
-                </p>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── Search results ── */}
-      {searched && (
-        <div className="px-4 pt-4">
-          {loading ? (
-            <div className="flex flex-col items-center gap-3 py-16">
-              <Loader2 className="w-7 h-7 animate-spin" style={{ color: "#1DB954" }} />
-              <p className="text-sm" style={{ color: "rgba(255,255,255,0.4)" }}>
-                Searching…
-              </p>
-            </div>
-          ) : songs.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 py-16 text-center">
-              <Music2 className="w-10 h-10" style={{ color: "rgba(255,255,255,0.12)" }} />
-              <p className="font-semibold text-white/60">No results for "{query}"</p>
-              <p className="text-sm text-white/35">Try a different search term</p>
-            </div>
-          ) : (
-            <>
-              {/* ── Top Result ── */}
-              {songs[0] && (
-                <div className="mb-6">
-                  <p className="text-base font-bold text-white mb-3">Top Result</p>
-                  <button
-                    className="group relative w-full rounded-2xl p-4 text-left active:scale-[0.98] transition-transform overflow-hidden"
-                    style={{ background: "rgba(255,255,255,0.07)" }}
-                    onClick={() => playSong(songs[0], songs)}
-                  >
-                    <div className="w-16 h-16 rounded-xl overflow-hidden mb-3 shadow-lg">
-                      {songs[0].albumArt ? (
-                        <img
-                          src={songs[0].albumArt}
-                          alt={songs[0].title}
-                          className="w-full h-full object-cover"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).src =
-                              "https://via.placeholder.com/100x100?text=🎵";
-                          }}
-                        />
-                      ) : (
-                        <div
-                          className="w-full h-full flex items-center justify-center"
-                          style={{
-                            background: "linear-gradient(135deg,#1DB954,#1ed760)",
-                          }}
-                        >
-                          <Music2 className="w-7 h-7 text-black" />
-                        </div>
-                      )}
-                    </div>
-                    <p className="text-lg font-bold text-white leading-tight truncate">
-                      {songs[0].title}
-                    </p>
-                    <p
-                      className="text-sm mt-0.5 truncate"
-                      style={{ color: "rgba(255,255,255,0.5)" }}
-                    >
-                      Song · {songs[0].artist}
-                    </p>
-                    <div
-                      className="absolute bottom-4 right-4 w-10 h-10 rounded-full flex items-center justify-center shadow-xl"
-                      style={{ background: "#1DB954" }}
-                    >
-                      <Play className="w-4 h-4 text-black fill-black ml-0.5" />
-                    </div>
-                  </button>
-                </div>
-              )}
-
-              {/* ── Albums — horizontal scroll with song count ── */}
-              {albums.length > 0 && (
-                <div className="mb-6">
-                  <p className="text-base font-bold text-white mb-3">Albums & Movies</p>
-                  <div
-                    className="flex gap-4 overflow-x-auto pb-2"
-                    style={{
-                      scrollbarWidth: "none",
-                      WebkitOverflowScrolling: "touch",
-                    } as React.CSSProperties}
-                  >
-                    {albums.map((album) => (
-                      <div
-                        key={album.name}
-                        className="flex-shrink-0 cursor-pointer"
-                        style={{ width: 140 }}
-                        onClick={() => setActiveAlbum(album)}
-                      >
-                        <div
-                          className="relative rounded-xl overflow-hidden mb-2 active:scale-95 transition-transform"
-                          style={{ width: 140, height: 140 }}
-                        >
-                          {album.coverArt ? (
-                            <img
-                              src={album.coverArt}
-                              alt={album.name}
-                              className="w-full h-full object-cover"
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).src =
-                                  "https://via.placeholder.com/300x300?text=🎵";
-                              }}
-                            />
-                          ) : (
-                            <div
-                              className="w-full h-full flex items-center justify-center"
-                              style={{ background: "rgba(255,255,255,0.07)" }}
-                            >
-                              <Disc3
-                                className="w-10 h-10"
-                                style={{ color: "rgba(255,255,255,0.2)" }}
-                              />
-                            </div>
-                          )}
-                          {/* Song count badge */}
-                          <div
-                            className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-xs font-bold"
-                            style={{
-                              background: "rgba(0,0,0,0.75)",
-                              color: "rgba(255,255,255,0.9)",
-                            }}
-                          >
-                            {album.songs.length}+
-                          </div>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const albumSongIds = new Set(album.songs.map((s) => s.id));
-                              const rest = songs.filter((s) => !albumSongIds.has(s.id));
-                              playSong(album.songs[0], [...album.songs, ...rest]);
-                            }}
-                            className="absolute bottom-2 right-2 w-9 h-9 rounded-full flex items-center justify-center shadow-xl active:scale-90 transition-transform"
-                            style={{ background: "#1DB954" }}
-                          >
-                            <Play className="w-3.5 h-3.5 text-black fill-black ml-0.5" />
-                          </button>
-                        </div>
-                        <p className="text-sm font-semibold text-white truncate leading-tight">
-                          {album.name}
-                        </p>
-                        <p className="text-xs mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>
-                          {album.songs.length} songs{album.year ? ` · ${album.year}` : ""}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* ── Songs ── */}
-              <div className="mb-6">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-base font-bold text-white">Songs</p>
-                  <span className="text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>
-                    {songs.length} results
-                  </span>
-                </div>
-                <div className="space-y-0.5">
-                  {songs.map((song) => (
-                    <SongRow
-                      key={song.id}
-                      song={song}
-                      queue={songs}
-                      onRequireAuth={handleRequireAuth}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              {/* ── Artists — click opens full artist modal ── */}
-              {artists.length > 0 && (
-                <div className="mb-6">
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-base font-bold text-white">Artists</p>
-                    {artists.length > 8 && (
-                      <button
-                        onClick={() => setShowAllArtists((v) => !v)}
-                        className="text-xs font-semibold"
-                        style={{ color: "rgba(255,255,255,0.5)" }}
-                      >
-                        {showAllArtists ? "Show less" : `See all ${artists.length}`}
-                      </button>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    {visibleArtists.map((artist) => (
-                      <div
-                        key={artist.name}
-                        className="rounded-xl overflow-hidden"
-                        style={{ background: "rgba(255,255,255,0.05)" }}
-                      >
-                        <button
-                          className="w-full flex items-center gap-3 p-3"
-                          onClick={() => setActiveArtist(artist)}
-                        >
-                          <div className="w-12 h-12 rounded-full overflow-hidden flex-shrink-0 shadow-lg">
-                            {artist.coverArt ? (
-                              <img
-                                src={artist.coverArt}
-                                alt={artist.name}
-                                className="w-full h-full object-cover"
-                                onError={(e) => {
-                                  (e.target as HTMLImageElement).src =
-                                    "https://via.placeholder.com/100x100?text=🎵";
-                                }}
-                              />
-                            ) : (
-                              <div
-                                className="w-full h-full flex items-center justify-center"
-                                style={{ background: "#333" }}
-                              >
-                                <User2
-                                  className="w-5 h-5"
-                                  style={{ color: "rgba(255,255,255,0.3)" }}
-                                />
-                              </div>
-                            )}
-                          </div>
-                          <div className="flex-1 text-left min-w-0">
-                            <p className="text-sm font-semibold text-white truncate">
-                              {artist.name}
-                            </p>
-                            <p
-                              className="text-xs mt-0.5"
-                              style={{ color: "rgba(255,255,255,0.4)" }}
-                            >
-                              Artist · {artist.songCount}{" "}
-                              {artist.songCount === 1 ? "song" : "songs"} shown
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2 flex-shrink-0">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                playSong(artist.songs[0], artist.songs);
-                              }}
-                              className="w-8 h-8 rounded-full flex items-center justify-center"
-                              style={{ background: "#1DB954" }}
-                            >
-                              <Play className="w-3.5 h-3.5 text-black fill-black ml-0.5" />
-                            </button>
-                            <span
-                              className="text-xs"
-                              style={{ color: "rgba(255,255,255,0.3)" }}
-                            >
-                              View all →
-                            </span>
-                          </div>
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* ── Load More ── */}
-              {hasMore && (
-                <div className="flex justify-center py-4">
-                  {loadingMore ? (
-                    <Loader2
-                      className="w-6 h-6 animate-spin"
-                      style={{ color: "#1DB954" }}
-                    />
-                  ) : (
-                    <button
-                      onClick={loadMore}
-                      className="px-8 py-3 rounded-full text-sm font-bold text-black transition-all active:scale-95"
-                      style={{ background: "#1DB954" }}
-                    >
-                      Load more results
-                    </button>
-                  )}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
-
-      <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} />
-    </div>
+      <MiniPlayer onRequireAuth={handleRequireAuth} />
+    </View>
   );
 }
+
+// ─── Native Styles ────────────────────────────────────────────────────────────
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#121212",
+  },
+  header: {
+    paddingTop: Platform.OS === 'ios' ? 44 : 24,
+    paddingHorizontal: 16,
+    backgroundColor: "#121212",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.05)",
+    zIndex: 10,
+  },
+  headerTitle: {
+    fontSize: 22,
+    fontWeight: "bold",
+    color: "#fff",
+    marginBottom: 12,
+  },
+  searchBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: Platform.OS === 'ios' ? 10 : 6,
+    marginBottom: 12,
+  },
+  textInput: {
+    flex: 1,
+    color: "#fff",
+    fontSize: 14,
+  },
+  filterTabs: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 10,
+  },
+  filterTabBtn: {
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.05)",
+  },
+  activeFilterTabBtn: {
+    backgroundColor: "#1DB954",
+  },
+  filterTabText: {
+    fontSize: 9,
+    fontWeight: "bold",
+    color: "rgba(255,255,255,0.5)",
+  },
+  activeFilterTabText: {
+    color: "#000",
+  },
+  body: {
+    flex: 1,
+  },
+  bodyContent: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 90,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: "bold",
+    color: "#fff",
+    marginBottom: 16,
+  },
+  grid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+  },
+  gridCell: {
+    width: "48%",
+    marginBottom: 16,
+  },
+  // Category Card Styles
+  categoryBtn: {
+    width: "100%",
+  },
+  categoryCoverWrapper: {
+    width: "100%",
+    aspectRatio: 1,
+    borderRadius: 12,
+    overflow: "hidden",
+    position: "relative",
+    backgroundColor: "rgba(255,255,255,0.06)",
+  },
+  categoryCover: {
+    width: "100%",
+    height: "100%",
+  },
+  categoryCoverPlaceholder: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  categoryPlayOverlay: {
+    position: "absolute",
+    bottom: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#1DB954",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  categoryLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#fff",
+    marginTop: 8,
+  },
+  categorySongCount: {
+    fontSize: 10,
+    color: "rgba(255,255,255,0.4)",
+    marginTop: 2,
+  },
+  centerLoading: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 80,
+  },
+  loadingText: {
+    color: "rgba(255,255,255,0.4)",
+    fontSize: 13,
+    marginTop: 10,
+  },
+  emptyContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 80,
+    paddingHorizontal: 24,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "rgba(255,255,255,0.8)",
+    marginTop: 12,
+  },
+  emptySubtitle: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.4)",
+    textAlign: "center",
+    marginTop: 6,
+    lineHeight: 18,
+  },
+  resultSection: {
+    marginBottom: 20,
+  },
+  sectionSubHeader: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#fff",
+    marginBottom: 8,
+    marginTop: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.06)",
+    paddingBottom: 4,
+  },
+  albumRowItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.03)",
+  },
+  albumCoverImage: {
+    width: 44,
+    height: 44,
+    borderRadius: 6,
+  },
+  albumCoverPlaceholder: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  albumMeta: {
+    flex: 1,
+    marginLeft: 12,
+    marginRight: 6,
+  },
+  albumTitleText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#fff",
+  },
+  albumSubtitleText: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.4)",
+    marginTop: 2,
+  },
+});
+
+const modalStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#0d0d0d",
+  },
+  backgroundImage: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.15,
+  },
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(13, 13, 13, 0.85)",
+  },
+  content: {
+    flex: 1,
+    paddingTop: Platform.OS === 'ios' ? 44 : 24,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    height: 50,
+  },
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  headerMeta: {
+    flex: 1,
+  },
+  headerTitle: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#fff",
+  },
+  headerSubtitle: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.4)",
+    marginTop: 2,
+  },
+  playBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#1DB954",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  coverWrapper: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 16,
+  },
+  coverImage: {
+    width: 160,
+    height: 160,
+    borderRadius: 16,
+  },
+  coverPlaceholder: {
+    backgroundColor: "rgba(255,255,255,0.05)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  songsScroll: {
+    flex: 1,
+  },
+  songsScrollContent: {
+    paddingHorizontal: 12,
+    paddingBottom: 80,
+  },
+  centerLoading: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 60,
+  },
+  loadingText: {
+    color: "rgba(255,255,255,0.4)",
+    fontSize: 13,
+    marginTop: 10,
+  },
+  fetchingMoreRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 20,
+    gap: 8,
+  },
+  fetchingMoreText: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.4)",
+  },
+});

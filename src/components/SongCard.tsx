@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
-import { Song, formatDuration } from "@/data/songs";
-import { usePlayer } from "@/context/PlayerContext";
-import { api } from "@/services/api";
-import { Heart, Play, Pause, FileText, X, Loader2 } from "lucide-react";
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image, Modal, ActivityIndicator } from 'react-native'
+import React, { useState, useEffect, useCallback } from "react";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { Song, formatDuration } from "../data/songs";
+import { usePlayer } from "../context/PlayerContext";
+import { api } from "../services/api";
 
 interface SongCardProps {
   song: Song;
@@ -12,7 +13,6 @@ interface SongCardProps {
 
 // ─── Lyrics Panel ─────────────────────────────────────────────────────────────
 // A slide-up full-screen overlay that fetches and displays lyrics for a song.
-// Calls GET /songs/{id}/lyrics via api.getSongLyrics — wired to SongController.java.
 function LyricsPanel({
   song,
   onClose,
@@ -50,58 +50,54 @@ function LyricsPanel({
   }, [song.id]);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex flex-col"
-      style={{ background: "rgba(10,10,10,0.97)", backdropFilter: "blur(16px)" }}
+    <Modal
+      animationType="slide"
+      transparent={true}
+      visible={true}
+      onRequestClose={onClose}
     >
-      {/* Header */}
-      <div className="flex items-center justify-between px-5 pt-12 pb-4 flex-shrink-0">
-        <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold tracking-widest uppercase text-green-400 mb-1">
-            Lyrics
-          </p>
-          <p className="text-base font-bold text-white truncate">{song.title}</p>
-          <p className="text-xs text-white/50 truncate">{song.artist}</p>
-        </div>
-        <button
-          onClick={onClose}
-          className="ml-4 w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
-          style={{ background: "rgba(255,255,255,0.1)" }}
-          aria-label="Close lyrics"
-        >
-          <X className="w-4 h-4 text-white" />
-        </button>
-      </div>
-
-      {/* Body */}
-      <div className="flex-1 overflow-y-auto px-6 pb-10">
-        {loading && (
-          <div className="flex flex-col items-center justify-center h-full gap-3">
-            <Loader2 className="w-7 h-7 animate-spin text-green-400" />
-            <p className="text-sm text-white/40">Fetching lyrics…</p>
-          </div>
-        )}
-
-        {!loading && error && (
-          <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-4">
-            <FileText className="w-10 h-10 text-white/20" />
-            <p className="text-base font-semibold text-white/60">Lyrics not available</p>
-            <p className="text-xs text-white/30 leading-relaxed">
-              We couldn't find lyrics for this song. Try again later.
-            </p>
-          </div>
-        )}
-
-        {!loading && !error && lyrics && (
-          <pre
-            className="whitespace-pre-wrap text-sm leading-8 text-white/80 font-sans"
-            style={{ fontFamily: "inherit" }}
+      <View style={styles.modalContainer}>
+        {/* Header */}
+        <View style={styles.modalHeader}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.modalSubtitle}>Lyrics</Text>
+            <Text style={styles.modalTitle} numberOfLines={1}>{song.title}</Text>
+            <Text style={styles.modalArtist} numberOfLines={1}>{song.artist}</Text>
+          </View>
+          <TouchableOpacity
+            onPress={onClose}
+            style={styles.closeButton}
+            activeOpacity={0.7}
           >
-            {lyrics}
-          </pre>
-        )}
-      </div>
-    </div>
+            <MaterialCommunityIcons name="close" size={20} color="#fff" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Body */}
+        <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent}>
+          {loading && (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#1DB954" />
+              <Text style={styles.loadingText}>Fetching lyrics…</Text>
+            </View>
+          )}
+
+          {!loading && error && (
+            <View style={styles.errorContainer}>
+              <MaterialCommunityIcons name="file-document-outline" size={40} color="rgba(255,255,255,0.2)" />
+              <Text style={styles.errorTitle}>Lyrics not available</Text>
+              <Text style={styles.errorSubtitle}>
+                We couldn't find lyrics for this song. Try again later.
+              </Text>
+            </View>
+          )}
+
+          {!loading && !error && lyrics && (
+            <Text style={styles.lyricsText}>{lyrics}</Text>
+          )}
+        </ScrollView>
+      </View>
+    </Modal>
   );
 }
 
@@ -121,127 +117,91 @@ export function SongCard({ song, queue, index }: SongCardProps) {
     }
   };
 
-  const handleLyricsClick = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      // Start the song first if it isn't already the active one
-      if (!isActive) playSong(song, queue);
-      setShowLyrics(true);
-    },
-    [isActive, playSong, song, queue]
-  );
+  const handleLyricsClick = () => {
+    // Start the song first if it isn't already the active one
+    if (!isActive) playSong(song, queue);
+    setShowLyrics(true);
+  };
+
+  const isFav = isFavorite(song.id);
 
   return (
     <>
-      <div
-        className={`group flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-all duration-200 ${
-          isActive ? "bg-accent" : "hover:bg-accent/50"
-        }`}
-        onClick={handleClick}
+      <TouchableOpacity
+        style={[styles.card, isActive && styles.activeCard]}
+        onPress={handleClick}
+        activeOpacity={0.7}
       >
         {/* Index or play icon */}
         {index !== undefined && (
-          <span className="w-6 text-center text-sm text-muted-foreground group-hover:hidden">
+          <Text style={styles.indexText}>
             {index + 1}
-          </span>
-        )}
-        {index !== undefined && (
-          <span className="w-6 text-center hidden group-hover:block">
-            {isActive && isPlaying ? (
-              <Pause className="w-4 h-4 text-primary" />
-            ) : (
-              <Play className="w-4 h-4 text-foreground" />
-            )}
-          </span>
+          </Text>
         )}
 
         {/* Album art */}
-        <div className="w-10 h-10 rounded flex-shrink-0 overflow-hidden bg-card relative">
+        <View style={styles.albumArtContainer}>
           {song.albumArt ? (
-            <img
-              src={song.albumArt}
-              alt={song.title}
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                (e.target as HTMLImageElement).src =
-                  "https://via.placeholder.com/400x400?text=No+Image";
-              }}
+            <Image
+              source={{ uri: song.albumArt }}
+              style={styles.albumArt}
+              resizeMode="cover"
             />
           ) : (
-            <div className="w-full h-full bg-gradient-to-br from-rose-500 to-purple-600" />
+            <View style={[styles.albumArt, styles.albumArtPlaceholder]} />
           )}
+
           {isActive && isPlaying && (
-            <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-              <div className="flex items-end gap-0.5 h-4">
-                <div
-                  className="w-0.5 bg-primary-foreground animate-pulse h-2"
-                  style={{ animationDelay: "0ms" }}
-                />
-                <div
-                  className="w-0.5 bg-primary-foreground animate-pulse h-4"
-                  style={{ animationDelay: "150ms" }}
-                />
-                <div
-                  className="w-0.5 bg-primary-foreground animate-pulse h-3"
-                  style={{ animationDelay: "300ms" }}
-                />
-              </div>
-            </div>
+            <View style={styles.playingOverlay}>
+              <MaterialCommunityIcons name="volume-high" size={16} color="#1DB954" />
+            </View>
           )}
-        </div>
+        </View>
 
         {/* Song info */}
-        <div className="flex-1 min-w-0">
-          <p
-            className={`text-sm font-medium truncate ${
-              isActive ? "text-primary" : "text-foreground"
-            }`}
+        <View style={styles.infoContainer}>
+          <Text
+            style={[styles.titleText, isActive ? styles.activeText : styles.normalText]}
+            numberOfLines={1}
           >
             {song.title}
-          </p>
-          <p className="text-xs text-muted-foreground truncate">{song.artist}</p>
-        </div>
+          </Text>
+          <Text style={styles.artistText} numberOfLines={1}>
+            {song.artist}
+          </Text>
+        </View>
 
-        {/* Language tag */}
-        <span className="text-xs text-muted-foreground hidden sm:block">
-          {song.language || ""}
-        </span>
-
-        {/* Lyrics button — visible on hover */}
-        <button
-          onClick={handleLyricsClick}
-          className="opacity-0 group-hover:opacity-100 transition-opacity p-1"
-          title="Show lyrics"
-          aria-label="Show lyrics"
+        {/* Lyrics button */}
+        <TouchableOpacity
+          onPress={handleLyricsClick}
+          style={styles.actionButton}
+          activeOpacity={0.7}
         >
-          <FileText
-            className={`w-4 h-4 ${
-              isActive ? "text-primary" : "text-muted-foreground"
-            }`}
+          <MaterialCommunityIcons
+            name="file-music-outline"
+            size={18}
+            color={isActive ? "#1DB954" : "rgba(255,255,255,0.5)"}
           />
-        </button>
+        </TouchableOpacity>
 
         {/* Favorite button */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            toggleFavorite(song.id);
-          }}
-          className="opacity-0 group-hover:opacity-100 transition-opacity p-1"
-          aria-label={isFavorite(song.id) ? "Unlike" : "Like"}
+        <TouchableOpacity
+          onPress={() => toggleFavorite(song.id)}
+          style={styles.actionButton}
+          activeOpacity={0.7}
         >
-          <Heart
-            className={`w-4 h-4 ${
-              isFavorite(song.id) ? "fill-primary text-primary" : "text-muted-foreground"
-            }`}
+          <MaterialCommunityIcons
+            name={isFav ? "heart" : "heart-outline"}
+            size={18}
+            color={isFav ? "#1DB954" : "rgba(255,255,255,0.5)"}
           />
-        </button>
+        </TouchableOpacity>
 
         {/* Duration */}
-        <span className="text-xs text-muted-foreground w-10 text-right">
+        <Text style={styles.durationText}>
           {formatDuration(song.duration)}
-        </span>
-      </div>
+        </Text>
+      </TouchableOpacity>
 
       {/* Lyrics full-screen overlay */}
       {showLyrics && (
@@ -250,3 +210,160 @@ export function SongCard({ song, queue, index }: SongCardProps) {
     </>
   );
 }
+
+const styles = StyleSheet.create({
+  card: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    marginVertical: 2,
+  },
+  activeCard: {
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+  },
+  indexText: {
+    width: 24,
+    textAlign: "center",
+    fontSize: 13,
+    color: "rgba(255, 255, 255, 0.5)",
+    marginRight: 6,
+  },
+  albumArtContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 4,
+    overflow: "hidden",
+    backgroundColor: "#282828",
+    position: "relative",
+  },
+  albumArt: {
+    width: "100%",
+    height: "100%",
+  },
+  albumArtPlaceholder: {
+    backgroundColor: "#e11d48", // fallback placeholder gradient color representation
+  },
+  playingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  infoContainer: {
+    flex: 1,
+    marginLeft: 10,
+    marginRight: 6,
+  },
+  titleText: {
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  normalText: {
+    color: "#fff",
+  },
+  activeText: {
+    color: "#1DB954",
+  },
+  artistText: {
+    fontSize: 12,
+    color: "rgba(255, 255, 255, 0.5)",
+    marginTop: 2,
+  },
+  actionButton: {
+    padding: 8,
+  },
+  durationText: {
+    fontSize: 11,
+    color: "rgba(255, 255, 255, 0.5)",
+    width: 38,
+    textAlign: "right",
+  },
+  // Modal styles
+  modalContainer: {
+    flex: 1,
+    backgroundColor: "rgba(10, 10, 10, 0.98)",
+    paddingTop: 50,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "between",
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255, 255, 255, 0.08)",
+  },
+  modalSubtitle: {
+    fontSize: 10,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 1.5,
+    color: "#1DB954",
+    marginBottom: 4,
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#fff",
+  },
+  modalArtist: {
+    fontSize: 12,
+    color: "rgba(255, 255, 255, 0.5)",
+    marginTop: 2,
+  },
+  closeButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 12,
+  },
+  modalScroll: {
+    flex: 1,
+  },
+  modalScrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 40,
+  },
+  loadingContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 80,
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 13,
+    color: "rgba(255, 255, 255, 0.5)",
+  },
+  errorContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 80,
+    paddingHorizontal: 30,
+  },
+  errorTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "rgba(255, 255, 255, 0.8)",
+    marginTop: 12,
+    textAlign: "center",
+  },
+  errorSubtitle: {
+    fontSize: 12,
+    color: "rgba(255, 255, 255, 0.4)",
+    marginTop: 6,
+    textAlign: "center",
+    lineHeight: 18,
+  },
+  lyricsText: {
+    fontSize: 15,
+    lineHeight: 28,
+    color: "rgba(255, 255, 255, 0.85)",
+    textAlign: "center",
+  },
+});

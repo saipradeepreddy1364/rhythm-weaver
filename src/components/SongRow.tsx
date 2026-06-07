@@ -1,9 +1,10 @@
-import { Song, formatDuration } from "@/data/songs";
-import { usePlayer } from "@/context/PlayerContext";
-import { Play, Pause, ListPlus, Download } from "lucide-react";
-import { LikeButton } from "@/components/LikeButton";
-import { AddToPlaylistMenu } from "@/components/AddToPlaylistMenu";
-import { useState } from "react";
+import { View, Text, StyleSheet, TouchableOpacity, Image, Linking } from 'react-native'
+import React, { useState } from "react";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { Song, formatDuration } from "../data/songs";
+import { usePlayer } from "../context/PlayerContext";
+import { LikeButton } from "./LikeButton";
+import { AddToPlaylistMenu } from "./AddToPlaylistMenu";
 
 interface SongRowProps {
   song: Song;
@@ -18,123 +19,188 @@ export function SongRow({ song, queue, onRequireAuth, fromLibrary }: SongRowProp
   const [queued, setQueued] = useState(false);
 
   const handleClick = () => {
-    if (isActive) togglePlay();
-    else playSong(song, queue, fromLibrary);
+    if (isActive) {
+      togglePlay();
+    } else {
+      playSong(song, queue, fromLibrary);
+    }
   };
 
-  const handleAddToQueue = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleAddToQueue = () => {
     addToQueue(song);
     setQueued(true);
     setTimeout(() => setQueued(false), 2000);
   };
 
+  const handleDownload = () => {
+    const downloadUrl = `https://musicbackend-xg4u.onrender.com/api/downloads/${song.id}/audio`;
+    Linking.openURL(downloadUrl).catch((err: any) => {
+      console.warn("Failed to open download link:", err);
+    });
+  };
+
   return (
-    <div
-      className="flex items-center gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-all active:scale-[0.98]"
-      style={{
-        background: isActive ? "rgba(29,185,84,0.1)" : "transparent",
-      }}
-      onClick={handleClick}
+    <TouchableOpacity
+      style={[
+        styles.rowContainer,
+        isActive && styles.activeContainer
+      ]}
+      onPress={handleClick}
+      activeOpacity={0.7}
     >
       {/* Album art */}
-      <div className="relative w-11 h-11 rounded-xl overflow-hidden flex-shrink-0 shadow-md">
+      <View style={styles.albumArtContainer}>
         {song.albumArt ? (
-          <img
-            src={song.albumArt}
-            alt={song.title}
-            className="w-full h-full object-cover"
-            onError={(e) => {
-              (e.target as HTMLImageElement).src =
-                "https://via.placeholder.com/100x100?text=🎵";
-            }}
+          <Image
+            source={{ uri: song.albumArt }}
+            style={styles.albumArt}
+            resizeMode="cover"
           />
         ) : (
-          <div className="w-full h-full bg-gradient-to-br from-orange-500 to-pink-600 flex items-center justify-center">
-            <span className="text-white text-sm">🎵</span>
-          </div>
+          <View style={[styles.albumArt, styles.albumArtPlaceholder]}>
+            <Text style={styles.placeholderIcon}>🎵</Text>
+          </View>
         )}
 
         {/* Playing wave overlay */}
         {isActive && isPlaying && (
-          <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-            <div className="flex items-end gap-0.5 h-4">
-              {[0, 150, 300].map((delay) => (
-                <div
-                  key={delay}
-                  className="w-0.5 rounded-full animate-pulse"
-                  style={{
-                    background: "#1DB954",
-                    height: delay === 150 ? "16px" : "10px",
-                    animationDelay: `${delay}ms`,
-                  }}
-                />
-              ))}
-            </div>
-          </div>
+          <View style={styles.playingOverlay}>
+            <MaterialCommunityIcons name="volume-high" size={16} color="#1DB954" />
+          </View>
         )}
-
-        {/* Hover play icon on inactive */}
-        {!isActive && (
-          <div className="absolute inset-0 bg-black/0 hover:bg-black/40 flex items-center justify-center transition-all group">
-            <Play className="w-4 h-4 text-white opacity-0 group-hover:opacity-100 fill-white transition-opacity" />
-          </div>
-        )}
-      </div>
+      </View>
 
       {/* Song info */}
-      <div className="flex-1 min-w-0">
-        <p
-          className="text-sm font-semibold truncate leading-tight"
-          style={{ color: isActive ? "#1DB954" : "rgba(255,255,255,0.9)" }}
+      <View style={styles.infoContainer}>
+        <Text
+          style={[styles.titleText, isActive ? styles.activeTitle : styles.normalTitle]}
+          numberOfLines={1}
         >
           {song.title}
-        </p>
-        <p className="text-xs text-white/40 truncate mt-0.5 leading-tight">
+        </Text>
+        <Text style={styles.artistText} numberOfLines={1}>
           {song.artist}
           {song.movie ? ` • ${song.movie}` : ""}
           {song.duration ? ` · ${formatDuration(song.duration)}` : ""}
-        </p>
-      </div>
+        </Text>
+      </View>
 
       {/* Action buttons */}
-      <div
-        className="flex items-center gap-0.5 flex-shrink-0"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <View style={styles.actionsContainer}>
         {/* Add to Queue */}
-        <button
-          onClick={handleAddToQueue}
-          title="Play next"
-          className="p-2 rounded-full transition-all active:scale-90"
-          style={{
-            color: queued ? "#1DB954" : "rgba(255,255,255,0.4)",
-          }}
+        <TouchableOpacity
+          onPress={handleAddToQueue}
+          style={styles.actionButton}
+          activeOpacity={0.7}
         >
-          <ListPlus className="w-4 h-4" />
-        </button>
+          <MaterialCommunityIcons
+            name="playlist-plus"
+            size={20}
+            color={queued ? "#1DB954" : "rgba(255,255,255,0.4)"}
+          />
+        </TouchableOpacity>
 
-        <LikeButton
-          song={song}
-          onRequireAuth={onRequireAuth}
-          size="sm"
-          className="p-2 text-white/40 hover:text-white"
-        />
+        {/* Like Button */}
+        <View style={styles.likeButtonWrapper}>
+          <LikeButton
+            song={song}
+            onRequireAuth={onRequireAuth}
+            size="sm"
+          />
+        </View>
 
         {/* Download Song */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            window.open(`https://musicbackend-xg4u.onrender.com/api/downloads/${song.id}/audio`, '_blank');
-          }}
-          title="Download Audio"
-          className="p-2 rounded-full transition-all active:scale-90 text-white/40 hover:text-white"
+        <TouchableOpacity
+          onPress={handleDownload}
+          style={styles.actionButton}
+          activeOpacity={0.7}
         >
-          <Download className="w-4 h-4" />
-        </button>
+          <MaterialCommunityIcons
+            name="download"
+            size={18}
+            color="rgba(255,255,255,0.4)"
+          />
+        </TouchableOpacity>
 
+        {/* Add to Playlist Menu */}
         <AddToPlaylistMenu song={song} onRequireAuth={onRequireAuth} />
-      </div>
-    </div>
+      </View>
+    </TouchableOpacity>
   );
 }
+
+const styles = StyleSheet.create({
+  rowContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    marginVertical: 4,
+    backgroundColor: "transparent",
+  },
+  activeContainer: {
+    backgroundColor: "rgba(29, 185, 84, 0.1)",
+  },
+  albumArtContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    overflow: "hidden",
+    backgroundColor: "#282828",
+    position: "relative",
+  },
+  albumArt: {
+    width: "100%",
+    height: "100%",
+  },
+  albumArtPlaceholder: {
+    backgroundColor: "#ff7a00", // Fallback layout gradient start
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  placeholderIcon: {
+    fontSize: 16,
+    color: "#fff",
+  },
+  playingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  infoContainer: {
+    flex: 1,
+    marginLeft: 12,
+    marginRight: 6,
+  },
+  titleText: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  normalTitle: {
+    color: "rgba(255, 255, 255, 0.9)",
+  },
+  activeTitle: {
+    color: "#1DB954",
+  },
+  artistText: {
+    fontSize: 12,
+    color: "rgba(255, 255, 255, 0.4)",
+    marginTop: 4,
+  },
+  actionsContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  actionButton: {
+    padding: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  likeButtonWrapper: {
+    padding: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+});

@@ -1,115 +1,115 @@
-import { useState, useEffect, useRef } from "react";
-import { HashRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
-import { AuthProvider } from "@/context/AuthContext";
-import { PlayerProvider, usePlayer } from "@/context/PlayerContext";
-import { LibraryProvider } from "@/context/LibraryContext";
-import HomePage from "@/pages/HomePage";
-import SearchPage from "@/pages/SearchPage";
-import LibraryPage from "@/pages/LibraryPage";
-import NotFound from "@/pages/NotFound";
-import { BottomNav } from "@/components/BottomNav";
-import { MiniPlayer } from "@/components/MiniPlayer";
-import { FullPlayer } from "@/components/FullPlayer";
-import { AuthModal } from "@/components/AuthModal";
-import { useAuth } from "@/context/AuthContext";
+import { View, StyleSheet, SafeAreaView, StatusBar } from 'react-native'
+import React, { useState, useEffect } from "react";
+import { NavigationContainer } from "@react-navigation/native";
+import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { PaperProvider } from "react-native-paper";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 
-type Page = "home" | "search" | "library";
+// Import Providers
+import { AuthProvider, useAuth } from "./context/AuthContext";
+import { PlayerProvider, usePlayer } from "./context/PlayerContext";
+import { LibraryProvider } from "./context/LibraryContext";
 
-// ─── Silent audio keep-alive ──────────────────────────────────────────────────
-// Mobile browsers (iOS/Android) suspend the audio session after a few songs if
-// no other audio element is registered as "active". A near-silent looping audio
-// keeps the session alive so the main player never gets interrupted mid-queue.
-function useSilentAudioKeepAlive(isPlaying: boolean) {
-  const silentRef = useRef<HTMLAudioElement | null>(null);
+// Import Native Screens / Components
+import HomePage from "./pages/HomePage";
+import SearchPage from "./pages/SearchPage";
+import LibraryPage from "./pages/LibraryPage";
+import { MiniPlayer } from "./components/MiniPlayer";
+import { FullPlayer } from "./components/FullPlayer";
+import { AuthModal } from "./components/AuthModal";
 
-  useEffect(() => {
-    // Minimal valid 1-sample WAV (44 bytes) encoded as base64 — produces no audible sound
-    const SILENT_WAV =
-      "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
-
-    const audio = new Audio(SILENT_WAV);
-    audio.loop   = true;
-    audio.volume = 0.001; // virtually inaudible
-    silentRef.current = audio;
-
-    return () => {
-      audio.pause();
-      silentRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    const audio = silentRef.current;
-    if (!audio) return;
-    if (isPlaying) {
-      audio.play().catch(() => { /* autoplay policy — harmless, main audio still works */ });
-    } else {
-      audio.pause();
-    }
-  }, [isPlaying]);
-}
+const Tab = createBottomTabNavigator();
 
 function AppContent() {
-  const location = useLocation();
-  const navigate = useNavigate();
-  const { currentSong, isPlaying } = usePlayer();
+  const { currentSong, showPlayer } = usePlayer();
   const { user, checkAuth } = useAuth();
   const [showAuthModal, setShowAuthModal] = useState(false);
-
-  // Keep audio session alive — prevents the "pauses after 5-6 songs" bug on mobile
-  useSilentAudioKeepAlive(isPlaying);
-
-  const currentPath = location.pathname;
-  const currentPage: Page =
-    currentPath === "/" ? "home" :
-    currentPath === "/search" ? "search" :
-    currentPath === "/library" ? "library" : "home";
-
-  const handleNavigate = (page: Page) => {
-    if (page === "home") navigate("/");
-    else if (page === "search") navigate("/search");
-    else if (page === "library") navigate("/library");
-  };
 
   const handleRequireAuth = () => {
     if (!user) setShowAuthModal(true);
   };
 
-  // Check auth once on mount — session persists via localStorage
+  // Check auth once on mount
   useEffect(() => {
     checkAuth();
-    // Periodic silent check every 10 minutes (won't logout on network failure)
     const interval = setInterval(checkAuth, 10 * 60 * 1000);
     return () => clearInterval(interval);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
-    <div className="relative min-h-screen" style={{ background: "#121212" }}>
-      <Routes>
-        <Route path="/" element={<HomePage onRequireAuth={handleRequireAuth} />} />
-        <Route path="/search" element={<SearchPage onRequireAuth={handleRequireAuth} />} />
-        <Route path="/library" element={<LibraryPage onRequireAuth={handleRequireAuth} />} />
-        <Route path="*" element={<NotFound />} />
-      </Routes>
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#121212" />
+      
+      <NavigationContainer>
+        <Tab.Navigator
+          id="root-tabs"
+          screenOptions={() => ({
+            headerShown: false,
+            tabBarStyle: {
+              backgroundColor: "#181818",
+              borderTopColor: "rgba(255, 255, 255, 0.08)",
+              height: 60,
+              paddingBottom: 8,
+              paddingTop: 8,
+            },
+            tabBarActiveTintColor: "#1DB954",
+            tabBarInactiveTintColor: "rgba(255, 255, 255, 0.5)",
+            tabBarLabelStyle: {
+              fontSize: 11,
+              fontWeight: "600",
+            },
+          })}
+        >
+          <Tab.Screen
+            name="Home"
+            options={{
+              tabBarIcon: ({ color, size }) => (
+                <MaterialCommunityIcons name="home" color={color} size={size} />
+              ),
+            }}
+          >
+            {() => <HomePage onRequireAuth={handleRequireAuth} />}
+          </Tab.Screen>
+          
+          <Tab.Screen
+            name="Search"
+            options={{
+              tabBarIcon: ({ color, size }) => (
+                <MaterialCommunityIcons name="magnify" color={color} size={size} />
+              ),
+            }}
+          >
+            {() => <SearchPage onRequireAuth={handleRequireAuth} />}
+          </Tab.Screen>
 
-      {/* Bottom nav — always visible */}
-      <BottomNav page={currentPage} onNavigate={handleNavigate} />
+          <Tab.Screen
+            name="Library"
+            options={{
+              tabBarIcon: ({ color, size }) => (
+                <MaterialCommunityIcons name="playlist-music" color={color} size={size} />
+              ),
+            }}
+          >
+            {() => <LibraryPage onRequireAuth={handleRequireAuth} />}
+          </Tab.Screen>
+        </Tab.Navigator>
+      </NavigationContainer>
 
-      {/* Mini player — floats above bottom nav */}
+      {/* Floating Mini Player */}
       {currentSong && <MiniPlayer onRequireAuth={handleRequireAuth} />}
 
-      {/* Full player — full screen overlay */}
-      <FullPlayer onRequireAuth={handleRequireAuth} />
+      {/* Full screen overlay player */}
+      {showPlayer && <FullPlayer onRequireAuth={handleRequireAuth} />}
 
-      {/* Auth modal */}
+      {/* Authentication Modal */}
       <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} />
-    </div>
+    </SafeAreaView>
   );
 }
 
-function App() {
+export default function App() {
   return (
-    <HashRouter>
+    <PaperProvider>
       <AuthProvider>
         <PlayerProvider>
           <LibraryProvider>
@@ -117,8 +117,13 @@ function App() {
           </LibraryProvider>
         </PlayerProvider>
       </AuthProvider>
-    </HashRouter>
+    </PaperProvider>
   );
 }
 
-export default App;
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#121212",
+  },
+});

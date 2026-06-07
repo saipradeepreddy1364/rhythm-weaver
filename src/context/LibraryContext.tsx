@@ -1,3 +1,4 @@
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image } from 'react-native'
 import React, {
   createContext,
   useContext,
@@ -6,7 +7,8 @@ import React, {
   useCallback,
   ReactNode,
 } from "react";
-import { supabase } from "@/lib/supabase/client";
+import { supabase as baseSupabase } from "@/lib/supabase/client";
+const supabase = baseSupabase as any;
 import type { Song } from "@/data/songs";
 import { useAuth } from "./AuthContext";
 

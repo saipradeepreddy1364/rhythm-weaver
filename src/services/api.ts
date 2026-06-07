@@ -1,6 +1,6 @@
 // ─── Base URL ─────────────────────────────────────────────────────────────────
 const BASE_URL =
-  (import.meta as any).env?.VITE_API_BACKEND_URL ||
+  (typeof process !== "undefined" && process.env?.VITE_API_BACKEND_URL) ||
   "https://musicbackend-xg4u.onrender.com/api";
 
 export const api = {

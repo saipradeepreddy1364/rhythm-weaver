@@ -1,4 +1,6 @@
-import { Home, Search, Library } from "lucide-react";
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native'
+import React from "react";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 type Page = "home" | "search" | "library";
 
@@ -7,49 +9,78 @@ interface BottomNavProps {
   onNavigate: (page: Page) => void;
 }
 
-const tabs: { key: Page; label: string; Icon: typeof Home }[] = [
-  { key: "home", label: "Home", Icon: Home },
-  { key: "search", label: "Search", Icon: Search },
-  { key: "library", label: "Library", Icon: Library },
+const tabs: { key: Page; label: string; icon: string }[] = [
+  { key: "home", label: "Home", icon: "home" },
+  { key: "search", label: "Search", icon: "magnify" },
+  { key: "library", label: "Library", icon: "playlist-music" },
 ];
 
 export function BottomNav({ page, onNavigate }: BottomNavProps) {
   return (
-    <nav
-      className="fixed bottom-0 left-0 right-0 z-40 h-14 flex items-center"
-      style={{
-        background: "rgba(10,10,10,0.97)",
-        backdropFilter: "blur(20px)",
-        borderTop: "1px solid rgba(255,255,255,0.07)",
-      }}
-    >
-      {tabs.map(({ key, label, Icon }) => {
+    <View style={styles.navContainer}>
+      {tabs.map(({ key, label, icon }) => {
         const active = page === key;
         return (
-          <button
+          <TouchableOpacity
             key={key}
-            onClick={() => onNavigate(key)}
-            className="flex-1 flex flex-col items-center justify-center gap-0.5 h-full transition-all active:scale-95"
+            onPress={() => onNavigate(key)}
+            style={styles.navButton}
+            activeOpacity={0.7}
           >
-            <Icon
-              className="w-5 h-5 transition-colors"
-              style={{ color: active ? "#1DB954" : "rgba(255,255,255,0.4)" }}
+            <MaterialCommunityIcons
+              name={icon as any}
+              size={22}
+              color={active ? "#1DB954" : "rgba(255,255,255,0.4)"}
             />
-            <span
-              className="text-[10px] font-medium tracking-wide transition-colors"
-              style={{ color: active ? "#1DB954" : "rgba(255,255,255,0.4)" }}
+            <Text
+              style={[
+                styles.navLabel,
+                { color: active ? "#1DB954" : "rgba(255,255,255,0.4)" }
+              ]}
             >
               {label}
-            </span>
-            {active && (
-              <span
-                className="absolute bottom-0 w-8 h-0.5 rounded-full"
-                style={{ background: "linear-gradient(90deg,#1DB954,#1ed760)" }}
-              />
-            )}
-          </button>
+            </Text>
+            {active && <View style={styles.activeIndicator} />}
+          </TouchableOpacity>
         );
       })}
-    </nav>
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  navContainer: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    zIndex: 40,
+    height: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(10,10,10,0.97)",
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.07)",
+  },
+  navButton: {
+    flex: 1,
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+    paddingTop: 4,
+  },
+  navLabel: {
+    fontSize: 10,
+    fontWeight: "500",
+    marginTop: 2,
+  },
+  activeIndicator: {
+    position: "absolute",
+    bottom: 0,
+    width: 32,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: "#1DB954",
+  },
+});

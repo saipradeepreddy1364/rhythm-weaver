@@ -1,6 +1,7 @@
-import { useState } from "react";
-import { useAuth } from "@/context/AuthContext";
-import { X, Eye, EyeOff, Loader2 } from "lucide-react";
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Modal, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView } from 'react-native'
+import React, { useState } from "react";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useAuth } from "../context/AuthContext";
 
 interface AuthModalProps {
   open: boolean;
@@ -47,10 +48,22 @@ export function AuthModal({ open, onClose, defaultTab = "login" }: AuthModalProp
     }
 
     if (tab === "register") {
-      if (!username.trim()) { setError("Username is required."); return; }
-      if (username.trim().length < 3) { setError("Username must be at least 3 characters."); return; }
-      if (password.length < 6) { setError("Password must be at least 6 characters."); return; }
-      if (password !== confirmPw) { setError("Passwords do not match."); return; }
+      if (!username.trim()) {
+        setError("Username is required.");
+        return;
+      }
+      if (username.trim().length < 3) {
+        setError("Username must be at least 3 characters.");
+        return;
+      }
+      if (password.length < 6) {
+        setError("Password must be at least 6 characters.");
+        return;
+      }
+      if (password !== confirmPw) {
+        setError("Passwords do not match.");
+        return;
+      }
     }
 
     setLoading(true);
@@ -78,160 +91,331 @@ export function AuthModal({ open, onClose, defaultTab = "login" }: AuthModalProp
   };
 
   return (
-    // z-[70] — sits above FullPlayer (z-[60]) so it always renders on top
-    <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    <Modal
+      visible={open}
+      transparent={true}
+      animationType="fade"
+      onRequestClose={onClose}
     >
-      <div className="bg-[#1a1a1a] border border-white/10 rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden animate-fade-in">
+      <View style={styles.modalBackdrop}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.keyboardView}
+        >
+          <View style={styles.modalContent}>
+            {/* Close Button Header */}
+            <View style={styles.header}>
+              <TouchableOpacity onPress={onClose} style={styles.closeBtn} activeOpacity={0.7}>
+                <MaterialCommunityIcons name="close" size={20} color="rgba(255, 255, 255, 0.6)" />
+              </TouchableOpacity>
+            </View>
 
-        {/* Close button */}
-        <div className="flex justify-end px-4 pt-4">
-          <button
-            onClick={onClose}
-            className="text-white/40 hover:text-white transition-colors rounded-lg p-1"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+            <ScrollView contentContainerStyle={styles.scrollContent}>
+              {/* Tab Selector */}
+              <View style={styles.tabBar}>
+                <TouchableOpacity
+                  onPress={() => switchTab("login")}
+                  style={[styles.tabBtn, tab === "login" && styles.activeTabBtn]}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.tabBtnText, tab === "login" && styles.activeTabBtnText]}>
+                    Sign In
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => switchTab("register")}
+                  style={[styles.tabBtn, tab === "register" && styles.activeTabBtn]}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.tabBtnText, tab === "register" && styles.activeTabBtnText]}>
+                    Sign Up
+                  </Text>
+                </TouchableOpacity>
+              </View>
 
-        {/* Tab switcher */}
-        <div className="flex mx-6 mb-5 bg-white/5 rounded-lg p-1">
-          {(["login", "register"] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => switchTab(t)}
-              className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${
-                tab === t
-                  ? "bg-[#2a2a2a] text-white shadow-sm"
-                  : "text-white/40 hover:text-white"
-              }`}
-            >
-              {t === "login" ? "Sign In" : "Sign Up"}
-            </button>
-          ))}
-        </div>
+              {/* Status Banners */}
+              {success ? (
+                <View style={styles.successBanner}>
+                  <Text style={styles.successBannerText}>{success}</Text>
+                </View>
+              ) : null}
 
-        {/* Form */}
-        <div className="px-6 pb-6 space-y-3">
-          {success && (
-            <div className="text-xs text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2">
-              {success}
-            </div>
-          )}
+              {error ? (
+                <View style={styles.errorBanner}>
+                  <Text style={styles.errorBannerText}>{error}</Text>
+                </View>
+              ) : null}
 
-          {error && (
-            <div className="text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
-              {error}
-            </div>
-          )}
+              {/* Username field */}
+              {tab === "register" && (
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Username</Text>
+                  <TextInput
+                    value={username}
+                    onChangeText={setUsername}
+                    placeholder="your_name"
+                    placeholderTextColor="rgba(255, 255, 255, 0.3)"
+                    autoCapitalize="none"
+                    style={styles.inputField}
+                  />
+                </View>
+              )}
 
-          {tab === "register" && (
-            <div>
-              <label className="text-xs font-medium text-white/40 mb-1 block">
-                Username
-              </label>
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="your_name"
-                autoComplete="username"
-                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all"
-              />
-            </div>
-          )}
+              {/* Email field */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Email</Text>
+                <TextInput
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder="you@example.com"
+                  placeholderTextColor="rgba(255, 255, 255, 0.3)"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  style={styles.inputField}
+                />
+              </View>
 
-          <div>
-            <label className="text-xs font-medium text-white/40 mb-1 block">
-              Email
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
-              autoComplete="email"
-              onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-              className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all"
-            />
-          </div>
+              {/* Password field */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Password</Text>
+                <View style={styles.passwordInputContainer}>
+                  <TextInput
+                    value={password}
+                    onChangeText={setPassword}
+                    placeholder="••••••••"
+                    placeholderTextColor="rgba(255, 255, 255, 0.3)"
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                    style={[styles.inputField, { flex: 1, borderWidth: 0 }]}
+                  />
+                  <TouchableOpacity
+                    onPress={() => setShowPassword(!showPassword)}
+                    style={styles.eyeBtn}
+                    activeOpacity={0.7}
+                  >
+                    <MaterialCommunityIcons
+                      name={showPassword ? "eye-off" : "eye"}
+                      size={18}
+                      color="rgba(255,255,255,0.4)"
+                    />
+                  </TouchableOpacity>
+                </View>
+              </View>
 
-          <div>
-            <label className="text-xs font-medium text-white/40 mb-1 block">
-              Password
-            </label>
-            <div className="relative">
-              <input
-                type={showPassword ? "text" : "password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                autoComplete={tab === "login" ? "current-password" : "new-password"}
-                onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 pr-10 text-sm text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((v) => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white"
+              {/* Confirm Password field */}
+              {tab === "register" && (
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Confirm Password</Text>
+                  <TextInput
+                    value={confirmPw}
+                    onChangeText={setConfirmPw}
+                    placeholder="••••••••"
+                    placeholderTextColor="rgba(255, 255, 255, 0.3)"
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                    style={styles.inputField}
+                  />
+                </View>
+              )}
+
+              {/* Action Button */}
+              <TouchableOpacity
+                onPress={handleSubmit}
+                disabled={loading}
+                style={[styles.submitBtn, loading && styles.disabledSubmitBtn]}
+                activeOpacity={0.8}
               >
-                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-          </div>
+                {loading ? (
+                  <ActivityIndicator size="small" color="#000" />
+                ) : (
+                  <Text style={styles.submitBtnText}>
+                    {tab === "login" ? "Sign In" : "Create Account"}
+                  </Text>
+                )}
+              </TouchableOpacity>
 
-          {tab === "register" && (
-            <div>
-              <label className="text-xs font-medium text-white/40 mb-1 block">
-                Confirm Password
-              </label>
-              <input
-                type={showPassword ? "text" : "password"}
-                value={confirmPw}
-                onChange={(e) => setConfirmPw(e.target.value)}
-                placeholder="••••••••"
-                autoComplete="new-password"
-                onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition-all"
-              />
-            </div>
-          )}
-
-          <button
-            onClick={handleSubmit}
-            disabled={loading}
-            className="w-full mt-1 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 text-black font-semibold rounded-lg py-2.5 text-sm transition-all flex items-center justify-center gap-2"
-          >
-            {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-            {tab === "login" ? "Sign In" : "Create Account"}
-          </button>
-
-          <p className="text-center text-xs text-white/40 pt-1">
-            {tab === "login" ? (
-              <>
-                Don't have an account?{" "}
-                <button
-                  onClick={() => switchTab("register")}
-                  className="text-emerald-500 hover:underline font-medium"
-                >
-                  Sign up free
-                </button>
-              </>
-            ) : (
-              <>
-                Already have an account?{" "}
-                <button
-                  onClick={() => switchTab("login")}
-                  className="text-emerald-500 hover:underline font-medium"
-                >
-                  Sign in
-                </button>
-              </>
-            )}
-          </p>
-        </div>
-      </div>
-    </div>
+              {/* Switch link */}
+              <View style={styles.switchContainer}>
+                {tab === "login" ? (
+                  <Text style={styles.switchText}>
+                    Don't have an account?{" "}
+                    <Text
+                      onPress={() => switchTab("register")}
+                      style={styles.switchHighlight}
+                    >
+                      Sign up free
+                    </Text>
+                  </Text>
+                ) : (
+                  <Text style={styles.switchText}>
+                    Already have an account?{" "}
+                    <Text
+                      onPress={() => switchTab("login")}
+                      style={styles.switchHighlight}
+                    >
+                      Sign in
+                    </Text>
+                  </Text>
+                )}
+              </View>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </View>
+    </Modal>
   );
 }
+
+const styles = StyleSheet.create({
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.65)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  keyboardView: {
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalContent: {
+    backgroundColor: "#1a1a1a",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.08)",
+    borderRadius: 16,
+    width: "100%",
+    maxWidth: 360,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 10,
+    overflow: "hidden",
+  },
+  header: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    paddingTop: 12,
+    paddingHorizontal: 12,
+  },
+  closeBtn: {
+    padding: 6,
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 24,
+  },
+  tabBar: {
+    flexDirection: "row",
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderRadius: 8,
+    padding: 3,
+    marginBottom: 20,
+  },
+  tabBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: "center",
+    borderRadius: 6,
+  },
+  activeTabBtn: {
+    backgroundColor: "#2a2a2a",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  tabBtnText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "rgba(255,255,255,0.4)",
+  },
+  activeTabBtnText: {
+    color: "#fff",
+  },
+  successBanner: {
+    backgroundColor: "rgba(16, 185, 129, 0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(16, 185, 129, 0.2)",
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 12,
+  },
+  successBannerText: {
+    fontSize: 12,
+    color: "#10b981",
+  },
+  errorBanner: {
+    backgroundColor: "rgba(239, 68, 68, 0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.2)",
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 12,
+  },
+  errorBannerText: {
+    fontSize: 12,
+    color: "#ef4444",
+  },
+  inputGroup: {
+    marginBottom: 14,
+  },
+  inputLabel: {
+    fontSize: 11,
+    fontWeight: "500",
+    color: "rgba(255,255,255,0.4)",
+    marginBottom: 6,
+  },
+  inputField: {
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: Platform.OS === 'ios' ? 12 : 8,
+    fontSize: 14,
+    color: "#fff",
+  },
+  passwordInputContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    borderRadius: 8,
+    paddingRight: 10,
+  },
+  eyeBtn: {
+    padding: 8,
+  },
+  submitBtn: {
+    backgroundColor: "#1DB954",
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 8,
+  },
+  disabledSubmitBtn: {
+    opacity: 0.6,
+  },
+  submitBtnText: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  switchContainer: {
+    alignItems: "center",
+    marginTop: 16,
+  },
+  switchText: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.4)",
+  },
+  switchHighlight: {
+    color: "#1DB954",
+    fontWeight: "600",
+  },
+});

@@ -1,27 +1,31 @@
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image, ActivityIndicator, SafeAreaView, StatusBar, Platform } from 'react-native'
 import React, { useRef, useState, useEffect } from "react";
-import {
-  StyleSheet,
-  View,
-  ActivityIndicator,
-  BackHandler,
-  Platform,
-  Text,
-  SafeAreaView,
-  StatusBar,
-} from "react-native";
-import { WebView } from "react-native-webview";
+import { NavigationContainer } from "@react-navigation/native";
+import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { PaperProvider } from "react-native-paper";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Updates from "expo-updates";
-import { useAssets } from "expo-asset";
 
-export default function App() {
-  const webViewRef = useRef<WebView>(null);
-  const [canGoBack, setCanGoBack] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+// Import Providers (these will be migrated to React Native next)
+import { AuthProvider, useAuth } from "../src/context/AuthContext";
+import { PlayerProvider, usePlayer } from "../src/context/PlayerContext";
+import { LibraryProvider } from "../src/context/LibraryContext";
+
+// Import Native Screens / Components (these will be migrated next)
+import HomePage from "../src/pages/HomePage";
+import SearchPage from "../src/pages/SearchPage";
+import LibraryPage from "../src/pages/LibraryPage";
+import { MiniPlayer } from "../src/components/MiniPlayer";
+import { FullPlayer } from "../src/components/FullPlayer";
+import { AuthModal } from "../src/components/AuthModal";
+
+const Tab = createBottomTabNavigator();
+
+function AppContent() {
+  const { currentSong, showPlayer } = usePlayer();
+  const { user, checkAuth } = useAuth();
+  const [showAuthModal, setShowAuthModal] = useState(false);
   const [updateNotification, setUpdateNotification] = useState<string | null>(null);
-
-  // Load the bundled single-file index.html asset
-  const [assets, error] = useAssets([require("./assets/index.html")]);
-  const localHtmlUri = assets?.[0]?.localUri || null;
 
   // Check for OTA updates after 3 seconds, displaying real-time UI notification
   useEffect(() => {
@@ -33,10 +37,8 @@ export default function App() {
           setUpdateNotification("New update found. Downloading...");
           await Updates.fetchUpdateAsync();
           setUpdateNotification("Update downloaded. Restarting...");
-          
-          // Small delay to let user read the message before reboot
           setTimeout(async () => {
-             await Updates.reloadAsync();
+            await Updates.reloadAsync();
           }, 1500);
         }
       } catch (e) {
@@ -47,66 +49,84 @@ export default function App() {
     return () => clearTimeout(checkUpdatesTimer);
   }, []);
 
-  // Handle hardware back button on Android
+  const handleRequireAuth = () => {
+    if (!user) setShowAuthModal(true);
+  };
+
+  // Check auth once on mount
   useEffect(() => {
-    const onBackPress = () => {
-      if (canGoBack && webViewRef.current) {
-        webViewRef.current.goBack();
-        return true; // prevent default exit
-      }
-      return false; // let default exit happen
-    };
-
-    if (Platform.OS === "android") {
-      BackHandler.addEventListener("hardwareBackPress", onBackPress);
-      return () =>
-        BackHandler.removeEventListener("hardwareBackPress", onBackPress);
-    }
-  }, [canGoBack]);
-
-  // Render a loading state while asset is loading
-  if (!assets && !error) {
-    return (
-      <View style={styles.splashContainer}>
-        <Text style={styles.brandTitle}>RhythmWeaver</Text>
-        <ActivityIndicator size="large" color="#1DB954" style={styles.spinner} />
-        <Text style={styles.loadingText}>Tuning your beats...</Text>
-      </View>
-    );
-  }
+    checkAuth();
+    const interval = setInterval(checkAuth, 10 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0a0a0a" />
+      <StatusBar barStyle="light-content" backgroundColor="#121212" />
       
-      {/* WebView Layer */}
-      <WebView
-        ref={webViewRef}
-        source={localHtmlUri ? { uri: localHtmlUri } : { html: "<h1>Unable to load app assets</h1>" }}
-        style={styles.webview}
-        originWhitelist={["*"]}
-        allowFileAccess={true}
-        allowUniversalAccessFromFileURLs={true}
-        allowFileAccessFromFileURLs={true}
-        onNavigationStateChange={(navState) => {
-          setCanGoBack(navState.canGoBack);
-        }}
-        onLoadStart={() => setIsLoading(true)}
-        onLoadEnd={() => setIsLoading(false)}
-        javaScriptEnabled={true}
-        domStorageEnabled={true}
-        startInLoadingState={true}
-        scalesPageToFit={true}
-        allowsInlineMediaPlayback={true}
-        mediaPlaybackRequiresUserAction={false}
-        renderLoading={() => (
-          <View style={styles.splashContainer}>
-            <Text style={styles.brandTitle}>RhythmWeaver</Text>
-            <ActivityIndicator size="large" color="#1DB954" style={styles.spinner} />
-            <Text style={styles.loadingText}>Loading assets...</Text>
-          </View>
-        )}
-      />
+      <NavigationContainer>
+        <Tab.Navigator
+          id="root-tabs"
+          screenOptions={() => ({
+            headerShown: false,
+            tabBarStyle: {
+              backgroundColor: "#181818",
+              borderTopColor: "rgba(255, 255, 255, 0.08)",
+              height: 60,
+              paddingBottom: 8,
+              paddingTop: 8,
+            },
+            tabBarActiveTintColor: "#1DB954",
+            tabBarInactiveTintColor: "rgba(255, 255, 255, 0.5)",
+            tabBarLabelStyle: {
+              fontSize: 11,
+              fontWeight: "600",
+            },
+          })}
+        >
+          <Tab.Screen
+            name="Home"
+            options={{
+              tabBarIcon: ({ color, size }) => (
+                <MaterialCommunityIcons name="home" color={color} size={size} />
+              ),
+            }}
+          >
+            {() => <HomePage onRequireAuth={handleRequireAuth} />}
+          </Tab.Screen>
+          
+          <Tab.Screen
+            name="Search"
+            options={{
+              tabBarIcon: ({ color, size }) => (
+                <MaterialCommunityIcons name="magnify" color={color} size={size} />
+              ),
+            }}
+          >
+            {() => <SearchPage onRequireAuth={handleRequireAuth} />}
+          </Tab.Screen>
+
+          <Tab.Screen
+            name="Library"
+            options={{
+              tabBarIcon: ({ color, size }) => (
+                <MaterialCommunityIcons name="playlist-music" color={color} size={size} />
+              ),
+            }}
+          >
+            {() => <LibraryPage onRequireAuth={handleRequireAuth} />}
+          </Tab.Screen>
+        </Tab.Navigator>
+      </NavigationContainer>
+
+      {/* Floating Mini Player (native version of MiniPlayer component) */}
+      {currentSong && <MiniPlayer onRequireAuth={handleRequireAuth} />}
+
+      {/* Full screen overlay player (native version of FullPlayer component) */}
+      {showPlayer && <FullPlayer onRequireAuth={handleRequireAuth} />}
+
+      {/* Authentication Modal */}
+      <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} />
 
       {/* Realtime OTA Update Notification Banner */}
       {updateNotification && (
@@ -119,43 +139,24 @@ export default function App() {
   );
 }
 
+export default function App() {
+  return (
+    <PaperProvider>
+      <AuthProvider>
+        <PlayerProvider>
+          <LibraryProvider>
+            <AppContent />
+          </LibraryProvider>
+        </PlayerProvider>
+      </AuthProvider>
+    </PaperProvider>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0d0d0d",
-  },
-  webview: {
-    flex: 1,
-    backgroundColor: "#0d0d0d",
-  },
-  splashContainer: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "#0d0d0d",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 999,
-  },
-  brandTitle: {
-    fontSize: 32,
-    fontWeight: "bold",
-    color: "#ffffff",
-    letterSpacing: 2,
-    marginBottom: 20,
-    textShadowColor: "rgba(29, 185, 84, 0.4)",
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 15,
-  },
-  spinner: {
-    marginBottom: 15,
-  },
-  loadingText: {
-    fontSize: 14,
-    color: "rgba(255, 255, 255, 0.4)",
-    fontWeight: "600",
+    backgroundColor: "#121212",
   },
   notificationBanner: {
     position: "absolute",

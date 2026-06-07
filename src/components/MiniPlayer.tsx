@@ -1,7 +1,8 @@
-import { usePlayer } from "@/context/PlayerContext";
-import { Play, Pause, Music2, ListPlus } from "lucide-react";
-import { LikeButton } from "@/components/LikeButton";
-import { useState } from "react";
+import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native'
+import React, { useState } from "react";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { usePlayer } from "../context/PlayerContext";
+import { LikeButton } from "./LikeButton";
 
 interface MiniPlayerProps {
   onRequireAuth?: () => void;
@@ -29,100 +30,183 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
 
   const pct = totalDuration > 0 ? Math.min(100, (progress / totalDuration) * 100) : 0;
 
-  // SVG circular progress
-  const RADIUS = 26;
-  const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
-  const strokeDashoffset = CIRCUMFERENCE - (pct / 100) * CIRCUMFERENCE;
-
-  const handleAddToQueue = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleAddToQueue = () => {
     addToQueue(currentSong);
     setQueuedFlash(true);
     setTimeout(() => setQueuedFlash(false), 2000);
   };
 
   return (
-    <div className="fixed bottom-14 left-0 right-0 z-50 px-3 pb-2 pointer-events-none">
-      {/* ── Main pill ── */}
-      <div
-        className="rounded-full overflow-hidden shadow-2xl pointer-events-auto flex items-center gap-3 px-3 py-2"
-        style={{
-          background: "rgba(38,28,32,0.97)",
-          backdropFilter: "blur(24px)",
-          border: "1px solid rgba(255,255,255,0.07)",
-          height: 72,
-        }}
-      >
-        {/* ── Album art with circular progress ring + play/pause overlay ── */}
-        <div className="relative flex-shrink-0" style={{ width: 60, height: 60 }}>
-          <svg
-            width="60"
-            height="60"
-            className="absolute inset-0"
-            style={{ transform: "rotate(-90deg)" }}
-          >
-            <circle cx="30" cy="30" r={RADIUS} fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="2.5" />
-            <circle
-              cx="30" cy="30" r={RADIUS} fill="none" stroke="#e8b4bc" strokeWidth="2.5"
-              strokeLinecap="round" strokeDasharray={CIRCUMFERENCE} strokeDashoffset={strokeDashoffset}
-              style={{ transition: "stroke-dashoffset 0.3s ease" }}
+    <View style={styles.floatingContainer}>
+      <View style={styles.pill}>
+        {/* Album art with play/pause touch overlay */}
+        <View style={styles.artContainer}>
+          {currentSong.albumArt ? (
+            <Image
+              source={{ uri: currentSong.albumArt }}
+              style={styles.albumArt}
+              resizeMode="cover"
             />
-          </svg>
+          ) : (
+            <View style={[styles.albumArt, styles.albumArtPlaceholder]}>
+              <MaterialCommunityIcons name="music" size={16} color="#000" />
+            </View>
+          )}
 
-          <div className="absolute rounded-full overflow-hidden" style={{ inset: 5 }}>
-            {currentSong.albumArt ? (
-              <img src={currentSong.albumArt} alt={currentSong.title} className="w-full h-full object-cover"
-                onError={(e) => { (e.target as HTMLImageElement).src = "https://via.placeholder.com/100x100?text=🎵"; }}
-              />
-            ) : (
-              <div className="w-full h-full bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center">
-                <Music2 className="w-4 h-4 text-black" />
-              </div>
-            )}
-          </div>
-
-          <button
-            onClick={(e) => { e.stopPropagation(); togglePlay(); }}
-            className="absolute inset-0 rounded-full flex items-center justify-center active:scale-95 transition-transform"
-            style={{ background: "rgba(0,0,0,0.30)" }}
+          <TouchableOpacity
+            onPress={togglePlay}
+            style={styles.playOverlay}
+            activeOpacity={0.8}
           >
-            {isPlaying
-              ? <Pause className="w-5 h-5 text-white fill-white drop-shadow" />
-              : <Play className="w-5 h-5 text-white fill-white ml-0.5 drop-shadow" />
-            }
-          </button>
-        </div>
+            <MaterialCommunityIcons
+              name={isPlaying ? "pause" : "play"}
+              size={20}
+              color="#fff"
+            />
+          </TouchableOpacity>
+        </View>
 
-        {/* ── Song info ── */}
-        <button className="flex-1 min-w-0 text-left" onClick={() => setShowPlayer(true)}>
-          <p className="font-bold truncate text-white leading-tight" style={{ fontSize: 15 }}>
-            {currentSong.title}
-          </p>
-          <p className="text-xs truncate mt-0.5 leading-tight" style={{ color: "rgba(255,255,255,0.5)" }}>
-            {currentSong.artist}
-          </p>
-        </button>
-
-        {/* ── Add to Queue button ── */}
-        <button
-          onClick={handleAddToQueue}
-          title="Play next"
-          className="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center transition-all active:scale-90"
-          style={{
-            background: queuedFlash ? "rgba(29,185,84,0.2)" : "rgba(255,255,255,0.08)",
-            color: queuedFlash ? "#1DB954" : "rgba(255,255,255,0.6)",
-          }}
+        {/* Song info (taps to expand full player) */}
+        <TouchableOpacity
+          style={styles.infoButton}
+          onPress={() => setShowPlayer(true)}
+          activeOpacity={0.8}
         >
-          <ListPlus className="w-4 h-4" />
-        </button>
+          <Text style={styles.titleText} numberOfLines={1}>
+            {currentSong.title}
+          </Text>
+          <Text style={styles.artistText} numberOfLines={1}>
+            {currentSong.artist}
+          </Text>
+        </TouchableOpacity>
 
-        {/* ── Like button ── */}
-        <div className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-          <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.08)" }}>
-            <LikeButton song={currentSong} onRequireAuth={onRequireAuth} size="sm" className="text-white/70 hover:text-white" />
-          </div>
-        </div>
-      </div>
-    </div>
+        {/* Add to Queue */}
+        <TouchableOpacity
+          onPress={handleAddToQueue}
+          style={[
+            styles.circleBtn,
+            {
+              backgroundColor: queuedFlash ? "rgba(29,185,84,0.2)" : "rgba(255,255,255,0.08)",
+            }
+          ]}
+          activeOpacity={0.7}
+        >
+          <MaterialCommunityIcons
+            name="playlist-plus"
+            size={18}
+            color={queuedFlash ? "#1DB954" : "rgba(255,255,255,0.6)"}
+          />
+        </TouchableOpacity>
+
+        {/* Like button */}
+        <View style={styles.likeBtnWrapper}>
+          <LikeButton
+            song={currentSong}
+            onRequireAuth={onRequireAuth}
+            size="sm"
+          />
+        </View>
+
+        {/* Sleek horizontal progress bar at the very bottom of the pill */}
+        <View style={styles.progressContainer}>
+          <View style={[styles.progressBar, { width: `${pct}%` }]} />
+        </View>
+      </View>
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  floatingContainer: {
+    position: "absolute",
+    bottom: 72, // Above bottom tab navigator (60px) + spacing
+    left: 12,
+    right: 12,
+    zIndex: 99,
+  },
+  pill: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(38, 28, 32, 0.97)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.08)",
+    borderRadius: 36,
+    paddingHorizontal: 10,
+    height: 64,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    elevation: 8,
+    overflow: "hidden", // clip the progress bar at the bottom
+    position: "relative",
+  },
+  artContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    overflow: "hidden",
+    position: "relative",
+    backgroundColor: "#282828",
+  },
+  albumArt: {
+    width: "100%",
+    height: "100%",
+  },
+  albumArtPlaceholder: {
+    backgroundColor: "#1DB954",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  playOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0, 0, 0, 0.35)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  infoButton: {
+    flex: 1,
+    marginLeft: 12,
+    marginRight: 6,
+    justifyContent: "center",
+  },
+  titleText: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#fff",
+  },
+  artistText: {
+    fontSize: 11,
+    color: "rgba(255, 255, 255, 0.5)",
+    marginTop: 2,
+  },
+  circleBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    marginHorizontal: 4,
+  },
+  likeBtnWrapper: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginHorizontal: 4,
+  },
+  progressContainer: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+    backgroundColor: "rgba(255, 255, 255, 0.12)",
+  },
+  progressBar: {
+    height: "100%",
+    backgroundColor: "#e8b4bc", // Accent color matching web theme
+  },
+});
