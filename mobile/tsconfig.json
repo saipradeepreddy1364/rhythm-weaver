@@ -4,7 +4,7 @@
     "strict": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["../src/*"],
+      "@/*": ["./src/*"],
       "react-native": ["./node_modules/react-native"],
       "@expo/vector-icons": ["./node_modules/@expo/vector-icons"],
       "expo-av": ["./node_modules/expo-av"],
@@ -14,5 +14,13 @@
       "react-native-screens": ["./node_modules/react-native-screens"],
       "expo-updates": ["./node_modules/expo-updates"]
     }
-  }
+  },
+  "exclude": [
+    "node_modules",
+    "src/components/ui",
+    "src/main.tsx",
+    "src/App.tsx",
+    "src/index.css",
+    "src/vite-env.d.ts"
+  ]
 }
