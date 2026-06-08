@@ -1267,7 +1267,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
             <View style={styles.logoBadge}>
               <MaterialCommunityIcons name="music" size={16} color="#000" />
             </View>
-            <Text style={styles.headerLogoText}>Rhythm Weaver v1.0.1</Text>
+            <Text style={styles.headerLogoText}>Audora v1.0.1</Text>
           </View>
 
           <View style={styles.headerRight}>

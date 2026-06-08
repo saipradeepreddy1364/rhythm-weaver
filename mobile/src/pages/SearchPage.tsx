@@ -7,7 +7,7 @@ import { SongRow } from "../components/SongRow";
 import { usePlayer } from "../context/PlayerContext";
 import { useAuth } from "../context/AuthContext";
 import { useLibrary } from "../context/LibraryContext";
-import { MiniPlayer } from "../components/MiniPlayer";
+
 import { localStorage, sessionStorage } from "../lib/storage";
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -942,7 +942,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
           // Loader Spinner
           <View style={styles.centerLoading}>
             <ActivityIndicator size="large" color="#1DB954" />
-            <Text style={styles.loadingText}>Searching RyhthmWeaver…</Text>
+            <Text style={styles.loadingText}>Searching Audora…</Text>
           </View>
         ) : results.length === 0 ? (
           // Empty state
@@ -1059,7 +1059,8 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
         />
       ) : null}
 
-      <MiniPlayer onRequireAuth={handleRequireAuth} />
+
+      
     </View>
   );
 }

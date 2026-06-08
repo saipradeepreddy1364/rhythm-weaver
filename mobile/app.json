@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "RhythmWeaver",
-    "slug": "rhythm-weaver",
+    "name": "Audora",
+    "slug": "audora",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -13,7 +13,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.rhythmweaver.app",
+      "bundleIdentifier": "com.audora.app",
       "infoPlist": {
         "UIBackgroundModes": [
           "audio"
@@ -25,7 +25,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0d0d0d"
       },
-      "package": "com.rhythmweaver.app",
+      "package": "com.audora.app",
       "permissions": [
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_MEDIA_PLAYBACK",

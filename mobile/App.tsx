@@ -176,8 +176,8 @@ function AppContent() {
               {updateDownloaded 
                 ? "The update has been successfully downloaded and is ready to install. Restart the app now to apply the changes."
                 : isDownloadingUpdate 
-                  ? "We are fetching the latest update for RhythmWeaver. This will only take a moment. Please keep the app open."
-                  : "A new version of RhythmWeaver is available with performance improvements and new features. Would you like to update now?"}
+                  ? "We are fetching the latest update for Audora. This will only take a moment. Please keep the app open."
+                  : "A new version of Audora is available with performance improvements and new features. Would you like to update now?"}
             </Text>
 
             {updateError && (
