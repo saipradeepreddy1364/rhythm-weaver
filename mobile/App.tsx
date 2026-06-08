@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image, ActivityIndicator, SafeAreaView, StatusBar, Platform } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image, ActivityIndicator, SafeAreaView, StatusBar, Platform, Modal } from 'react-native'
 import React, { useRef, useState, useEffect } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
@@ -30,29 +30,48 @@ function AppContent() {
   const { currentSong, showPlayer } = usePlayer();
   const { user, checkAuth } = useAuth();
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const [updateNotification, setUpdateNotification] = useState<string | null>(null);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [isDownloadingUpdate, setIsDownloadingUpdate] = useState(false);
+  const [updateDownloaded, setUpdateDownloaded] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
 
-  // Check for OTA updates after 3 seconds, displaying real-time UI notification
+  // Check for OTA updates on app mount
   useEffect(() => {
     const checkUpdatesTimer = setTimeout(async () => {
       if (__DEV__) return;
       try {
         const update = await Updates.checkForUpdateAsync();
         if (update.isAvailable) {
-          setUpdateNotification("New update found. Downloading...");
-          await Updates.fetchUpdateAsync();
-          setUpdateNotification("Update downloaded. Restarting...");
-          setTimeout(async () => {
-            await Updates.reloadAsync();
-          }, 1500);
+          setUpdateAvailable(true);
         }
       } catch (e) {
-        setUpdateNotification(null);
+        console.warn("OTA update check failed:", e);
       }
     }, 3000);
 
     return () => clearTimeout(checkUpdatesTimer);
   }, []);
+
+  const handleDownloadUpdate = async () => {
+    setIsDownloadingUpdate(true);
+    setUpdateError(null);
+    try {
+      await Updates.fetchUpdateAsync();
+      setUpdateDownloaded(true);
+    } catch (e: any) {
+      setUpdateError(e.message || "Failed to download update");
+    } finally {
+      setIsDownloadingUpdate(false);
+    }
+  };
+
+  const handleRestartApp = async () => {
+    try {
+      await Updates.reloadAsync();
+    } catch (e) {
+      console.error("Failed to reload app:", e);
+    }
+  };
 
   const handleRequireAuth = () => {
     if (!user) setShowAuthModal(true);
@@ -133,13 +152,67 @@ function AppContent() {
       {/* Authentication Modal */}
       <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} />
 
-      {/* Realtime OTA Update Notification Banner */}
-      {updateNotification && (
-        <View style={styles.notificationBanner}>
-          <ActivityIndicator size="small" color="#1DB954" style={styles.bannerSpinner} />
-          <Text style={styles.notificationText}>{updateNotification}</Text>
+      {/* Premium OTA Update Modal */}
+      <Modal
+        visible={updateAvailable || isDownloadingUpdate || updateDownloaded}
+        transparent={true}
+        animationType="fade"
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalIconContainer}>
+              <MaterialCommunityIcons 
+                name={updateDownloaded ? "check-circle" : isDownloadingUpdate ? "cloud-download" : "rocket-launch"} 
+                size={48} 
+                color="#1DB954" 
+              />
+            </View>
+
+            <Text style={styles.modalTitle}>
+              {updateDownloaded ? "Update Ready!" : isDownloadingUpdate ? "Downloading..." : "Update Available!"}
+            </Text>
+
+            <Text style={styles.modalDescription}>
+              {updateDownloaded 
+                ? "The update has been successfully downloaded and is ready to install. Restart the app now to apply the changes."
+                : isDownloadingUpdate 
+                  ? "We are fetching the latest update for RhythmWeaver. This will only take a moment. Please keep the app open."
+                  : "A new version of RhythmWeaver is available with performance improvements and new features. Would you like to update now?"}
+            </Text>
+
+            {updateError && (
+              <Text style={styles.errorText}>Error: {updateError}</Text>
+            )}
+
+            <View style={styles.modalButtonGroup}>
+              {updateDownloaded ? (
+                <>
+                  <TouchableOpacity style={styles.primaryButton} onPress={handleRestartApp}>
+                    <Text style={styles.primaryButtonText}>Restart Now</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.secondaryButton} onPress={() => setUpdateAvailable(false)}>
+                    <Text style={styles.secondaryButtonText}>Later</Text>
+                  </TouchableOpacity>
+                </>
+              ) : isDownloadingUpdate ? (
+                <View style={styles.progressContainer}>
+                  <ActivityIndicator size="small" color="#1DB954" style={{ marginRight: 8 }} />
+                  <Text style={styles.progressText}>Downloading update files...</Text>
+                </View>
+              ) : (
+                <>
+                  <TouchableOpacity style={styles.primaryButton} onPress={handleDownloadUpdate}>
+                    <Text style={styles.primaryButtonText}>Update Now</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.secondaryButton} onPress={() => setUpdateAvailable(false)}>
+                    <Text style={styles.secondaryButtonText}>Later</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+            </View>
+          </View>
         </View>
-      )}
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -163,33 +236,96 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#121212",
   },
-  notificationBanner: {
-    position: "absolute",
-    top: Platform.OS === "ios" ? 50 : 20,
-    left: 20,
-    right: 20,
-    backgroundColor: "rgba(18, 18, 18, 0.95)",
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.85)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  modalContent: {
+    backgroundColor: "#181818",
+    borderRadius: 20,
+    padding: 24,
+    alignItems: "center",
+    width: "100%",
+    maxWidth: 340,
     borderWidth: 1,
-    borderColor: "rgba(29, 185, 84, 0.3)",
-    borderRadius: 30,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
+    borderColor: "rgba(255, 255, 255, 0.08)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.5,
+    shadowRadius: 15,
+    elevation: 10,
+  },
+  modalIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: "rgba(29, 185, 84, 0.1)",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  modalTitle: {
+    color: "#ffffff",
+    fontSize: 20,
+    fontWeight: "bold",
+    marginBottom: 12,
+    textAlign: "center",
+  },
+  modalDescription: {
+    color: "rgba(255, 255, 255, 0.7)",
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: "center",
+    marginBottom: 24,
+  },
+  errorText: {
+    color: "#E91E63",
+    fontSize: 12,
+    marginBottom: 16,
+    textAlign: "center",
+  },
+  modalButtonGroup: {
+    width: "100%",
+    gap: 12,
+  },
+  primaryButton: {
+    backgroundColor: "#1DB954",
+    borderRadius: 25,
+    paddingVertical: 14,
+    alignItems: "center",
+    width: "100%",
+  },
+  primaryButtonText: {
+    color: "#000000",
+    fontSize: 15,
+    fontWeight: "bold",
+  },
+  secondaryButton: {
+    backgroundColor: "transparent",
+    borderRadius: 25,
+    paddingVertical: 14,
+    alignItems: "center",
+    width: "100%",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.3)",
+  },
+  secondaryButtonText: {
+    color: "#ffffff",
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  progressContainer: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#1DB954",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 8,
-    zIndex: 1000,
+    paddingVertical: 12,
   },
-  bannerSpinner: {
-    marginRight: 10,
-  },
-  notificationText: {
-    color: "#ffffff",
-    fontSize: 13,
-    fontWeight: "bold",
+  progressText: {
+    color: "#1DB954",
+    fontSize: 14,
+    fontWeight: "600",
   },
 });
