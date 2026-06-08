@@ -1267,7 +1267,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
             <View style={styles.logoBadge}>
               <MaterialCommunityIcons name="music" size={16} color="#000" />
             </View>
-            <Text style={styles.headerLogoText}>Medly</Text>
+            <Text style={styles.headerLogoText}>Medly v1.0.1 (OTA)</Text>
           </View>
 
           <View style={styles.headerRight}>
