@@ -1,10 +1,11 @@
-import { View, Text, StyleSheet, TouchableOpacity, Image, Linking } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, Image, Linking, ActivityIndicator } from 'react-native'
 import React, { useState } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Song, formatDuration } from "../data/songs";
 import { usePlayer } from "../context/PlayerContext";
 import { LikeButton } from "./LikeButton";
 import { AddToPlaylistMenu } from "./AddToPlaylistMenu";
+import { useLibrary } from "../context/LibraryContext";
 
 interface SongRowProps {
   song: Song;
@@ -15,8 +16,11 @@ interface SongRowProps {
 
 export function SongRow({ song, queue, onRequireAuth, fromLibrary }: SongRowProps) {
   const { playSong, currentSong, isPlaying, togglePlay, addToQueue } = usePlayer();
+  const { downloadSong, deleteDownloadedSong, isDownloaded, downloadingIds } = useLibrary();
   const isActive = currentSong?.id === song.id;
   const [queued, setQueued] = useState(false);
+  const downloaded = isDownloaded(song.id);
+  const downloading = downloadingIds.includes(song.id);
 
   const handleClick = () => {
     if (isActive) {
@@ -33,10 +37,12 @@ export function SongRow({ song, queue, onRequireAuth, fromLibrary }: SongRowProp
   };
 
   const handleDownload = () => {
-    const downloadUrl = `https://musicbackend-xg4u.onrender.com/api/downloads/${song.id}/audio`;
-    Linking.openURL(downloadUrl).catch((err: any) => {
-      console.warn("Failed to open download link:", err);
-    });
+    if (downloading) return;
+    if (downloaded) {
+      deleteDownloadedSong(song.id);
+    } else {
+      downloadSong(song);
+    }
   };
 
   return (
@@ -114,12 +120,17 @@ export function SongRow({ song, queue, onRequireAuth, fromLibrary }: SongRowProp
           onPress={handleDownload}
           style={styles.actionButton}
           activeOpacity={0.7}
+          disabled={downloading}
         >
-          <MaterialCommunityIcons
-            name="download"
-            size={18}
-            color="rgba(255,255,255,0.4)"
-          />
+          {downloading ? (
+            <ActivityIndicator size="small" color="#1DB954" />
+          ) : (
+            <MaterialCommunityIcons
+              name={downloaded ? "check-circle" : "download"}
+              size={18}
+              color={downloaded ? "#1DB954" : "rgba(255,255,255,0.4)"}
+            />
+          )}
         </TouchableOpacity>
 
         {/* Add to Playlist Menu */}

@@ -11,6 +11,8 @@ import { supabase as baseSupabase } from "@/lib/supabase/client";
 const supabase = baseSupabase as any;
 import type { Song } from "@/data/songs";
 import { useAuth } from "./AuthContext";
+import { localStorage } from "../lib/storage";
+import * as FileSystem from "expo-file-system";
 
 // ─── Types ────────────────=====================================================
 
@@ -30,6 +32,8 @@ interface LibraryContextType {
   likedSongs: Song[];
   recentlyPlayed: Song[];
   playlists: Playlist[];
+  downloadedSongs: Song[];
+  downloadingIds: string[];
   toggleLike: (song: Song) => Promise<void>;
   isLiked: (songId: string) => boolean;
   addToRecentlyPlayed: (song: Song) => void;
@@ -41,6 +45,9 @@ interface LibraryContextType {
   getPlaylist: (playlistId: string) => Promise<Song[]>;
   loadLikedSongs: () => void;
   loadPlaylists: () => void;
+  downloadSong: (song: Song) => Promise<void>;
+  deleteDownloadedSong: (songId: string) => Promise<void>;
+  isDownloaded: (songId: string) => boolean;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -68,6 +75,89 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const [likedSongs, setLikedSongs]           = useState<Song[]>([]);
   const [recentlyPlayed, setRecentlyPlayed]   = useState<Song[]>([]);
   const [storedPlaylists, setStoredPlaylists] = useState<StoredPlaylist[]>([]);
+  const [downloadedSongs, setDownloadedSongs] = useState<Song[]>([]);
+  const [downloadingIds, setDownloadingIds]   = useState<string[]>([]);
+
+  // Load downloads from localStorage on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("rw_downloads");
+      if (raw) {
+        setDownloadedSongs(JSON.parse(raw));
+      }
+    } catch (err) {
+      console.warn("Failed to load downloaded songs:", err);
+    }
+  }, []);
+
+  const isDownloaded = useCallback(
+    (songId: string) => downloadedSongs.some((s) => s.id === songId),
+    [downloadedSongs]
+  );
+
+  const downloadSong = useCallback(
+    async (song: Song) => {
+      if (downloadedSongs.some((s) => s.id === song.id)) return;
+      setDownloadingIds((prev) => [...prev, song.id]);
+
+      try {
+        const audioUrl = song.audioUrl || `https://musicbackend-xg4u.onrender.com/api/songs/${song.id}/stream`;
+        const audioLocalUri = FileSystem.documentDirectory + song.id + ".mp3";
+
+        // Download audio file
+        const audioResult = await FileSystem.downloadAsync(audioUrl, audioLocalUri);
+
+        // Download album art if present
+        let artLocalUri = "";
+        if (song.albumArt) {
+          try {
+            const artResult = await FileSystem.downloadAsync(
+              song.albumArt,
+              FileSystem.documentDirectory + song.id + "_art.jpg"
+            );
+            artLocalUri = artResult.uri;
+          } catch {
+            // Fallback to online image
+          }
+        }
+
+        const downloadedSong: Song = {
+          ...song,
+          audioUrl: audioResult.uri,
+          albumArt: artLocalUri || song.albumArt,
+        };
+
+        setDownloadedSongs((prev) => {
+          const next = [...prev, downloadedSong];
+          localStorage.setItem("rw_downloads", JSON.stringify(next));
+          return next;
+        });
+      } catch (err) {
+        console.error("Failed to download song:", err);
+      } finally {
+        setDownloadingIds((prev) => prev.filter((id) => id !== song.id));
+      }
+    },
+    [downloadedSongs]
+  );
+
+  const deleteDownloadedSong = useCallback(async (songId: string) => {
+    try {
+      const audioLocalUri = FileSystem.documentDirectory + songId + ".mp3";
+      const artLocalUri = FileSystem.documentDirectory + songId + "_art.jpg";
+
+      await FileSystem.deleteAsync(audioLocalUri, { idempotent: true });
+      await FileSystem.deleteAsync(artLocalUri, { idempotent: true });
+
+      setDownloadedSongs((prev) => {
+        const next = prev.filter((s) => s.id !== songId);
+        localStorage.setItem("rw_downloads", JSON.stringify(next));
+        return next;
+      });
+    } catch (err) {
+      console.error("Failed to delete downloaded song:", err);
+    }
+  }, []);
 
   // ── Load liked songs from Supabase ───────────────────────────────────────────
 
@@ -391,6 +481,8 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         likedSongs,
         recentlyPlayed,
         playlists,
+        downloadedSongs,
+        downloadingIds,
         toggleLike,
         isLiked,
         addToRecentlyPlayed,
@@ -402,6 +494,9 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         getPlaylist,
         loadLikedSongs,
         loadPlaylists,
+        downloadSong,
+        deleteDownloadedSong,
+        isDownloaded,
       }}
     >
       {children}

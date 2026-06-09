@@ -4,6 +4,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { usePlayer } from "../context/PlayerContext";
 import { formatDuration } from "../data/songs";
 import { LikeButton } from "./LikeButton";
+import { useLibrary } from "../context/LibraryContext";
 import { api } from "../services/api";
 import { Video, ResizeMode } from "expo-av";
 
@@ -90,6 +91,10 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
     cycleRepeat,
   } = usePlayer();
 
+  const { downloadSong, deleteDownloadedSong, isDownloaded, downloadingIds } = useLibrary();
+  const downloaded = currentSong ? isDownloaded(currentSong.id) : false;
+  const downloading = currentSong ? downloadingIds.includes(currentSong.id) : false;
+
   const [activeTab, setActiveTab] = useState<TabType>("cover");
   const [lyrics, setLyrics] = useState<string | null>(null);
   const [lyricsLoading, setLyricsLoading] = useState(false);
@@ -160,10 +165,12 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   };
 
   const handleDownload = () => {
-    const downloadUrl = `https://musicbackend-xg4u.onrender.com/api/downloads/${currentSong.id}/audio`;
-    Linking.openURL(downloadUrl).catch((err: any) => {
-      console.warn("Failed to open download link:", err);
-    });
+    if (!currentSong || downloading) return;
+    if (downloaded) {
+      deleteDownloadedSong(currentSong.id);
+    } else {
+      downloadSong(currentSong);
+    }
   };
 
   const handleProgressBarPress = (event: any) => {
@@ -342,8 +349,21 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             </View>
 
             <View style={styles.metaActions}>
-              <TouchableOpacity onPress={handleDownload} style={styles.metaButton} activeOpacity={0.7}>
-                <MaterialCommunityIcons name="download" size={20} color="#fff" />
+              <TouchableOpacity
+                onPress={handleDownload}
+                style={styles.metaButton}
+                activeOpacity={0.7}
+                disabled={downloading}
+              >
+                {downloading ? (
+                  <ActivityIndicator size="small" color="#1DB954" />
+                ) : (
+                  <MaterialCommunityIcons
+                    name={downloaded ? "check-circle" : "download"}
+                    size={20}
+                    color={downloaded ? "#1DB954" : "#fff"}
+                  />
+                )}
               </TouchableOpacity>
 
               <View style={styles.metaLikeWrapper}>

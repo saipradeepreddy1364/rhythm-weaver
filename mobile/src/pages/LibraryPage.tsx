@@ -10,7 +10,7 @@ import { AuthModal } from "../components/AuthModal";
 import { localStorage, sessionStorage } from "../lib/storage";
 import type { Song } from "../data/songs";
 
-type Tab = "liked" | "playlists" | "recent" | { type: "playlist"; id: string };
+type Tab = "liked" | "playlists" | "recent" | "downloads" | { type: "playlist"; id: string };
 
 interface LibraryPageProps {
   onRequireAuth: () => void;
@@ -28,6 +28,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
     getPlaylist,
     loadLikedSongs,
     loadPlaylists,
+    downloadedSongs,
   } = useLibrary();
   const { playSong } = usePlayer();
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -47,6 +48,24 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
       loadPlaylists();
     }
   }, [user]);
+
+  // Check connectivity on mount. Default to downloads if offline.
+  useEffect(() => {
+    const checkConn = async () => {
+      try {
+        const res = await Promise.race([
+          fetch("https://musicbackend-xg4u.onrender.com/api/charts"),
+          new Promise<null>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1500))
+        ]);
+        if (!res || !res.ok) {
+          setTab("downloads");
+        }
+      } catch {
+        setTab("downloads");
+      }
+    };
+    checkConn();
+  }, []);
 
   const recentFiltered = recentlyPlayed;
 
@@ -227,7 +246,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
           activeOpacity={0.7}
         >
           <Text style={[styles.tabBtnText, activeTabStr === "liked" && styles.activeTabBtnText]}>
-            Liked Songs
+            Liked
           </Text>
         </TouchableOpacity>
 
@@ -238,6 +257,16 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
         >
           <Text style={[styles.tabBtnText, activeTabStr === "playlists" && styles.activeTabBtnText]}>
             Playlists
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          onPress={() => setTab("downloads")}
+          style={[styles.tabBtn, activeTabStr === "downloads" && styles.activeTabBtn]}
+          activeOpacity={0.7}
+        >
+          <Text style={[styles.tabBtnText, activeTabStr === "downloads" && styles.activeTabBtnText]}>
+            Downloads
           </Text>
         </TouchableOpacity>
 
@@ -396,6 +425,29 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                   </View>
                 );
               })
+            )}
+          </View>
+        )}
+
+        {/* Tab content: Downloads */}
+        {activeTabStr === "downloads" && (
+          <View style={{ paddingBottom: 60 }}>
+            {downloadedSongs.length === 0 ? (
+              <LibraryEmpty
+                icon="download-outline"
+                title="No downloaded songs yet"
+                subtitle="Tap the download icon on any song to listen offline."
+              />
+            ) : (
+              downloadedSongs.map((song) => (
+                <SongRow
+                  key={song.id}
+                  song={song}
+                  queue={downloadedSongs}
+                  onRequireAuth={handleRequireAuth}
+                  fromLibrary={true}
+                />
+              ))
             )}
           </View>
         )}

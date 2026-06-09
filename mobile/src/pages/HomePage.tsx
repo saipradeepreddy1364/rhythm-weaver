@@ -3,11 +3,12 @@ import React, { useEffect, useState, useRef } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Song, mapApiSong } from "../data/songs";
 import { api, extractResults } from "../services/api";
-import { SongRow } from "../components/SongRow";
-import { usePlayer } from "../context/PlayerContext";
 import { useAuth } from "../context/AuthContext";
-import { useLibrary } from "../context/LibraryContext";
+import { useLibrary, Playlist } from "../context/LibraryContext";
+import { usePlayer } from "../context/PlayerContext";
+import { SongRow } from "../components/SongRow";
 import { AuthModal } from "../components/AuthModal";
+import { useNavigation } from "@react-navigation/native";
 import { MiniPlayer } from "../components/MiniPlayer";
 import { localStorage, sessionStorage } from "../lib/storage";
 
@@ -1194,6 +1195,26 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
 
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showUserMenu, setShowUserMenu]   = useState(false);
+  const navigation: any                   = useNavigation();
+  const [isOffline, setIsOffline]         = useState(false);
+
+  // Check connectivity on mount
+  useEffect(() => {
+    const checkConnectivity = async () => {
+      try {
+        const res = await Promise.race([
+          fetch("https://musicbackend-xg4u.onrender.com/api/charts"),
+          new Promise<null>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1500))
+        ]);
+        if (!res || !res.ok) {
+          setIsOffline(true);
+        }
+      } catch {
+        setIsOffline(true);
+      }
+    };
+    checkConnectivity();
+  }, []);
 
   const [sections,     setSections]     = useState<SectionData[]>(() => homePagePrefetcher.sections);
   const [filmAlbums,   setFilmAlbums]   = useState<AlbumData[]>  (() => homePagePrefetcher.filmAlbums);
@@ -1260,6 +1281,25 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
     if (pool.length === 0) return [];
     return seededShuffle(pool, minuteTick).slice(0, 12);
   })();
+
+  if (isOffline) {
+    return (
+      <View style={[styles.container, modalStyles.offlineContainer]}>
+        <MaterialCommunityIcons name="cloud-off-outline" size={64} color="#1DB954" style={{ marginBottom: 16 }} />
+        <Text style={modalStyles.offlineTitle}>You are offline</Text>
+        <Text style={modalStyles.offlineDescription}>
+          Connect to the internet to stream songs, or listen to your downloaded music offline.
+        </Text>
+        <TouchableOpacity
+          style={modalStyles.offlineBtn}
+          onPress={() => navigation.navigate("Library" as any)}
+          activeOpacity={0.8}
+        >
+          <Text style={modalStyles.offlineBtnText}>Go to Downloads</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -1994,5 +2034,36 @@ const modalStyles = StyleSheet.create({
   fetchingMoreText: {
     fontSize: 11,
     color: "rgba(255,255,255,0.4)",
+  },
+  offlineContainer: {
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 32,
+    flex: 1,
+    backgroundColor: "#121212",
+  },
+  offlineTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#fff",
+    marginBottom: 8,
+  },
+  offlineDescription: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.5)",
+    textAlign: "center",
+    lineHeight: 18,
+    marginBottom: 24,
+  },
+  offlineBtn: {
+    backgroundColor: "#1DB954",
+    paddingHorizontal: 28,
+    paddingVertical: 12,
+    borderRadius: 24,
+  },
+  offlineBtnText: {
+    fontSize: 13,
+    fontWeight: "bold",
+    color: "#000",
   },
 });

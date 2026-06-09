@@ -20,6 +20,78 @@ import TrackPlayer, {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Song, mapApiSong } from "../data/songs";
 import { api } from "../services/api";
+import { localStorage } from "../lib/storage";
+
+// ─── Playback History & Offline Helpers ──────────────────────────────────────
+const RECENT_LIMIT_MS = 6 * 60 * 60 * 1000; // 6 hours
+
+function getPlaybackHistory(): any[] {
+  try {
+    const raw = localStorage.getItem("rw_playback_history");
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function logPlayback(song: Song) {
+  if (!song || !song.id) return;
+  try {
+    const history = getPlaybackHistory();
+    const now = Date.now();
+    const filtered = history.filter((h) => now - h.timestamp < RECENT_LIMIT_MS);
+    
+    if (!filtered.some((h) => h.id === song.id)) {
+      filtered.push({
+        id: song.id,
+        title: song.title,
+        artist: song.artist,
+        timestamp: now,
+      });
+      localStorage.setItem("rw_playback_history", JSON.stringify(filtered));
+    }
+  } catch (err) {
+    console.warn("Failed to log playback history:", err);
+  }
+}
+
+function filterQueueByHistory(song: Song, songQueue: Song[]): Song[] {
+  const history = getPlaybackHistory();
+  const now = Date.now();
+  const activeHistory = history.filter((h) => now - h.timestamp < RECENT_LIMIT_MS);
+  
+  const recentIds = new Set<string>();
+  const recentTitles = new Set<string>();
+  activeHistory.forEach((h) => {
+    recentIds.add(h.id);
+    if (h.title) recentTitles.add(h.title.toLowerCase().trim());
+  });
+  
+  return songQueue.filter((s) => {
+    if (s.id === song.id) return true;
+    if (recentIds.has(s.id)) return false;
+    if (s.title && recentTitles.has(s.title.toLowerCase().trim())) return false;
+    return true;
+  });
+}
+
+function resolveTrack(s: Song) {
+  let downloadedList: any[] = [];
+  try {
+    const raw = localStorage.getItem("rw_downloads");
+    if (raw) downloadedList = JSON.parse(raw);
+  } catch {}
+  
+  const downloaded = downloadedList.find((d) => d.id === s.id);
+  return {
+    id: s.id,
+    url: downloaded?.audioUrl || s.audioUrl || `https://musicbackend-xg4u.onrender.com/api/songs/${s.id}/stream`,
+    title: s.title,
+    artist: s.artist,
+    album: s.album || s.movie || "",
+    artwork: downloaded?.albumArt || s.albumArt || "",
+  };
+}
 
 interface PlayerContextType {
   currentSong: Song | null;
@@ -128,14 +200,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       const matched = queueRef.current.find(s => s.id === activeTrack.id);
       if (matched) {
         setCurrentSong(matched);
+        logPlayback(matched);
       } else {
-        setCurrentSong({
+        const newTrack = {
           id: activeTrack.id,
           title: activeTrack.title || "",
           artist: activeTrack.artist || "",
           audioUrl: activeTrack.url,
           albumArt: activeTrack.artwork,
-        } as any);
+        } as any;
+        setCurrentSong(newTrack);
+        logPlayback(newTrack);
       }
     } else {
       setCurrentSong(null);
@@ -173,7 +248,26 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         .filter((s: any): s is Song => !!s && !!s.id);
 
       const existingIds = new Set(queueRef.current.map((s) => s.id));
-      return songs.filter((s) => !existingIds.has(s.id)).slice(0, 20);
+      const filtered = songs.filter((s) => !existingIds.has(s.id));
+
+      const history = getPlaybackHistory();
+      const now = Date.now();
+      const activeHistory = history.filter((h) => now - h.timestamp < RECENT_LIMIT_MS);
+
+      const recentIds = new Set<string>();
+      const recentTitles = new Set<string>();
+      activeHistory.forEach((h) => {
+        recentIds.add(h.id);
+        if (h.title) recentTitles.add(h.title.toLowerCase().trim());
+      });
+
+      return filtered
+        .filter((s) => {
+          if (recentIds.has(s.id)) return false;
+          if (s.title && recentTitles.has(s.title.toLowerCase().trim())) return false;
+          return true;
+        })
+        .slice(0, 20);
     } catch (err) {
       console.warn("[PlayerContext] Radio fetch failed:", err);
       return [];
@@ -213,14 +307,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             setQueue(newQ);
 
             // Add new tracks to TrackPlayer
-            const tracksToAdd = radioSongs.map((s) => ({
-              id: s.id,
-              url: s.audioUrl || "",
-              title: s.title,
-              artist: s.artist,
-              album: s.album || s.movie || "",
-              artwork: s.albumArt || "",
-            }));
+            const tracksToAdd = radioSongs.map((s) => resolveTrack(s));
             await TrackPlayer.add(tracksToAdd);
             await TrackPlayer.skip(queueRef.current.length);
             await TrackPlayer.play();
@@ -240,17 +327,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
       let q = songQueue || [song];
 
-      // Deduplicate queue by song ID, keeping the first occurrence
-      const seen = new Set<string>();
-      q = q.filter((s) => {
-        if (!s.id) return false;
-        if (seen.has(s.id)) return false;
-        seen.add(s.id);
-        return true;
-      });
+      // Filter out songs played in the last 6 hours (except selected song itself)
+      q = filterQueueByHistory(song, q);
 
-      // Ensure the selected song is present in the deduplicated queue
-      if (!seen.has(song.id)) {
+      // Ensure the selected song is present in the queue
+      if (!q.some((s) => s.id === song.id)) {
         q = [song, ...q];
       }
 
@@ -263,14 +344,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
       try {
         await TrackPlayer.reset();
-        const tracks = q.map((s) => ({
-          id: s.id,
-          url: s.audioUrl || "",
-          title: s.title,
-          artist: s.artist,
-          album: s.album || s.movie || "",
-          artwork: s.albumArt || "",
-        }));
+        const tracks = q.map((s) => resolveTrack(s));
         await TrackPlayer.add(tracks);
         await TrackPlayer.skip(safeIdx);
         await TrackPlayer.play();
@@ -343,14 +417,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
         try {
           await TrackPlayer.reset();
-          const tracks = newQ.map((s) => ({
-            id: s.id,
-            url: s.audioUrl || "",
-            title: s.title,
-            artist: s.artist,
-            album: s.album || s.movie || "",
-            artwork: s.albumArt || "",
-          }));
+          const tracks = newQ.map((s) => resolveTrack(s));
           await TrackPlayer.add(tracks);
           await TrackPlayer.play();
         } catch {}
@@ -364,14 +431,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
         try {
           await TrackPlayer.reset();
-          const tracks = originalQueue.map((s) => ({
-            id: s.id,
-            url: s.audioUrl || "",
-            title: s.title,
-            artist: s.artist,
-            album: s.album || s.movie || "",
-            artwork: s.albumArt || "",
-          }));
+          const tracks = originalQueue.map((s) => resolveTrack(s));
           await TrackPlayer.add(tracks);
           await TrackPlayer.skip(safeIdx);
           await TrackPlayer.play();
@@ -406,14 +466,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       if (prev.some((s) => s.id === song.id)) return prev;
       const newQ = [...prev, song];
 
-      TrackPlayer.add({
-        id: song.id,
-        url: song.audioUrl || "",
-        title: song.title,
-        artist: song.artist,
-        album: song.album || song.movie || "",
-        artwork: song.albumArt || "",
-      }).catch(() => {});
+      TrackPlayer.add(resolveTrack(song)).catch(() => {});
 
       return newQ;
     });
