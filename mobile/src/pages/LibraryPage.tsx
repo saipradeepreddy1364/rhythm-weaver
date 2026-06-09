@@ -54,10 +54,10 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
     const checkConn = async () => {
       try {
         const res = await Promise.race([
-          fetch("https://musicbackend-xg4u.onrender.com/api/charts"),
-          new Promise<null>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1500))
+          fetch("https://clients3.google.com/generate_204"),
+          new Promise<null>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
         ]);
-        if (!res || !res.ok) {
+        if (!res || res.status !== 204) {
           setTab("downloads");
         }
       } catch {
