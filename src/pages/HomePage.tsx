@@ -583,11 +583,11 @@ async function fetchAllMovieSongs(query: string, albumTitle: string): Promise<So
 async function fetchCurrentYearFilmAlbums(unmountedRef: React.RefObject<boolean>): Promise<AlbumData[]> {
   const seen = new Set<string>();
   const albums: AlbumData[] = [];
-  const queries = seededShuffle(FILM_DISCOVERY_QUERIES_POOL, todaysSeed()).slice(0, 15);
+  const queries = seededShuffle(FILM_DISCOVERY_QUERIES_POOL, todaysSeed()).slice(0, 8);
 
   const results = await Promise.allSettled(
     queries.map((q) =>
-      api.searchSongs(q, 1, 50).then((res) =>
+      api.searchSongs(q, 1, 20).then((res) =>
         extractResults(res).map(mapApiSong).map(cleanSong).filter((s) => Boolean(s.audioUrl))
       )
     )
@@ -638,9 +638,12 @@ async function loadArtistAlbums(
   const artistMap = new Map<string, { songs: Song[]; coverArt: string }>();
   const songSeen  = new Set<string>();
 
+  // Slice popular artists using today's seed to keep it fresh but light on boot
+  const queries = seededShuffle(ARTIST_DISCOVERY_QUERIES, todaysSeed()).slice(0, 8);
+
   const discoveryResults = await Promise.allSettled(
-    ARTIST_DISCOVERY_QUERIES.map((q) =>
-      api.searchSongs(q, 1, 50).then((res) =>
+    queries.map((q) =>
+      api.searchSongs(q, 1, 20).then((res) =>
         extractResults(res).map(mapApiSong).map(cleanSong).filter((s) => Boolean(s.audioUrl))
       )
     )
@@ -1331,7 +1334,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
           albums={filmAlbums}
           loading={albumsLoading}
           onOpen={handleOpenAlbum}
-          showCount={true}
+          showCount={false}
         />
 
         {/* Popular Artists */}
@@ -1430,6 +1433,10 @@ class HomePagePrefetcher {
   }
 
   private async _boot() {
+    if (typeof (localStorage as any).ensureInitialized === "function") {
+      await (localStorage as any).ensureInitialized();
+    }
+
     const secCached = cacheGetWithAge<SectionData[]>(this.secKey);
     const albCached = cacheGetWithAge<{ film: AlbumData[]; artist: AlbumData[] }>(this.albKey);
 
@@ -1460,7 +1467,7 @@ class HomePagePrefetcher {
       this._sections.forEach(s => s.songs.forEach(song => song.id && seen.add(song.id)));
 
       const allResults = await Promise.all(
-        SECTION_DEFS.map(({ pool, seed }) => fetchSection(pickQuery(pool, seed), 50))
+        SECTION_DEFS.map(({ pool, seed }) => fetchSection(pickQuery(pool, seed), 20))
       );
 
       let updated: SectionData[] = [...this._sections];

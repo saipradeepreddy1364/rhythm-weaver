@@ -3,9 +3,15 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 class MemoryStorage {
   private cache: Record<string, string> = {};
   private initialized = false;
+  private initPromise: Promise<void>;
 
   constructor() {
-    this.init();
+    this.initPromise = this.init();
+  }
+
+  async ensureInitialized(): Promise<void> {
+    if (this.initialized) return;
+    await this.initPromise;
   }
 
   private async init() {

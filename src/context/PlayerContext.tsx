@@ -239,6 +239,21 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       radioFetchingRef.current = false;
 
       let q = songQueue || [song];
+
+      // Deduplicate queue by song ID, keeping the first occurrence
+      const seen = new Set<string>();
+      q = q.filter((s) => {
+        if (!s.id) return false;
+        if (seen.has(s.id)) return false;
+        seen.add(s.id);
+        return true;
+      });
+
+      // Ensure the selected song is present in the deduplicated queue
+      if (!seen.has(song.id)) {
+        q = [song, ...q];
+      }
+
       const idx = q.findIndex((s) => s.id === song.id);
       const safeIdx = idx >= 0 ? idx : 0;
 
