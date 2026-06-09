@@ -730,12 +730,27 @@ function AlbumModal({
   onRequireAuth: () => void;
 }) {
   const { playSong }                  = usePlayer();
-  const [songs, setSongs]             = useState<Song[]>(album.songs);
+  const [songs, setSongs]             = useState<Song[]>(() => {
+    const seen = new Set<string>();
+    return album.songs.filter(s => {
+      const tKey = s.title.toLowerCase().trim();
+      if (seen.has(tKey)) return false;
+      seen.add(tKey);
+      return true;
+    });
+  });
   const [loadingMore, setLoadingMore] = useState(!album.fullyLoaded);
 
   useEffect(() => {
     if (album.fullyLoaded) {
-      setSongs(album.songs);
+      const seen = new Set<string>();
+      const dedupped = album.songs.filter(s => {
+        const tKey = s.title.toLowerCase().trim();
+        if (seen.has(tKey)) return false;
+        seen.add(tKey);
+        return true;
+      });
+      setSongs(dedupped);
       setLoadingMore(false);
       return;
     }
@@ -757,8 +772,18 @@ function AlbumModal({
         `${name} songs collection`, `${name} superhit songs`,
         `${name} melody songs`, `${name} romantic songs`, `${name} sad songs`,
       ];
-      const seen = new Set<string>(album.songs.map((s) => s.id));
-      let accumulated = [...album.songs];
+      const seenIds = new Set<string>();
+      const seenTitles = new Set<string>();
+      const initialDedupped: Song[] = [];
+      for (const s of album.songs) {
+        const tKey = s.title.toLowerCase().trim();
+        if (!seenTitles.has(tKey)) {
+          seenTitles.add(tKey);
+          if (s.id) seenIds.add(s.id);
+          initialDedupped.push(s);
+        }
+      }
+      let accumulated = [...initialDedupped];
 
       (async () => {
         for (const query of queries) {
@@ -770,8 +795,17 @@ function AlbumModal({
               const res   = await api.searchSongs(query, pg, 50);
               const items = extractResults(res);
               if (items.length === 0) break;
-              const newSongs = items.map(mapApiSong).filter((s: Song) => s.audioUrl && s.id && !seen.has(s.id));
-              for (const s of newSongs) { seen.add(s.id); accumulated = [...accumulated, s]; }
+              const newSongs = items.map(mapApiSong).filter((s: Song) => {
+                if (!s.audioUrl || !s.id) return false;
+                const tKey = s.title.toLowerCase().trim();
+                if (seenIds.has(s.id) || seenTitles.has(tKey)) return false;
+                return true;
+              });
+              for (const s of newSongs) {
+                seenIds.add(s.id);
+                seenTitles.add(s.title.toLowerCase().trim());
+                accumulated.push(s);
+              }
               if (newSongs.length > 0 && !controller.signal.aborted) setSongs([...accumulated]);
               if (items.length < 50) break;
             }
@@ -783,7 +817,14 @@ function AlbumModal({
       fetchAllMovieSongs(albumQuery, album.title)
         .then((fetched) => {
           if (!controller.signal.aborted) {
-            if (fetched.length > 0) setSongs(fetched);
+            const seen = new Set<string>();
+            const dedupped = fetched.filter(s => {
+              const tKey = s.title.toLowerCase().trim();
+              if (seen.has(tKey)) return false;
+              seen.add(tKey);
+              return true;
+            });
+            if (dedupped.length > 0) setSongs(dedupped);
             setLoadingMore(false);
           }
         })
@@ -802,88 +843,86 @@ function AlbumModal({
     "Album";
 
   return (
-    <Modal visible={true} animationType="slide" onRequestClose={onClose}>
-      <View style={modalStyles.container}>
-        {album.coverArt && (
-          <Image
-            source={{ uri: album.coverArt }}
-            style={modalStyles.backgroundImage}
-            blurRadius={20}
-            resizeMode="cover"
-          />
-        )}
-        <View style={modalStyles.overlay} />
+    <View style={modalStyles.container}>
+      {album.coverArt && (
+        <Image
+          source={{ uri: album.coverArt }}
+          style={modalStyles.backgroundImage}
+          blurRadius={20}
+          resizeMode="cover"
+        />
+      )}
+      <View style={modalStyles.overlay} />
 
-        <View style={modalStyles.content}>
-          {/* Header */}
-          <View style={modalStyles.header}>
-            <TouchableOpacity onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
-              <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
+      <View style={modalStyles.content}>
+        {/* Header */}
+        <View style={modalStyles.header}>
+          <TouchableOpacity onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
+            <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
+          </TouchableOpacity>
+
+          <View style={modalStyles.headerMeta}>
+            <Text style={modalStyles.headerTitle} numberOfLines={1}>{album.title}</Text>
+            <Text style={modalStyles.headerSubtitle} numberOfLines={1}>
+              {typeLabel} · {songs.length} songs
+            </Text>
+          </View>
+
+          {songs.length > 0 ? (
+            <TouchableOpacity
+              onPress={() => playSong(songs[0], songs)}
+              style={modalStyles.playBtn}
+              activeOpacity={0.8}
+            >
+              <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
             </TouchableOpacity>
+          ) : null}
+        </View>
 
-            <View style={modalStyles.headerMeta}>
-              <Text style={modalStyles.headerTitle} numberOfLines={1}>{album.title}</Text>
-              <Text style={modalStyles.headerSubtitle} numberOfLines={1}>
-                {typeLabel} · {songs.length} songs
+        {/* Large cover art */}
+        <View style={modalStyles.coverWrapper}>
+          {album.coverArt ? (
+            <Image source={{ uri: album.coverArt }} style={modalStyles.coverImage} resizeMode="cover" />
+          ) : (
+            <View style={[modalStyles.coverImage, modalStyles.coverPlaceholder]}>
+              <MaterialCommunityIcons name="disc" size={80} color="rgba(255,255,255,0.2)" />
+            </View>
+          )}
+        </View>
+
+        {/* Songs scroll */}
+        <ScrollView style={modalStyles.songsScroll} contentContainerStyle={modalStyles.songsScrollContent}>
+          {loadingMore && songs.length === 0 ? (
+            <View style={modalStyles.centerLoading}>
+              <ActivityIndicator size="large" color="#1DB954" />
+              <Text style={modalStyles.loadingText}>
+                {albumType === "artist" ? "Loading full discography…" : "Loading songs…"}
               </Text>
             </View>
+          ) : (
+            <View style={{ paddingBottom: 60 }}>
+              {songs.map((song) => (
+                <SongRow
+                  key={song.id}
+                  song={song}
+                  queue={songs}
+                  onRequireAuth={onRequireAuth}
+                />
+              ))}
 
-            {songs.length > 0 ? (
-              <TouchableOpacity
-                onPress={() => playSong(songs[0], songs)}
-                style={modalStyles.playBtn}
-                activeOpacity={0.8}
-              >
-                <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
-              </TouchableOpacity>
-            ) : null}
-          </View>
-
-          {/* Large cover art */}
-          <View style={modalStyles.coverWrapper}>
-            {album.coverArt ? (
-              <Image source={{ uri: album.coverArt }} style={modalStyles.coverImage} resizeMode="cover" />
-            ) : (
-              <View style={[modalStyles.coverImage, modalStyles.coverPlaceholder]}>
-                <MaterialCommunityIcons name="disc" size={80} color="rgba(255,255,255,0.2)" />
-              </View>
-            )}
-          </View>
-
-          {/* Songs scroll */}
-          <ScrollView style={modalStyles.songsScroll} contentContainerStyle={modalStyles.songsScrollContent}>
-            {loadingMore && songs.length === 0 ? (
-              <View style={modalStyles.centerLoading}>
-                <ActivityIndicator size="large" color="#1DB954" />
-                <Text style={modalStyles.loadingText}>
-                  {albumType === "artist" ? "Loading full discography…" : "Loading songs…"}
-                </Text>
-              </View>
-            ) : (
-              <View style={{ paddingBottom: 60 }}>
-                {songs.map((song) => (
-                  <SongRow
-                    key={song.id}
-                    song={song}
-                    queue={songs}
-                    onRequireAuth={onRequireAuth}
-                  />
-                ))}
-
-                {loadingMore && songs.length > 0 ? (
-                  <View style={modalStyles.fetchingMoreRow}>
-                    <ActivityIndicator size="small" color="#1DB954" />
-                    <Text style={modalStyles.fetchingMoreText}>
-                      Fetching more songs… ({songs.length} so far)
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
-            )}
-          </ScrollView>
-        </View>
+              {loadingMore && songs.length > 0 ? (
+                <View style={modalStyles.fetchingMoreRow}>
+                  <ActivityIndicator size="small" color="#1DB954" />
+                  <Text style={modalStyles.fetchingMoreText}>
+                    Fetching more songs… ({songs.length} so far)
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          )}
+        </ScrollView>
       </View>
-    </Modal>
+    </View>
   );
 }
 
@@ -925,90 +964,88 @@ function LanguageCategoryModal({
   const displaySongs = activeTab === "All" ? allSongs : subSongs[activeTab] || [];
 
   return (
-    <Modal visible={true} animationType="slide" onRequestClose={onClose}>
-      <View style={modalStyles.container}>
-        <View style={[modalStyles.overlay, { backgroundColor: "rgba(29, 185, 84, 0.12)" }]} />
-        <View style={modalStyles.overlay} />
+    <View style={modalStyles.container}>
+      <View style={[modalStyles.overlay, { backgroundColor: "rgba(29, 185, 84, 0.12)" }]} />
+      <View style={modalStyles.overlay} />
 
-        <View style={modalStyles.content}>
-          {/* Header */}
-          <View style={modalStyles.header}>
-            <TouchableOpacity onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
-              <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
-            </TouchableOpacity>
+      <View style={modalStyles.content}>
+        {/* Header */}
+        <View style={modalStyles.header}>
+          <TouchableOpacity onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
+            <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
+          </TouchableOpacity>
 
-            <View style={modalStyles.headerMeta}>
-              <Text style={modalStyles.headerTitle}>{label} Music</Text>
-              <Text style={modalStyles.headerSubtitle}>
-                {loading ? "Loading…" : `${allSongs.length}+ songs`}
-              </Text>
-            </View>
-
-            {displaySongs.length > 0 ? (
-              <TouchableOpacity
-                onPress={() => playSong(displaySongs[0], displaySongs)}
-                style={modalStyles.playBtn}
-                activeOpacity={0.8}
-              >
-                <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
-              </TouchableOpacity>
-            ) : null}
+          <View style={modalStyles.headerMeta}>
+            <Text style={modalStyles.headerTitle}>{label} Music</Text>
+            <Text style={modalStyles.headerSubtitle}>
+              {loading ? "Loading…" : `${allSongs.length}+ songs`}
+            </Text>
           </View>
 
-          {/* Horizontal scroll tabs */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.tabsScroll}
-            contentContainerStyle={styles.tabsScrollContent}
-          >
-            {tabs.map((tab) => {
-              const isActive = activeTab === tab;
-              const count = tab === "All" ? allSongs.length : (subSongs[tab]?.length || 0);
-
-              return (
-                <TouchableOpacity
-                  key={tab}
-                  onPress={() => setActiveTab(tab)}
-                  style={[styles.langTab, isActive && styles.activeLangTab]}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.langTabText, isActive && styles.activeLangTabText]}>
-                    {tab} {count > 0 ? `(${count})` : ""}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-
-          {/* Songs list */}
-          <ScrollView style={modalStyles.songsScroll} contentContainerStyle={modalStyles.songsScrollContent}>
-            {loading && displaySongs.length === 0 ? (
-              <View style={modalStyles.centerLoading}>
-                <ActivityIndicator size="large" color="#1DB954" />
-                <Text style={modalStyles.loadingText}>Loading {label} songs…</Text>
-              </View>
-            ) : activeTab !== "All" && !subSongs[activeTab] ? (
-              <View style={modalStyles.centerLoading}>
-                <ActivityIndicator size="large" color="#1DB954" />
-                <Text style={modalStyles.loadingText}>Loading {activeTab} songs…</Text>
-              </View>
-            ) : (
-              <View style={{ paddingBottom: 60 }}>
-                {displaySongs.map((song) => (
-                  <SongRow
-                    key={song.id}
-                    song={song}
-                    queue={displaySongs}
-                    onRequireAuth={onRequireAuth}
-                  />
-                ))}
-              </View>
-            )}
-          </ScrollView>
+          {displaySongs.length > 0 ? (
+            <TouchableOpacity
+              onPress={() => playSong(displaySongs[0], displaySongs)}
+              style={modalStyles.playBtn}
+              activeOpacity={0.8}
+            >
+              <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
+            </TouchableOpacity>
+          ) : null}
         </View>
+
+        {/* Horizontal scroll tabs */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.tabsScroll}
+          contentContainerStyle={styles.tabsScrollContent}
+        >
+          {tabs.map((tab) => {
+            const isActive = activeTab === tab;
+            const count = tab === "All" ? allSongs.length : (subSongs[tab]?.length || 0);
+
+            return (
+              <TouchableOpacity
+                key={tab}
+                onPress={() => setActiveTab(tab)}
+                style={[styles.langTab, isActive && styles.activeLangTab]}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.langTabText, isActive && styles.activeLangTabText]}>
+                  {tab} {count > 0 ? `(${count})` : ""}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
+        {/* Songs list */}
+        <ScrollView style={modalStyles.songsScroll} contentContainerStyle={modalStyles.songsScrollContent}>
+          {loading && displaySongs.length === 0 ? (
+            <View style={modalStyles.centerLoading}>
+              <ActivityIndicator size="large" color="#1DB954" />
+              <Text style={modalStyles.loadingText}>Loading {label} songs…</Text>
+            </View>
+          ) : activeTab !== "All" && !subSongs[activeTab] ? (
+            <View style={modalStyles.centerLoading}>
+              <ActivityIndicator size="large" color="#1DB954" />
+              <Text style={modalStyles.loadingText}>Loading {activeTab} songs…</Text>
+            </View>
+          ) : (
+            <View style={{ paddingBottom: 60 }}>
+              {displaySongs.map((song) => (
+                <SongRow
+                  key={song.id}
+                  song={song}
+                  queue={displaySongs}
+                  onRequireAuth={onRequireAuth}
+                />
+              ))}
+            </View>
+          )}
+        </ScrollView>
       </View>
-    </Modal>
+    </View>
   );
 }
 
@@ -1198,15 +1235,17 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
   const navigation: any                   = useNavigation();
   const [isOffline, setIsOffline]         = useState(false);
 
-  // Check connectivity on mount
+  // Check connectivity periodically
   useEffect(() => {
     const checkConnectivity = async () => {
       try {
         const res = await Promise.race([
           fetch("https://clients3.google.com/generate_204"),
-          new Promise<null>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
+          new Promise<null>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 4000))
         ]);
-        if (!res || res.status !== 204) {
+        if (res && res.status === 204) {
+          setIsOffline(false);
+        } else {
           setIsOffline(true);
         }
       } catch {
@@ -1214,6 +1253,8 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
       }
     };
     checkConnectivity();
+    const intervalId = setInterval(checkConnectivity, 5000);
+    return () => clearInterval(intervalId);
   }, []);
 
   const [sections,     setSections]     = useState<SectionData[]>(() => homePagePrefetcher.sections);
@@ -1272,7 +1313,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
 
   const [minuteTick, setMinuteTick] = useState(oneMinSeed());
   useEffect(() => {
-    const id = setInterval(() => setMinuteTick(oneMinSeed()), 60_000);
+    const id = setInterval(() => setMinuteTick(prev => prev + 1), 60_000);
     return () => clearInterval(id);
   }, []);
 
@@ -1310,7 +1351,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
             <View style={styles.logoBadge}>
               <MaterialCommunityIcons name="music" size={16} color="#000" />
             </View>
-            <Text style={styles.headerLogoText}>Audora v1.0.1</Text>
+            <Text style={styles.headerLogoText}>Medley</Text>
           </View>
 
           <View style={styles.headerRight}>
@@ -1936,8 +1977,9 @@ const styles = StyleSheet.create({
 
 const modalStyles = StyleSheet.create({
   container: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: "#0d0d0d",
+    zIndex: 100,
   },
   backgroundImage: {
     ...StyleSheet.absoluteFillObject,

@@ -176,8 +176,8 @@ function AppContent() {
               {updateDownloaded 
                 ? "The update has been successfully downloaded and is ready to install. Restart the app now to apply the changes."
                 : isDownloadingUpdate 
-                  ? "We are fetching the latest update for Audora. This will only take a moment. Please keep the app open."
-                  : "A new version of Audora is available with performance improvements and new features. Would you like to update now?"}
+                  ? "We are fetching the latest update for Medley. This will only take a moment. Please keep the app open."
+                  : "A new version of Medley is available with performance improvements and new features. Would you like to update now?"}
             </Text>
 
             {updateError && (
@@ -217,7 +217,25 @@ function AppContent() {
   );
 }
 
+import { localStorage } from "./src/lib/storage";
+
 export default function App() {
+  const [storageReady, setStorageReady] = useState(false);
+
+  useEffect(() => {
+    localStorage.ensureInitialized().then(() => {
+      setStorageReady(true);
+    });
+  }, []);
+
+  if (!storageReady) {
+    return (
+      <View style={{ flex: 1, backgroundColor: "#121212", justifyContent: "center", alignItems: "center" }}>
+        <ActivityIndicator size="large" color="#1DB954" />
+      </View>
+    );
+  }
+
   return (
     <PaperProvider>
       <AuthProvider>

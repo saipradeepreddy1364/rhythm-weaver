@@ -5,19 +5,12 @@ import { usePlayer } from "../context/PlayerContext";
 import { formatDuration } from "../data/songs";
 import { LikeButton } from "./LikeButton";
 import { useLibrary } from "../context/LibraryContext";
-import { api } from "../services/api";
-import { Video, ResizeMode } from "expo-av";
 
 interface FullPlayerProps {
   onRequireAuth?: () => void;
 }
 
-type TabType = "cover" | "lyrics" | "video";
-
-interface VideoStream {
-  quality: string;
-  url: string;
-}
+type TabType = "cover" | "lyrics";
 
 // Clean lyrics utility matching web app regex cleaning
 function cleanLyricsHtml(raw: string): string {
@@ -98,10 +91,6 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   const [activeTab, setActiveTab] = useState<TabType>("cover");
   const [lyrics, setLyrics] = useState<string | null>(null);
   const [lyricsLoading, setLyricsLoading] = useState(false);
-  const [videoStreams, setVideoStreams] = useState<VideoStream[]>([]);
-  const [selectedStream, setSelectedStream] = useState<VideoStream | null>(null);
-  const [videoLoading, setVideoLoading] = useState(false);
-  const [videoError, setVideoError] = useState<string | null>(null);
   const [queuedFlash, setQueuedFlash] = useState(false);
   const [progressBarWidth, setProgressBarWidth] = useState(0);
 
@@ -109,9 +98,6 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   useEffect(() => {
     setActiveTab("cover");
     setLyrics(null);
-    setVideoStreams([]);
-    setSelectedStream(null);
-    setVideoError(null);
   }, [currentSong?.id]);
 
   // Load lyrics
@@ -123,31 +109,6 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
       setLyricsLoading(false);
     });
   }, [currentSong?.id, showPlayer]);
-
-  // Load video streams
-  useEffect(() => {
-    if (activeTab !== "video" || !currentSong || !showPlayer) return;
-    if (videoStreams.length > 0) return;
-
-    setVideoLoading(true);
-    setVideoError(null);
-
-    api.getSongVideoUrl(currentSong.id)
-      .then((res) => {
-        const streams: VideoStream[] = res.streams ?? res.data?.streams ?? (Array.isArray(res) ? res : []);
-        if (Array.isArray(streams) && streams.length > 0) {
-          setVideoStreams(streams);
-          setSelectedStream(streams[0]);
-        } else {
-          setVideoError("No video streams available for this song.");
-        }
-        setVideoLoading(false);
-      })
-      .catch(() => {
-        setVideoError("Failed to load video streams.");
-        setVideoLoading(false);
-      });
-  }, [activeTab, currentSong?.id, showPlayer]);
 
   if (!currentSong || !showPlayer) return null;
 
@@ -228,7 +189,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
 
           {/* Tab Switcher */}
           <View style={styles.tabBar}>
-            {(["cover", "lyrics", "video"] as TabType[]).map((tab) => {
+            {(["cover", "lyrics"] as TabType[]).map((tab) => {
               const isActive = activeTab === tab;
               return (
                 <TouchableOpacity
@@ -281,59 +242,6 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
                     </View>
                   )}
                 </ScrollView>
-              </View>
-            )}
-
-            {/* Video Tab */}
-            {activeTab === "video" && (
-              <View style={styles.videoWrapper}>
-                {videoLoading ? (
-                  <ActivityIndicator size="large" color="#1DB954" />
-                ) : videoError ? (
-                  <View style={styles.videoErrorContainer}>
-                    <MaterialCommunityIcons name="video-off-outline" size={48} color="rgba(255,255,255,0.2)" />
-                    <Text style={styles.videoErrorText}>{videoError}</Text>
-                  </View>
-                ) : selectedStream ? (
-                  <View style={styles.videoPlayerContainer}>
-                    <Video
-                      source={{ uri: selectedStream.url }}
-                      rate={1.0}
-                      volume={1.0}
-                      isMuted={false}
-                      resizeMode={ResizeMode.CONTAIN}
-                      shouldPlay={true}
-                      useNativeControls
-                      style={styles.nativeVideo}
-                      onPlaybackStatusUpdate={(status: any) => {
-                        if (status.isLoaded && status.isPlaying) {
-                          if (isPlaying) {
-                            togglePlay();
-                          }
-                        }
-                      }}
-                    />
-                    
-                    {/* Quality list */}
-                    <ScrollView horizontal style={styles.qualityList} contentContainerStyle={styles.qualityListContent}>
-                      {videoStreams.map((stream) => {
-                        const isSel = selectedStream.quality === stream.quality;
-                        return (
-                          <TouchableOpacity
-                            key={stream.quality}
-                            onPress={() => setSelectedStream(stream)}
-                            style={[styles.qualityPill, isSel && styles.activeQualityPill]}
-                            activeOpacity={0.7}
-                          >
-                            <Text style={[styles.qualityText, isSel && styles.activeQualityText]}>
-                              {stream.quality}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
-                  </View>
-                ) : null}
               </View>
             )}
           </View>

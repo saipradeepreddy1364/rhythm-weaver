@@ -1,6 +1,6 @@
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image } from 'react-native'
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
-import { supabase } from "@/lib/supabase/client";
+import { supabase } from "../lib/supabase/client";
 
 interface User {
   id: string;

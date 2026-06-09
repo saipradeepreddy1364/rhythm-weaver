@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Audora",
+    "name": "Medley",
     "slug": "rhythm-weaver",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -13,7 +13,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.audora.app",
+      "bundleIdentifier": "com.medley.app",
       "infoPlist": {
         "UIBackgroundModes": [
           "audio"
@@ -25,7 +25,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0d0d0d"
       },
-      "package": "com.audora.app",
+      "package": "com.medley.app",
       "permissions": [
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_MEDIA_PLAYBACK",

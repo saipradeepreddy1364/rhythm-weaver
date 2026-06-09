@@ -93,6 +93,26 @@ function resolveTrack(s: Song) {
   };
 }
 
+async function getDirectAudioUrl(url: string): Promise<string> {
+  if (!url) return url;
+  if (url.startsWith("file://") || url.includes("aac.saavncdn.com")) {
+    return url;
+  }
+  try {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), 3000);
+    const response = await fetch(url, {
+      method: "GET",
+      signal: controller.signal,
+    });
+    clearTimeout(id);
+    return response.url || url;
+  } catch (err) {
+    console.warn("Failed to pre-resolve direct audio URL, using original:", err);
+    return url;
+  }
+}
+
 interface PlayerContextType {
   currentSong: Song | null;
   isPlaying: boolean;
@@ -344,10 +364,39 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
       try {
         await TrackPlayer.reset();
-        const tracks = q.map((s) => resolveTrack(s));
-        await TrackPlayer.add(tracks);
-        await TrackPlayer.skip(safeIdx);
+        
+        // Resolve the direct URL of the selected song
+        const resolvedSongTrack = resolveTrack(song);
+        const directUrl = await getDirectAudioUrl(resolvedSongTrack.url);
+        resolvedSongTrack.url = directUrl;
+        
+        // Add only the selected song first to start playing immediately
+        await TrackPlayer.add([resolvedSongTrack]);
         await TrackPlayer.play();
+        
+        // Now asynchronously add the rest of the queue in the background
+        setTimeout(async () => {
+          try {
+            const tracks = q.map((s) => resolveTrack(s));
+            // Keep the pre-resolved URL for the clicked song
+            const clickedTrackIndex = q.findIndex((s) => s.id === song.id);
+            if (clickedTrackIndex >= 0) {
+              tracks[clickedTrackIndex].url = directUrl;
+            }
+            
+            const tracksBefore = tracks.slice(0, safeIdx);
+            const tracksAfter = tracks.slice(safeIdx + 1);
+            
+            if (tracksBefore.length > 0) {
+              await TrackPlayer.add(tracksBefore, 0);
+            }
+            if (tracksAfter.length > 0) {
+              await TrackPlayer.add(tracksAfter, safeIdx + 1);
+            }
+          } catch (bgErr) {
+            console.warn("[PlayerContext] Background queue load failed:", bgErr);
+          }
+        }, 100);
       } catch (err) {
         console.warn("[PlayerContext] TrackPlayer play failed:", err);
       }

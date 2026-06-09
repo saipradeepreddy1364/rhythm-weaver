@@ -335,7 +335,8 @@ function LanguageAlbumModal({
     }
 
     const queries = getLanguageQueries(language);
-    const seen    = new Set<string>();
+    const seenIds = new Set<string>();
+    const seenTitles = new Set<string>();
     let allSongs: Song[] = [];
 
     (async () => {
@@ -351,8 +352,10 @@ function LanguageAlbumModal({
             const mapped = items.map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
             let added = 0;
             for (const s of mapped) {
-              if (s.id && !seen.has(s.id)) {
-                seen.add(s.id);
+              const tKey = s.title.toLowerCase().trim();
+              if (s.id && !seenIds.has(s.id) && !seenTitles.has(tKey)) {
+                seenIds.add(s.id);
+                seenTitles.add(tKey);
                 allSongs = [...allSongs, s];
                 added++;
               }
@@ -780,7 +783,10 @@ function groupIntoAlbums(songs: Song[]): Album[] {
     }
     const album = map.get(key)!;
     if (!album.coverArt && s.albumArt) album.coverArt = s.albumArt;
-    album.songs.push(s);
+    const sTitleKey = s.title.toLowerCase().trim();
+    if (!album.songs.some((existing) => existing.title.toLowerCase().trim() === sTitleKey)) {
+      album.songs.push(s);
+    }
   }
   return [...map.values()];
 }
@@ -942,7 +948,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
           // Loader Spinner
           <View style={styles.centerLoading}>
             <ActivityIndicator size="large" color="#1DB954" />
-            <Text style={styles.loadingText}>Searching Audora…</Text>
+            <Text style={styles.loadingText}>Searching Medley…</Text>
           </View>
         ) : results.length === 0 ? (
           // Empty state

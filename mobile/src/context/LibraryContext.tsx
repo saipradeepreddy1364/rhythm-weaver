@@ -7,9 +7,9 @@ import React, {
   useCallback,
   ReactNode,
 } from "react";
-import { supabase as baseSupabase } from "@/lib/supabase/client";
+import { supabase as baseSupabase } from "../lib/supabase/client";
 const supabase = baseSupabase as any;
-import type { Song } from "@/data/songs";
+import type { Song } from "../data/songs";
 import { useAuth } from "./AuthContext";
 import { localStorage } from "../lib/storage";
 import * as FileSystem from "expo-file-system";

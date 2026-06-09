@@ -729,12 +729,27 @@ function AlbumModal({
   onRequireAuth: () => void;
 }) {
   const { playSong }                  = usePlayer();
-  const [songs, setSongs]             = useState<Song[]>(album.songs);
+  const [songs, setSongs]             = useState<Song[]>(() => {
+    const seen = new Set<string>();
+    return album.songs.filter(s => {
+      const tKey = s.title.toLowerCase().trim();
+      if (seen.has(tKey)) return false;
+      seen.add(tKey);
+      return true;
+    });
+  });
   const [loadingMore, setLoadingMore] = useState(!album.fullyLoaded);
 
   useEffect(() => {
     if (album.fullyLoaded) {
-      setSongs(album.songs);
+      const seen = new Set<string>();
+      const dedupped = album.songs.filter(s => {
+        const tKey = s.title.toLowerCase().trim();
+        if (seen.has(tKey)) return false;
+        seen.add(tKey);
+        return true;
+      });
+      setSongs(dedupped);
       setLoadingMore(false);
       return;
     }
@@ -756,8 +771,18 @@ function AlbumModal({
         `${name} songs collection`, `${name} superhit songs`,
         `${name} melody songs`, `${name} romantic songs`, `${name} sad songs`,
       ];
-      const seen = new Set<string>(album.songs.map((s) => s.id));
-      let accumulated = [...album.songs];
+      const seenIds = new Set<string>();
+      const seenTitles = new Set<string>();
+      const initialDedupped: Song[] = [];
+      for (const s of album.songs) {
+        const tKey = s.title.toLowerCase().trim();
+        if (!seenTitles.has(tKey)) {
+          seenTitles.add(tKey);
+          if (s.id) seenIds.add(s.id);
+          initialDedupped.push(s);
+        }
+      }
+      let accumulated = [...initialDedupped];
 
       (async () => {
         for (const query of queries) {
@@ -769,8 +794,17 @@ function AlbumModal({
               const res   = await api.searchSongs(query, pg, 50);
               const items = extractResults(res);
               if (items.length === 0) break;
-              const newSongs = items.map(mapApiSong).filter((s: Song) => s.audioUrl && s.id && !seen.has(s.id));
-              for (const s of newSongs) { seen.add(s.id); accumulated = [...accumulated, s]; }
+              const newSongs = items.map(mapApiSong).filter((s: Song) => {
+                if (!s.audioUrl || !s.id) return false;
+                const tKey = s.title.toLowerCase().trim();
+                if (seenIds.has(s.id) || seenTitles.has(tKey)) return false;
+                return true;
+              });
+              for (const s of newSongs) {
+                seenIds.add(s.id);
+                seenTitles.add(s.title.toLowerCase().trim());
+                accumulated.push(s);
+              }
               if (newSongs.length > 0 && !controller.signal.aborted) setSongs([...accumulated]);
               if (items.length < 50) break;
             }
@@ -782,7 +816,14 @@ function AlbumModal({
       fetchAllMovieSongs(albumQuery, album.title)
         .then((fetched) => {
           if (!controller.signal.aborted) {
-            if (fetched.length > 0) setSongs(fetched);
+            const seen = new Set<string>();
+            const dedupped = fetched.filter(s => {
+              const tKey = s.title.toLowerCase().trim();
+              if (seen.has(tKey)) return false;
+              seen.add(tKey);
+              return true;
+            });
+            if (dedupped.length > 0) setSongs(dedupped);
             setLoadingMore(false);
           }
         })
@@ -1251,7 +1292,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
 
   const [minuteTick, setMinuteTick] = useState(oneMinSeed());
   useEffect(() => {
-    const id = setInterval(() => setMinuteTick(oneMinSeed()), 60_000);
+    const id = setInterval(() => setMinuteTick(prev => prev + 1), 60_000);
     return () => clearInterval(id);
   }, []);
 
@@ -1270,7 +1311,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
             <View style={styles.logoBadge}>
               <MaterialCommunityIcons name="music" size={16} color="#000" />
             </View>
-            <Text style={styles.headerLogoText}>Audora v1.0.1</Text>
+            <Text style={styles.headerLogoText}>Medley</Text>
           </View>
 
           <View style={styles.headerRight}>
