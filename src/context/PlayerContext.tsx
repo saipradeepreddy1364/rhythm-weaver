@@ -94,23 +94,7 @@ function resolveTrack(s: Song) {
 }
 
 async function getDirectAudioUrl(url: string): Promise<string> {
-  if (!url) return url;
-  if (url.startsWith("file://") || url.includes("aac.saavncdn.com")) {
-    return url;
-  }
-  try {
-    const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), 3000);
-    const response = await fetch(url, {
-      method: "GET",
-      signal: controller.signal,
-    });
-    clearTimeout(id);
-    return response.url || url;
-  } catch (err) {
-    console.warn("Failed to pre-resolve direct audio URL, using original:", err);
-    return url;
-  }
+  return url;
 }
 
 interface PlayerContextType {
@@ -147,7 +131,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [currentSong, setCurrentSong] = useState<Song | null>(null);
   const [queue, setQueue] = useState<Song[]>([]);
   const [queueIndex, setQueueIndex] = useState(0);
-  const [volume, setVolumeState] = useState(0.7);
+  const [volume, setVolumeState] = useState(1.0);
   const [showPlayer, setShowPlayer] = useState(false);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [shuffle, setShuffle] = useState(false);
