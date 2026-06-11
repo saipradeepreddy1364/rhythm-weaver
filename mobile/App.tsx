@@ -5,8 +5,12 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { PaperProvider } from "react-native-paper";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Updates from "expo-updates";
+import * as SplashScreen from "expo-splash-screen";
 import TrackPlayer from "react-native-track-player";
 import { PlaybackService } from "./playbackService";
+
+// Prevent the splash screen from auto-hiding before storage is initialized
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 // Register playback service for background lock screen controls
 TrackPlayer.registerPlaybackService(() => PlaybackService);
@@ -225,6 +229,7 @@ export default function App() {
   useEffect(() => {
     localStorage.ensureInitialized().then(() => {
       setStorageReady(true);
+      SplashScreen.hideAsync().catch(() => {});
     });
   }, []);
 
