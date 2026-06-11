@@ -180,7 +180,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
               activeOpacity={0.7}
             >
               <MaterialCommunityIcons
-                name="playlist-plus"
+                name="playlist-play"
                 size={22}
                 color={queuedFlash ? "#1DB954" : "rgba(255,255,255,0.7)"}
               />

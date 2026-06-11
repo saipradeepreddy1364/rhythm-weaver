@@ -36,18 +36,16 @@
       "favicon": "./assets/favicon.png"
     },
     "updates": {
-      "url": "https://u.expo.dev/07a87de4-665a-4fbe-877e-e3ec2a863c5a",
-      "enabled": true,
-      "checkAutomatically": "ON_LOAD",
-      "fallbackToCacheTimeout": 0
+      "enabled": false
     },
     "runtimeVersion": {
       "policy": "appVersion"
     },
     "extra": {
       "eas": {
-        "projectId": "07a87de4-665a-4fbe-877e-e3ec2a863c5a"
+        "projectId": "10509e38-0ab7-4c3e-83aa-2f15089aaf81"
       }
-    }
+    },
+    "owner": "suresh_reddy"
   }
 }
