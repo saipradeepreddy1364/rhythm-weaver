@@ -36,7 +36,7 @@
       "favicon": "./assets/favicon.png"
     },
     "updates": {
-      "url": "https://u.expo.dev/10509e38-0ab7-4c3e-83aa-2f15089aaf81",
+      "url": "https://u.expo.dev/593dee03-9473-433c-b11a-76667290cef0",
       "enabled": true
     },
     "runtimeVersion": {
@@ -44,9 +44,9 @@
     },
     "extra": {
       "eas": {
-        "projectId": "10509e38-0ab7-4c3e-83aa-2f15089aaf81"
+        "projectId": "593dee03-9473-433c-b11a-76667290cef0"
       }
     },
-    "owner": "suresh_reddy"
+    "owner": "venkatasaipradeepreddyp"
   }
 }
