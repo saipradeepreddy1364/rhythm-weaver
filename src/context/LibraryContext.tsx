@@ -46,6 +46,14 @@ interface LibraryContextType {
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
 function dbRowToSong(row: any): Song {
+  // If the database uses JSONB column schema, extract from song_data
+  if (row.song_data) {
+    const song = typeof row.song_data === "string" ? JSON.parse(row.song_data) : row.song_data;
+    return {
+      ...song,
+      id: row.song_id || song.id || row.id,
+    };
+  }
   return {
     id:       row.song_id || row.id,
     title:    row.song_title || row.title || "",
@@ -179,7 +187,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
     try {
       const audioUrl = song.audioUrl || `https://musicbackend-xg4u.onrender.com/api/songs/${song.id}/stream`;
-      await supabase.from("recently_played").upsert({
+      const { error } = await supabase.from("recently_played").upsert({
         user_id: user.id,
         song_id: song.id,
         song_title: song.title,
@@ -190,6 +198,16 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         song_duration: song.duration || 0,
         played_at: new Date().toISOString(),
       }, { onConflict: "user_id,song_id" });
+
+      if (error) {
+        // Fallback to JSONB schema upsert
+        await supabase.from("recently_played").upsert({
+          user_id: user.id,
+          song_id: song.id,
+          song_data: song,
+          played_at: new Date().toISOString(),
+        }, { onConflict: "user_id,song_id" });
+      }
     } catch (err) {
       console.error("Failed to save recently played track:", err);
     }
@@ -217,7 +235,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         } else {
           setLikedSongs((prev) => [song, ...prev]);
           const audioUrl = song.audioUrl || `https://musicbackend-xg4u.onrender.com/api/songs/${song.id}/stream`;
-          await supabase.from("liked_songs").insert({
+          const { error } = await supabase.from("liked_songs").insert({
             user_id: user.id,
             song_id: song.id,
             song_title: song.title,
@@ -227,6 +245,15 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
             song_audio_url: audioUrl,
             song_duration: song.duration || 0,
           });
+
+          if (error) {
+            // Fallback to JSONB schema insert
+            await supabase.from("liked_songs").insert({
+              user_id: user.id,
+              song_id: song.id,
+              song_data: song,
+            });
+          }
         }
       } catch (err) {
         console.error("Failed to toggle like song:", err);
@@ -316,7 +343,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         );
 
         const audioUrl = song.audioUrl || `https://musicbackend-xg4u.onrender.com/api/songs/${song.id}/stream`;
-        await supabase.from("playlist_songs").insert({
+        const { error } = await supabase.from("playlist_songs").insert({
           playlist_id: playlistId,
           song_id: song.id,
           song_title: song.title,
@@ -325,7 +352,18 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
           song_album_art: song.albumArt || "",
           song_audio_url: audioUrl,
           song_duration: song.duration || 0,
+          user_id: user.id,
         });
+
+        if (error) {
+          // Fallback to JSONB schema insert
+          await supabase.from("playlist_songs").insert({
+            playlist_id: playlistId,
+            user_id: user.id,
+            song_id: song.id,
+            song_data: song,
+          });
+        }
       } catch (err) {
         console.error("Failed to add song to playlist:", err);
       }

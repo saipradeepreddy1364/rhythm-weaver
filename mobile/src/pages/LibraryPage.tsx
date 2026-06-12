@@ -73,13 +73,6 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
     return () => clearInterval(intervalId);
   }, []);
 
-  // Switch to downloads tab automatically when offline
-  useEffect(() => {
-    if (isOffline) {
-      setTab("downloads");
-    }
-  }, [isOffline]);
-
   const recentFiltered = recentlyPlayed;
 
   const handleRequireAuth = () => {

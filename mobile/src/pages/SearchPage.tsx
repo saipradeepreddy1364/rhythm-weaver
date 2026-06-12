@@ -537,8 +537,9 @@ function CategoryCard({ label, query, onSelect }: CategoryCardProps) {
   );
 }
 
-// ─── Album Detail Modal ───────────────────────────────────────────────────────
+// ─── Album Detail View ───────────────────────────────────────────────────────
 interface Album {
+  id?: string;
   title: string;
   coverArt: string;
   songs: Song[];
@@ -556,6 +557,45 @@ function AlbumModal({
   onRequireAuth: () => void;
 }) {
   const { playSong } = usePlayer();
+  const [songs, setSongs] = useState<Song[]>(album.songs);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let unmounted = false;
+    if (!album.id) {
+      // Fallback: search for album songs using query
+      setLoading(true);
+      api.searchSongs(album.query, 1, 50).then((res) => {
+        if (unmounted) return;
+        const items = extractResults(res);
+        const mapped = items.map(mapApiSong).map(cleanSong).filter((s) => s.audioUrl);
+        if (mapped.length > 0) setSongs(mapped);
+        setLoading(false);
+      }).catch(() => {
+        if (!unmounted) setLoading(false);
+      });
+      return;
+    }
+
+    setLoading(true);
+    api.getAlbumDetails(album.id)
+      .then((res) => {
+        if (unmounted) return;
+        const raw = extractResults(res);
+        const mapped = raw.map(mapApiSong).map(cleanSong).filter((s) => s.audioUrl);
+        if (mapped.length > 0) {
+          setSongs(mapped);
+        }
+        setLoading(false);
+      })
+      .catch((err) => {
+        console.warn("Failed to fetch album details:", err);
+        if (!unmounted) setLoading(false);
+      });
+
+    return () => { unmounted = true; };
+  }, [album.id, album.query]);
+
   return (
     <View style={modalStyles.container}>
       {album.coverArt && (
@@ -578,13 +618,13 @@ function AlbumModal({
           <View style={modalStyles.headerMeta}>
             <Text style={modalStyles.headerTitle} numberOfLines={1}>{album.title}</Text>
             <Text style={modalStyles.headerSubtitle} numberOfLines={1}>
-              Album · {album.songs.length} songs
+              {loading ? "Loading songs…" : `Album · ${songs.length} songs`}
             </Text>
           </View>
 
-          {album.songs.length > 0 ? (
+          {songs.length > 0 ? (
             <TouchableOpacity
-              onPress={() => playSong(album.songs[0], album.songs)}
+              onPress={() => playSong(songs[0], songs)}
               style={modalStyles.playBtn}
               activeOpacity={0.8}
             >
@@ -602,11 +642,18 @@ function AlbumModal({
 
         {/* Songs list */}
         <ScrollView style={modalStyles.songsScroll} contentContainerStyle={modalStyles.songsScrollContent}>
-          <View style={{ paddingBottom: 60 }}>
-            {album.songs.map((song) => (
-              <SongRow key={song.id} song={song} queue={album.songs} onRequireAuth={onRequireAuth} />
-            ))}
-          </View>
+          {loading ? (
+            <View style={modalStyles.centerLoading}>
+              <ActivityIndicator size="large" color="#1DB954" />
+              <Text style={modalStyles.loadingText}>Loading album songs…</Text>
+            </View>
+          ) : (
+            <View style={{ paddingBottom: 60 }}>
+              {songs.map((song) => (
+                <SongRow key={song.id} song={song} queue={songs} onRequireAuth={onRequireAuth} />
+              ))}
+            </View>
+          )}
         </ScrollView>
       </View>
     </View>
@@ -657,6 +704,7 @@ async function fetchAllArtistSongs(artistName: string): Promise<Song[]> {
 
 // ─── Artist Profile Modal ─────────────────────────────────────────────────────
 interface Artist {
+  id?: string;
   name: string;
   coverArt: string;
   songs: Song[];
@@ -679,19 +727,46 @@ function ArtistModal({
     let unmounted = false;
     setLoading(true);
 
-    fetchAllArtistSongs(artist.name)
-      .then((fetched: Song[]) => {
-        if (!unmounted) {
-          if (fetched.length > 0) setSongs(fetched);
+    if (artist.id) {
+      api.getArtistSongs(artist.id, 1)
+        .then((res) => {
+          if (unmounted) return;
+          const raw = extractResults(res);
+          const mapped = raw.map(mapApiSong).map(cleanSong).filter((s) => s.audioUrl);
+          if (mapped.length > 0) {
+            setSongs(mapped);
+          }
           setLoading(false);
-        }
-      })
-      .catch(() => {
-        if (!unmounted) setLoading(false);
-      });
+        })
+        .catch(() => {
+          if (unmounted) return;
+          // Fallback
+          fetchAllArtistSongs(artist.name)
+            .then((fetched: Song[]) => {
+              if (!unmounted) {
+                if (fetched.length > 0) setSongs(fetched);
+                setLoading(false);
+              }
+            })
+            .catch(() => {
+              if (!unmounted) setLoading(false);
+            });
+        });
+    } else {
+      fetchAllArtistSongs(artist.name)
+        .then((fetched: Song[]) => {
+          if (!unmounted) {
+            if (fetched.length > 0) setSongs(fetched);
+            setLoading(false);
+          }
+        })
+        .catch(() => {
+          if (!unmounted) setLoading(false);
+        });
+    }
 
     return () => { unmounted = true; };
-  }, [artist.name]);
+  }, [artist.id, artist.name]);
 
   return (
     <View style={modalStyles.container}>
@@ -766,6 +841,7 @@ function groupIntoAlbums(songs: Song[]): Album[] {
     const key = title.toLowerCase().trim();
     if (!map.has(key)) {
       map.set(key, {
+        id: s.albumId || "",
         title,
         coverArt: s.albumArt || "",
         songs: [],
@@ -774,6 +850,7 @@ function groupIntoAlbums(songs: Song[]): Album[] {
       });
     }
     const album = map.get(key)!;
+    if (!album.id && s.albumId) album.id = s.albumId;
     if (!album.coverArt && s.albumArt) album.coverArt = s.albumArt;
     const sTitleKey = s.title.toLowerCase().trim();
     if (!album.songs.some((existing) => existing.title.toLowerCase().trim() === sTitleKey)) {
@@ -793,12 +870,14 @@ function groupIntoArtists(songs: Song[]): Artist[] {
     const key = cleanName.toLowerCase();
     if (!map.has(key)) {
       map.set(key, {
+        id: s.artistId || "",
         name: cleanName,
         coverArt: s.albumArt || "",
         songs: [],
       });
     }
     const artist = map.get(key)!;
+    if (!artist.id && s.artistId) artist.id = s.artistId;
     if (!artist.coverArt && s.albumArt) artist.coverArt = s.albumArt;
     artist.songs.push(s);
   }

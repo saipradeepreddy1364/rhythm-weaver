@@ -16,6 +16,7 @@ import TrackPlayer, {
   usePlaybackState,
   useActiveTrack,
   RepeatMode,
+  AndroidAudioContentType,
 } from "react-native-track-player";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Song, mapApiSong } from "../data/songs";
@@ -171,74 +172,57 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const progress = progressData.position;
   const duration = progressData.duration;
 
-  // TrackPlayer Setup on mount
-  useEffect(() => {
-    const init = async () => {
-      try {
-        await TrackPlayer.setupPlayer({});
-        await TrackPlayer.updateOptions({
-          capabilities: [
-            Capability.Play,
-            Capability.Pause,
-            Capability.SkipToNext,
-            Capability.SkipToPrevious,
-            Capability.SeekTo,
-          ],
-          compactCapabilities: [
-            Capability.Play,
-            Capability.Pause,
-            Capability.SkipToNext,
-          ],
-        });
-        await TrackPlayer.setVolume(volume);
-      } catch (e) {
-        // Suppress error if already setup
-      }
-    };
-    init();
-  }, []);
-
-  // Sync active track changes back to currentSong and queueIndex
-  useEffect(() => {
-    if (activeTrack) {
-      const matched = queueRef.current.find(s => s.id === activeTrack.id);
-      if (matched) {
-        setCurrentSong(matched);
-        logPlayback(matched);
-      } else {
-        const newTrack = {
-          id: activeTrack.id,
-          title: activeTrack.title || "",
-          artist: activeTrack.artist || "",
-          audioUrl: activeTrack.url,
-          albumArt: activeTrack.artwork,
-        } as any;
-        setCurrentSong(newTrack);
-        logPlayback(newTrack);
-      }
-    } else {
-      setCurrentSong(null);
-    }
-
-    // Sync queueIndex
-    const syncIndex = async () => {
-      try {
-        const idx = await TrackPlayer.getActiveTrackIndex();
-        if (idx !== undefined && idx !== null) {
-          setQueueIndex(idx);
-        }
-      } catch {}
-    };
-    syncIndex();
-  }, [activeTrack]);
-
   // Radio suggestions fetching
   const fetchRadioSongs = useCallback(async (seed: Song): Promise<Song[]> => {
+    // Try to get recommendations based on the song ID first (uses official suggestions endpoint)
+    try {
+      console.log(`[PlayerContext] Fetching radio suggestions for song ID: ${seed.id}`);
+      const res = await api.getSongSuggestions(seed.id);
+      const raw = res?.data || res?.results || [];
+      if (Array.isArray(raw) && raw.length > 0) {
+        const songs: Song[] = raw
+          .map((item: any) => (mapApiSong ? mapApiSong(item) : item))
+          .filter((s: any): s is Song => !!s && !!s.id);
+
+        if (songs.length > 0) {
+          const existingIds = new Set(queueRef.current.map((s) => s.id));
+          const existingTitles = new Set(queueRef.current.map((s) => s.title?.toLowerCase().trim()).filter(Boolean));
+
+          const history = getPlaybackHistory();
+          const now = Date.now();
+          const activeHistory = history.filter((h) => now - h.timestamp < RECENT_LIMIT_MS);
+
+          const recentIds = new Set<string>();
+          const recentTitles = new Set<string>();
+          activeHistory.forEach((h) => {
+            recentIds.add(h.id);
+            if (h.title) recentTitles.add(h.title.toLowerCase().trim());
+          });
+
+          const filtered = songs.filter((s) => {
+            if (existingIds.has(s.id)) return false;
+            if (s.title && existingTitles.has(s.title.toLowerCase().trim())) return false;
+            if (recentIds.has(s.id)) return false;
+            if (s.title && recentTitles.has(s.title.toLowerCase().trim())) return false;
+            return true;
+          });
+
+          if (filtered.length > 0) {
+            console.log(`[PlayerContext] Found ${filtered.length} suggestions from ID suggestions endpoint`);
+            return filtered.slice(0, 20);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("[PlayerContext] ID suggestions fetch failed, falling back to search queries:", err);
+    }
+
+    // Fallback: search queries using artist, movie, or song title
     const artist = seed.artist || "";
     const movie = seed.movie || seed.album || "";
     const lang = seed.language || "";
 
-    let query = artist || movie || "trending songs";
+    let query = artist || movie || seed.title || "trending songs";
     if (lang) query = `${lang} songs ${artist}`.trim();
     else if (artist) query = `${artist} songs`;
 
@@ -252,7 +236,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         .filter((s: any): s is Song => !!s && !!s.id);
 
       const existingIds = new Set(queueRef.current.map((s) => s.id));
-      const filtered = songs.filter((s) => !existingIds.has(s.id));
+      const existingTitles = new Set(queueRef.current.map((s) => s.title?.toLowerCase().trim()).filter(Boolean));
 
       const history = getPlaybackHistory();
       const now = Date.now();
@@ -265,15 +249,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         if (h.title) recentTitles.add(h.title.toLowerCase().trim());
       });
 
-      return filtered
-        .filter((s) => {
-          if (recentIds.has(s.id)) return false;
-          if (s.title && recentTitles.has(s.title.toLowerCase().trim())) return false;
-          return true;
-        })
-        .slice(0, 20);
+      const filtered = songs.filter((s) => {
+        if (existingIds.has(s.id)) return false;
+        if (s.title && existingTitles.has(s.title.toLowerCase().trim())) return false;
+        if (recentIds.has(s.id)) return false;
+        if (s.title && recentTitles.has(s.title.toLowerCase().trim())) return false;
+        return true;
+      });
+
+      return filtered.slice(0, 20);
     } catch (err) {
-      console.warn("[PlayerContext] Radio fetch failed:", err);
+      console.warn("[PlayerContext] Radio fallback fetch failed:", err);
       return [];
     }
   }, []);
@@ -324,6 +310,92 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
   }, [fetchRadioSongs]);
 
+  // TrackPlayer Setup on mount
+  useEffect(() => {
+    let active = true;
+    let queueEndedListener: any;
+
+    const init = async () => {
+      try {
+        await TrackPlayer.setupPlayer({
+          autoHandleInterruptions: true,
+          androidAudioContentType: AndroidAudioContentType.Music,
+        });
+        await TrackPlayer.updateOptions({
+          capabilities: [
+            Capability.Play,
+            Capability.Pause,
+            Capability.SkipToNext,
+            Capability.SkipToPrevious,
+            Capability.SeekTo,
+          ],
+          compactCapabilities: [
+            Capability.Play,
+            Capability.Pause,
+            Capability.SkipToNext,
+          ],
+        });
+        await TrackPlayer.setVolume(volume);
+
+        if (active) {
+          queueEndedListener = TrackPlayer.addEventListener(
+            Event.PlaybackQueueEnded,
+            async (event) => {
+              console.log("[PlayerContext] Playback queue ended, triggering nextSong/radio mode");
+              await nextSongInternal();
+            }
+          );
+        }
+      } catch (e) {
+        // Suppress error if already setup
+      }
+    };
+    init();
+
+    return () => {
+      active = false;
+      if (queueEndedListener) {
+        queueEndedListener.remove();
+      }
+    };
+  }, [nextSongInternal]);
+
+  // Sync active track changes back to currentSong and queueIndex
+  useEffect(() => {
+    if (activeTrack) {
+      const matched = queueRef.current.find(s => s.id === activeTrack.id);
+      if (matched) {
+        setCurrentSong(matched);
+        logPlayback(matched);
+      } else {
+        const newTrack = {
+          id: activeTrack.id,
+          title: activeTrack.title || "",
+          artist: activeTrack.artist || "",
+          audioUrl: activeTrack.url,
+          albumArt: activeTrack.artwork,
+        } as any;
+        setCurrentSong(newTrack);
+        logPlayback(newTrack);
+      }
+    } else {
+      setCurrentSong(null);
+    }
+
+    // Sync queueIndex
+    const syncIndex = async () => {
+      try {
+        const idx = await TrackPlayer.getActiveTrackIndex();
+        if (idx !== undefined && idx !== null) {
+          setQueueIndex(idx);
+        }
+      } catch {}
+    };
+    syncIndex();
+  }, [activeTrack]);
+
+
+
   const playSong = useCallback(
     async (song: Song, songQueue?: Song[]) => {
       setIsRadioMode(false);
@@ -354,33 +426,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         const directUrl = await getDirectAudioUrl(resolvedSongTrack.url);
         resolvedSongTrack.url = directUrl;
         
-        // Add only the selected song first to start playing immediately
-        await TrackPlayer.add([resolvedSongTrack]);
-        await TrackPlayer.play();
+        // Map the entire queue to tracks synchronously to avoid index desynchronization
+        const tracks = q.map((s) => resolveTrack(s));
+        if (safeIdx >= 0 && safeIdx < tracks.length) {
+          tracks[safeIdx].url = directUrl;
+        }
         
-        // Now asynchronously add the rest of the queue in the background
-        setTimeout(async () => {
-          try {
-            const tracks = q.map((s) => resolveTrack(s));
-            // Keep the pre-resolved URL for the clicked song
-            const clickedTrackIndex = q.findIndex((s) => s.id === song.id);
-            if (clickedTrackIndex >= 0) {
-              tracks[clickedTrackIndex].url = directUrl;
-            }
-            
-            const tracksBefore = tracks.slice(0, safeIdx);
-            const tracksAfter = tracks.slice(safeIdx + 1);
-            
-            if (tracksBefore.length > 0) {
-              await TrackPlayer.add(tracksBefore, 0);
-            }
-            if (tracksAfter.length > 0) {
-              await TrackPlayer.add(tracksAfter, safeIdx + 1);
-            }
-          } catch (bgErr) {
-            console.warn("[PlayerContext] Background queue load failed:", bgErr);
-          }
-        }, 100);
+        await TrackPlayer.add(tracks);
+        await TrackPlayer.skip(safeIdx);
+        await TrackPlayer.play();
       } catch (err) {
         console.warn("[PlayerContext] TrackPlayer play failed:", err);
       }

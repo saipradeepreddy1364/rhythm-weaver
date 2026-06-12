@@ -10,6 +10,8 @@ export interface Song {
   genre?: string;
   album?: string;
   movie?: string;
+  albumId?: string;
+  artistId?: string;
 }
 
 export function formatDuration(seconds: number): string {
@@ -48,11 +50,19 @@ export function mapApiSong(item: any): Song {
     "";
 
   // ── Audio URL ──────────────────────────────────────────────────────────────
-  // Bind directly to our Spring Boot backend redirect stream endpoint
+  // Use direct JioSaavn URL if available (faster playback), else fallback to our backend stream endpoint
   const songId = String(item.id || item.songId || item.song_id || "");
-  const audioUrl = songId
-    ? `https://musicbackend-xg4u.onrender.com/api/songs/${songId}/stream`
-    : "";
+  const downloadUrlArray = item.downloadUrl || item.download_url || item.downloadUrls || [];
+  let audioUrl = "";
+  if (Array.isArray(downloadUrlArray) && downloadUrlArray.length > 0) {
+    audioUrl = downloadUrlArray[downloadUrlArray.length - 1]?.url || downloadUrlArray[downloadUrlArray.length - 1]?.link || "";
+  }
+  if (!audioUrl) {
+    audioUrl = item.audioUrl || item.audio_url || item.url || item.media_url || item.mediaUrl || "";
+  }
+  if (!audioUrl && songId) {
+    audioUrl = `https://musicbackend-xg4u.onrender.com/api/songs/${songId}/stream`;
+  }
 
   // ── Artists ────────────────────────────────────────────────────────────────
   let artist = "Unknown";
@@ -83,6 +93,23 @@ export function mapApiSong(item: any): Song {
     item.film ||
     "";
 
+  const albumId =
+    item.album?.id ||
+    item.albumId ||
+    item.album_id ||
+    "";
+
+  let artistId = "";
+  if (Array.isArray(item.artists?.primary) && item.artists.primary.length > 0) {
+    artistId = item.artists.primary[0].id || "";
+  } else if (Array.isArray(item.artists?.all) && item.artists.all.length > 0) {
+    artistId = item.artists.all[0].id || "";
+  } else if (item.artistId) {
+    artistId = item.artistId;
+  } else if (item.artist_id) {
+    artistId = item.artist_id;
+  }
+
   const movieName =
     item.movie ||
     item.film ||
@@ -112,6 +139,8 @@ export function mapApiSong(item: any): Song {
     genre: item.genre || undefined,
     album: albumName || undefined,
     movie: movieName || undefined,
+    albumId: albumId || undefined,
+    artistId: artistId || undefined,
   };
 }
 
