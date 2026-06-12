@@ -379,7 +379,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         logPlayback(newTrack);
       }
     } else {
-      setCurrentSong(null);
+      if (queueRef.current.length === 0) {
+        setCurrentSong(null);
+      }
     }
 
     // Sync queueIndex

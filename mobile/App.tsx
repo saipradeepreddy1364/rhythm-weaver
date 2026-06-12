@@ -243,8 +243,8 @@ export default function App() {
           await new Promise((resolve) => setTimeout(resolve, 100));
         }
 
-        // 3. Ensure the splash screen stays visible for at least 3 to 5 seconds (we will use 4 seconds)
-        const minDuration = 4000;
+        // 3. Ensure the splash screen stays visible for at least 1 second to prevent flickering
+        const minDuration = 1000;
         const elapsed = Date.now() - startTime;
         if (elapsed < minDuration) {
           await new Promise((resolve) => setTimeout(resolve, minDuration - elapsed));

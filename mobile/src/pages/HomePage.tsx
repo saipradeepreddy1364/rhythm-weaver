@@ -1233,29 +1233,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showUserMenu, setShowUserMenu]   = useState(false);
   const navigation: any                   = useNavigation();
-  const [isOffline, setIsOffline]         = useState(false);
-
-  // Check connectivity periodically
-  useEffect(() => {
-    const checkConnectivity = async () => {
-      try {
-        const res = await Promise.race([
-          fetch("https://clients3.google.com/generate_204"),
-          new Promise<null>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 4000))
-        ]);
-        if (res && res.status === 204) {
-          setIsOffline(false);
-        } else {
-          setIsOffline(true);
-        }
-      } catch {
-        setIsOffline(true);
-      }
-    };
-    checkConnectivity();
-    const intervalId = setInterval(checkConnectivity, 5000);
-    return () => clearInterval(intervalId);
-  }, []);
+  const isOffline = false;
 
   const [sections,     setSections]     = useState<SectionData[]>(() => homePagePrefetcher.sections);
   const [filmAlbums,   setFilmAlbums]   = useState<AlbumData[]>  (() => homePagePrefetcher.filmAlbums);
@@ -1323,24 +1301,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
     return seededShuffle(pool, minuteTick).slice(0, 12);
   })();
 
-  if (isOffline) {
-    return (
-      <View style={[styles.container, modalStyles.offlineContainer]}>
-        <MaterialCommunityIcons name="cloud-off-outline" size={64} color="#1DB954" style={{ marginBottom: 16 }} />
-        <Text style={modalStyles.offlineTitle}>You are offline</Text>
-        <Text style={modalStyles.offlineDescription}>
-          Connect to the internet to stream songs, or listen to your downloaded music offline.
-        </Text>
-        <TouchableOpacity
-          style={modalStyles.offlineBtn}
-          onPress={() => navigation.navigate("Library" as any)}
-          activeOpacity={0.8}
-        >
-          <Text style={modalStyles.offlineBtnText}>Go to Downloads</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
+
 
   return (
     <View style={styles.container}>
@@ -1539,60 +1500,82 @@ class HomePagePrefetcher {
                        && albCached.data.artist.every(a => a.fullyLoaded);
 
     if (sectionsOk && albumsOk) {
+      this._ready = true;
+      this._notify();
       setTimeout(() => { this._running = false; this.start(); }, CACHE_TTL_MS);
       return;
     }
 
+    const promises: Promise<any>[] = [];
+
     if (!sectionsOk) {
-      const seen = new Set<string>();
-      this._sections.forEach(s => s.songs.forEach(song => song.id && seen.add(song.id)));
+      promises.push((async () => {
+        const seen = new Set<string>();
+        this._sections.forEach(s => s.songs.forEach(song => song.id && seen.add(song.id)));
 
-      const allResults = await Promise.all(
-        SECTION_DEFS.map(({ pool, seed }) => fetchSection(pickQuery(pool, seed), 20))
-      );
+        const allResults = await Promise.all(
+          SECTION_DEFS.map(({ pool, seed }) => fetchSection(pickQuery(pool, seed), 20))
+        );
 
-      let updated: SectionData[] = [...this._sections];
-      allResults.forEach((songs, idx) => {
-        const { title } = SECTION_DEFS[idx];
-        const unique    = dedup(songs, seen);
-        if (unique.length === 0) return;
-        updated = [...updated.filter(s => s.title !== title), { title, songs: unique }];
-      });
-      updated.sort((a, b) =>
-        SECTION_DEFS.findIndex(d => d.title === a.title) -
-        SECTION_DEFS.findIndex(d => d.title === b.title)
-      );
-      this._sections = updated;
-      this._ready    = true;
-      cacheSet(this.secKey, updated);
-      this._notify();
+        let updated: SectionData[] = [...this._sections];
+        allResults.forEach((songs, idx) => {
+          const { title } = SECTION_DEFS[idx];
+          const unique    = dedup(songs, seen);
+          if (unique.length === 0) return;
+          updated = [...updated.filter(s => s.title !== title), { title, songs: unique }];
+        });
+        updated.sort((a, b) =>
+          SECTION_DEFS.findIndex(d => d.title === a.title) -
+          SECTION_DEFS.findIndex(d => d.title === b.title)
+        );
+        this._sections = updated;
+        cacheSet(this.secKey, updated);
+        this._notify();
+      })());
     }
 
+    let fetchFilmPromise: Promise<AlbumData[]> = Promise.resolve(this._filmAlbums);
     if (!albCached || this._filmAlbums.length === 0) {
-      const dummyRef = { current: false };
-      const film     = await fetchCurrentYearFilmAlbums(dummyRef);
-      this._filmAlbums = film;
-      cacheSet(this.albKey, { film, artist: this._artistAlbums });
-      this._notify();
+      fetchFilmPromise = (async () => {
+        const dummyRef = { current: false };
+        const film     = await fetchCurrentYearFilmAlbums(dummyRef);
+        this._filmAlbums = film;
+        this._notify();
+        return film;
+      })();
+      promises.push(fetchFilmPromise);
     }
 
     if (!albumsOk) {
-      const dummyRef = { current: false };
-      const filmSnap = this._filmAlbums;
+      promises.push((async () => {
+        const dummyRef = { current: false };
+        const filmSnap = await fetchFilmPromise;
 
-      await loadArtistAlbums(dummyRef, (updated) => {
-        const prev = this._artistAlbums;
-        const idx  = prev.findIndex(a => a.title === updated.title);
-        const next = idx >= 0
-          ? [...prev.slice(0, idx), updated, ...prev.slice(idx + 1)]
-          : [...prev, updated];
-        this._artistAlbums = next;
-        if (next.length > 0 && next.every(a => a.fullyLoaded)) {
-          cacheSet(this.albKey, { film: filmSnap, artist: next });
-        }
-        this._notify();
-      });
+        await loadArtistAlbums(dummyRef, (updated) => {
+          const prev = this._artistAlbums;
+          const idx  = prev.findIndex(a => a.title === updated.title);
+          const next = idx >= 0
+            ? [...prev.slice(0, idx), updated, ...prev.slice(idx + 1)]
+            : [...prev, updated];
+          this._artistAlbums = next;
+          if (next.length > 0 && next.every(a => a.fullyLoaded)) {
+            cacheSet(this.albKey, { film: filmSnap, artist: next });
+          }
+          this._notify();
+        });
+      })());
     }
+
+    if (promises.length > 0) {
+      try {
+        await Promise.all(promises);
+      } catch (err) {
+        console.warn("HomePagePrefetcher parallel prefetch error:", err);
+      }
+    }
+
+    this._ready = true;
+    this._notify();
 
     setTimeout(() => { this._running = false; this.start(); }, CACHE_TTL_MS);
   }

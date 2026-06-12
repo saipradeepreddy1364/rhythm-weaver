@@ -49,29 +49,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
     }
   }, [user]);
 
-  const [isOffline, setIsOffline] = useState(false);
-
-  // Check connectivity periodically
-  useEffect(() => {
-    const checkConn = async () => {
-      try {
-        const res = await Promise.race([
-          fetch("https://clients3.google.com/generate_204"),
-          new Promise<null>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 4000))
-        ]);
-        if (res && res.status === 204) {
-          setIsOffline(false);
-        } else {
-          setIsOffline(true);
-        }
-      } catch {
-        setIsOffline(true);
-      }
-    };
-    checkConn();
-    const intervalId = setInterval(checkConn, 5000);
-    return () => clearInterval(intervalId);
-  }, []);
+  const isOffline = false;
 
   const recentFiltered = recentlyPlayed;
 
