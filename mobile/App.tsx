@@ -21,7 +21,7 @@ import { PlayerProvider, usePlayer } from "./src/context/PlayerContext";
 import { LibraryProvider } from "./src/context/LibraryContext";
 
 // Import Native Screens / Components (these will be migrated next)
-import HomePage from "./src/pages/HomePage";
+import HomePage, { homePagePrefetcher } from "./src/pages/HomePage";
 import SearchPage from "./src/pages/SearchPage";
 import LibraryPage from "./src/pages/LibraryPage";
 import { MiniPlayer } from "./src/components/MiniPlayer";
@@ -224,21 +224,46 @@ function AppContent() {
 import { localStorage } from "./src/lib/storage";
 
 export default function App() {
-  const [storageReady, setStorageReady] = useState(false);
+  const [appReady, setAppReady] = useState(false);
 
   useEffect(() => {
-    localStorage.ensureInitialized().then(() => {
-      setStorageReady(true);
-      SplashScreen.hideAsync().catch(() => {});
-    });
+    // Start background prefetching of home page content immediately on app start
+    homePagePrefetcher.start();
+
+    const startTime = Date.now();
+
+    const prepareApp = async () => {
+      try {
+        // 1. Ensure storage is initialized
+        await localStorage.ensureInitialized();
+
+        // 2. Wait for the homePagePrefetcher to be ready, up to a maximum of 5 seconds
+        const maxWait = 5000;
+        while (!homePagePrefetcher.ready && (Date.now() - startTime) < maxWait) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+
+        // 3. Ensure the splash screen stays visible for at least 3 to 5 seconds (we will use 4 seconds)
+        const minDuration = 4000;
+        const elapsed = Date.now() - startTime;
+        if (elapsed < minDuration) {
+          await new Promise((resolve) => setTimeout(resolve, minDuration - elapsed));
+        }
+      } catch (e) {
+        console.warn("App initialization error:", e);
+      } finally {
+        setAppReady(true);
+        // Hide the splash screen only when everything is loaded and the delay is satisfied
+        SplashScreen.hideAsync().catch(() => {});
+      }
+    };
+
+    prepareApp();
   }, []);
 
-  if (!storageReady) {
-    return (
-      <View style={{ flex: 1, backgroundColor: "#121212", justifyContent: "center", alignItems: "center" }}>
-        <ActivityIndicator size="large" color="#1DB954" />
-      </View>
-    );
+  if (!appReady) {
+    // Returning null keeps the native splash screen visible without any flash or loading spinner
+    return null;
   }
 
   return (
