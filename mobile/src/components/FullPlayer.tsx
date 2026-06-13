@@ -164,7 +164,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         <View style={styles.contentContainer}>
           {/* Header */}
           <View style={styles.header}>
-            <TouchableOpacity
+            <TouchableOpacity delayPressIn={0}
               onPress={() => setShowPlayer(false)}
               style={styles.headerButton}
               activeOpacity={0.7}
@@ -194,7 +194,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             {(["cover", "lyrics"] as TabType[]).map((tab) => {
               const isActive = activeTab === tab;
               return (
-                <TouchableOpacity
+                <TouchableOpacity delayPressIn={0}
                   key={tab}
                   onPress={() => setActiveTab(tab)}
                   style={[styles.tabButton, isActive && styles.activeTabButton]}
@@ -286,7 +286,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
 
           {/* Progress Seek Bar */}
           <View style={styles.progressSection}>
-            <TouchableOpacity
+            <TouchableOpacity delayPressIn={0}
               style={styles.progressBarTrack}
               onLayout={(e: any) => setProgressBarWidth(e.nativeEvent.layout.width)}
               onPress={handleProgressBarPress}

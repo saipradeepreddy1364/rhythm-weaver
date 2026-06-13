@@ -11,7 +11,7 @@ interface NavLinkProps {
 export const NavLink = forwardRef<any, NavLinkProps>(
   ({ to, children, onPress, style, ...props }, ref) => {
     return (
-      <TouchableOpacity
+      <TouchableOpacity delayPressIn={0}
         ref={ref}
         onPress={onPress}
         style={[styles.link, style]}

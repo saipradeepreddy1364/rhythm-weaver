@@ -105,7 +105,7 @@ export function AuthModal({ open, onClose, defaultTab = "login" }: AuthModalProp
           <View style={styles.modalContent}>
             {/* Close Button Header */}
             <View style={styles.header}>
-              <TouchableOpacity onPress={onClose} style={styles.closeBtn} activeOpacity={0.7}>
+              <TouchableOpacity delayPressIn={0} onPress={onClose} style={styles.closeBtn} activeOpacity={0.7}>
                 <MaterialCommunityIcons name="close" size={20} color="rgba(255, 255, 255, 0.6)" />
               </TouchableOpacity>
             </View>
@@ -113,7 +113,7 @@ export function AuthModal({ open, onClose, defaultTab = "login" }: AuthModalProp
             <ScrollView contentContainerStyle={styles.scrollContent}>
               {/* Tab Selector */}
               <View style={styles.tabBar}>
-                <TouchableOpacity
+                <TouchableOpacity delayPressIn={0}
                   onPress={() => switchTab("login")}
                   style={[styles.tabBtn, tab === "login" && styles.activeTabBtn]}
                   activeOpacity={0.7}
@@ -122,7 +122,7 @@ export function AuthModal({ open, onClose, defaultTab = "login" }: AuthModalProp
                     Sign In
                   </Text>
                 </TouchableOpacity>
-                <TouchableOpacity
+                <TouchableOpacity delayPressIn={0}
                   onPress={() => switchTab("register")}
                   style={[styles.tabBtn, tab === "register" && styles.activeTabBtn]}
                   activeOpacity={0.7}
@@ -188,7 +188,7 @@ export function AuthModal({ open, onClose, defaultTab = "login" }: AuthModalProp
                     autoCapitalize="none"
                     style={[styles.inputField, { flex: 1, borderWidth: 0 }]}
                   />
-                  <TouchableOpacity
+                  <TouchableOpacity delayPressIn={0}
                     onPress={() => setShowPassword(!showPassword)}
                     style={styles.eyeBtn}
                     activeOpacity={0.7}
@@ -219,7 +219,7 @@ export function AuthModal({ open, onClose, defaultTab = "login" }: AuthModalProp
               )}
 
               {/* Action Button */}
-              <TouchableOpacity
+              <TouchableOpacity delayPressIn={0}
                 onPress={handleSubmit}
                 disabled={loading}
                 style={[styles.submitBtn, loading && styles.disabledSubmitBtn]}

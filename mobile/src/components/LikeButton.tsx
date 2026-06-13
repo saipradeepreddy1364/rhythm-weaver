@@ -40,7 +40,7 @@ export function LikeButton({
   };
 
   return (
-    <TouchableOpacity
+    <TouchableOpacity delayPressIn={0}
       onPress={handlePress}
       activeOpacity={0.7}
       style={[

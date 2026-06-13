@@ -73,7 +73,7 @@ export function AddToPlaylistMenu({
   return (
     <View style={styles.container}>
       {/* Trigger */}
-      <TouchableOpacity onPress={handleOpen} activeOpacity={0.7}>
+      <TouchableOpacity delayPressIn={0} onPress={handleOpen} activeOpacity={0.7}>
         {children ?? (
           <View style={styles.triggerBtn}>
             <MaterialCommunityIcons name="playlist-plus" size={18} color="rgba(255,255,255,0.4)" />
@@ -88,19 +88,19 @@ export function AddToPlaylistMenu({
         animationType="fade"
         onRequestClose={handleClose}
       >
-        <TouchableOpacity
+        <TouchableOpacity delayPressIn={0}
           style={styles.modalBackdrop}
           activeOpacity={1}
           onPress={handleClose}
         >
-          <TouchableOpacity
+          <TouchableOpacity delayPressIn={0}
             style={styles.dialog}
             activeOpacity={1} // Prevents click propagation to backdrop
           >
             {/* Header */}
             <View style={styles.dialogHeader}>
               <Text style={styles.dialogTitle}>Add to Playlist</Text>
-              <TouchableOpacity onPress={handleClose} style={styles.closeBtn} activeOpacity={0.7}>
+              <TouchableOpacity delayPressIn={0} onPress={handleClose} style={styles.closeBtn} activeOpacity={0.7}>
                 <MaterialCommunityIcons name="close" size={18} color="rgba(255,255,255,0.5)" />
               </TouchableOpacity>
             </View>
@@ -116,7 +116,7 @@ export function AddToPlaylistMenu({
                 const isAdded = addedIds.has(p.id);
 
                 return (
-                  <TouchableOpacity
+                  <TouchableOpacity delayPressIn={0}
                     key={p.id}
                     onPress={() => handleAdd(p.id)}
                     style={styles.playlistRow}
@@ -154,7 +154,7 @@ export function AddToPlaylistMenu({
             {/* Bottom creator */}
             <View style={styles.creatorSection}>
               {!creating ? (
-                <TouchableOpacity
+                <TouchableOpacity delayPressIn={0}
                   onPress={() => setCreating(true)}
                   style={styles.newPlaylistBtn}
                   activeOpacity={0.7}
@@ -172,7 +172,7 @@ export function AddToPlaylistMenu({
                     placeholderTextColor="rgba(255,255,255,0.3)"
                     style={styles.textInput}
                   />
-                  <TouchableOpacity
+                  <TouchableOpacity delayPressIn={0}
                     onPress={handleCreate}
                     disabled={!newName.trim() || loadingId === "new"}
                     style={[styles.saveBtn, (!newName.trim() || loadingId === "new") && styles.disabledSaveBtn]}

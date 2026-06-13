@@ -68,7 +68,7 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
         </View>
 
         {/* Song info (taps to expand full player) */}
-        <TouchableOpacity
+        <TouchableOpacity delayPressIn={0}
           style={styles.infoButton}
           onPress={() => setShowPlayer(true)}
           activeOpacity={0.8}

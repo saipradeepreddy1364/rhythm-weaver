@@ -247,7 +247,7 @@ function CategorySongModal({
           </View>
 
           {songs.length > 0 ? (
-            <TouchableOpacity
+            <TouchableOpacity delayPressIn={0}
               onPress={() => playSong(songs[0], songs)}
               style={modalStyles.playBtn}
               activeOpacity={0.8}
@@ -402,7 +402,7 @@ function LanguageAlbumModal({
           </View>
 
           {songs.length > 0 ? (
-            <TouchableOpacity
+            <TouchableOpacity delayPressIn={0}
               onPress={() => playSong(songs[0], songs)}
               style={modalStyles.playBtn}
               activeOpacity={0.8}
@@ -504,7 +504,7 @@ function CategoryCard({ label, query, onSelect }: CategoryCardProps) {
   }, [query, label]);
 
   return (
-    <TouchableOpacity
+    <TouchableOpacity delayPressIn={0}
       onPress={() => onSelect(label, songs, coverArt || "")}
       style={styles.categoryBtn}
       activeOpacity={0.8}
@@ -624,7 +624,7 @@ function AlbumModal({
           </View>
 
           {songs.length > 0 ? (
-            <TouchableOpacity
+            <TouchableOpacity delayPressIn={0}
               onPress={() => playSong(songs[0], songs)}
               style={modalStyles.playBtn}
               activeOpacity={0.8}
@@ -796,7 +796,7 @@ function ArtistModal({
           </View>
 
           {songs.length > 0 ? (
-            <TouchableOpacity
+            <TouchableOpacity delayPressIn={0}
               onPress={() => playSong(songs[0], songs)}
               style={modalStyles.playBtn}
               activeOpacity={0.8}
@@ -984,7 +984,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
             {(["all", "songs", "albums", "artists"] as const).map((tab) => {
               const isActive = activeTab === tab;
               return (
-                <TouchableOpacity
+                <TouchableOpacity delayPressIn={0}
                   key={tab}
                   onPress={() => setActiveTab(tab)}
                   style={[styles.filterTabBtn, isActive && styles.activeFilterTabBtn]}
@@ -1049,7 +1049,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
               <View style={styles.resultSection}>
                 {activeTab === "all" && <Text style={styles.sectionSubHeader}>Albums</Text>}
                 {albumsResult.slice(0, activeTab === "all" ? 6 : undefined).map((album) => (
-                  <TouchableOpacity
+                  <TouchableOpacity delayPressIn={0}
                     key={album.title}
                     onPress={() => setActiveAlbum(album)}
                     style={styles.albumRowItem}
@@ -1078,7 +1078,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
               <View style={styles.resultSection}>
                 {activeTab === "all" && <Text style={styles.sectionSubHeader}>Artists</Text>}
                 {artistsResult.slice(0, activeTab === "all" ? 6 : undefined).map((artist) => (
-                  <TouchableOpacity
+                  <TouchableOpacity delayPressIn={0}
                     key={artist.name}
                     onPress={() => setActiveArtist(artist)}
                     style={styles.albumRowItem}

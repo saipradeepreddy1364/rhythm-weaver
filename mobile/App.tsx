@@ -110,6 +110,9 @@ function AppContent() {
               fontSize: 11,
               fontWeight: "600",
             },
+            tabBarButton: (props) => (
+              <TouchableOpacity delayPressIn={0} {...props} />
+            ),
           })}
         >
           <Tab.Screen
@@ -191,10 +194,10 @@ function AppContent() {
             <View style={styles.modalButtonGroup}>
               {updateDownloaded ? (
                 <>
-                  <TouchableOpacity style={styles.primaryButton} onPress={handleRestartApp}>
+                  <TouchableOpacity delayPressIn={0} style={styles.primaryButton} onPress={handleRestartApp}>
                     <Text style={styles.primaryButtonText}>Restart Now</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.secondaryButton} onPress={() => setUpdateAvailable(false)}>
+                  <TouchableOpacity delayPressIn={0} style={styles.secondaryButton} onPress={() => setUpdateAvailable(false)}>
                     <Text style={styles.secondaryButtonText}>Later</Text>
                   </TouchableOpacity>
                 </>
@@ -205,10 +208,10 @@ function AppContent() {
                 </View>
               ) : (
                 <>
-                  <TouchableOpacity style={styles.primaryButton} onPress={handleDownloadUpdate}>
+                  <TouchableOpacity delayPressIn={0} style={styles.primaryButton} onPress={handleDownloadUpdate}>
                     <Text style={styles.primaryButtonText}>Update Now</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.secondaryButton} onPress={() => setUpdateAvailable(false)}>
+                  <TouchableOpacity delayPressIn={0} style={styles.secondaryButton} onPress={() => setUpdateAvailable(false)}>
                     <Text style={styles.secondaryButtonText}>Later</Text>
                   </TouchableOpacity>
                 </>
@@ -253,13 +256,17 @@ export default function App() {
         console.warn("App initialization error:", e);
       } finally {
         setAppReady(true);
-        // Hide the splash screen only when everything is loaded and the delay is satisfied
-        SplashScreen.hideAsync().catch(() => {});
       }
     };
 
     prepareApp();
   }, []);
+
+  const onLayoutRootView = React.useCallback(async () => {
+    if (appReady) {
+      await SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [appReady]);
 
   if (!appReady) {
     // Returning null keeps the native splash screen visible without any flash or loading spinner
@@ -267,15 +274,17 @@ export default function App() {
   }
 
   return (
-    <PaperProvider>
-      <AuthProvider>
-        <PlayerProvider>
-          <LibraryProvider>
-            <AppContent />
-          </LibraryProvider>
-        </PlayerProvider>
-      </AuthProvider>
-    </PaperProvider>
+    <View style={{ flex: 1 }} onLayout={onLayoutRootView}>
+      <PaperProvider>
+        <AuthProvider>
+          <PlayerProvider>
+            <LibraryProvider>
+              <AppContent />
+            </LibraryProvider>
+          </PlayerProvider>
+        </AuthProvider>
+      </PaperProvider>
+    </View>
   );
 }
 

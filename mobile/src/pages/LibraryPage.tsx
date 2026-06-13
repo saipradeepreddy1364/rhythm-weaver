@@ -84,7 +84,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
       <View style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity
+          <TouchableOpacity delayPressIn={0}
             onPress={() => {
               setTab("playlists");
               setPlaylistSongs([]);
@@ -116,7 +116,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
             </Text>
 
             {playlistSongs.length > 0 ? (
-              <TouchableOpacity
+              <TouchableOpacity delayPressIn={0}
                 onPress={() => playSong(playlistSongs[0], playlistSongs, true)}
                 style={styles.playAllBtn}
                 activeOpacity={0.8}
@@ -177,7 +177,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
       <View style={styles.header}>
         <Text style={styles.dashboardTitle}>Your Library</Text>
 
-        <TouchableOpacity
+        <TouchableOpacity delayPressIn={0}
           onPress={() => user ? setShowUserMenu(!showUserMenu) : setShowAuthModal(true)}
           style={styles.profileBtn}
           activeOpacity={0.7}
@@ -218,7 +218,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
       {/* Tabs */}
       <View style={styles.tabBar}>
         {!isOffline && (
-          <TouchableOpacity
+          <TouchableOpacity delayPressIn={0}
             onPress={() => setTab("liked")}
             style={[styles.tabBtn, activeTabStr === "liked" && styles.activeTabBtn]}
             activeOpacity={0.7}
@@ -231,7 +231,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
         )}
 
         {!isOffline && (
-          <TouchableOpacity
+          <TouchableOpacity delayPressIn={0}
             onPress={() => setTab("playlists")}
             style={[styles.tabBtn, activeTabStr === "playlists" && styles.activeTabBtn]}
             activeOpacity={0.7}
@@ -243,7 +243,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
           </TouchableOpacity>
         )}
 
-        <TouchableOpacity
+        <TouchableOpacity delayPressIn={0}
           onPress={() => setTab("downloads")}
           style={[styles.tabBtn, activeTabStr === "downloads" && styles.activeTabBtn]}
           activeOpacity={0.7}
@@ -255,7 +255,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
         </TouchableOpacity>
 
         {!isOffline && (
-          <TouchableOpacity
+          <TouchableOpacity delayPressIn={0}
             onPress={() => setTab("recent")}
             style={[styles.tabBtn, activeTabStr === "recent" && styles.activeTabBtn]}
             activeOpacity={0.7}
@@ -303,7 +303,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
               <>
                 {/* Creator tool */}
                 {!creatingPlaylist ? (
-                  <TouchableOpacity
+                  <TouchableOpacity delayPressIn={0}
                     onPress={() => setCreatingPlaylist(true)}
                     style={styles.creatorTrigger}
                     activeOpacity={0.7}
@@ -331,7 +331,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                     >
                       <MaterialCommunityIcons name="check" size={18} color="#000" />
                     </TouchableOpacity>
-                    <TouchableOpacity
+                    <TouchableOpacity delayPressIn={0}
                       onPress={() => setCreatingPlaylist(false)}
                       style={[styles.creatorBtn, { backgroundColor: "rgba(255,255,255,0.08)" }]}
                       activeOpacity={0.7}
@@ -355,7 +355,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
 
                     return (
                       <View key={playlist.id} style={styles.playlistItemContainer}>
-                        <TouchableOpacity
+                        <TouchableOpacity delayPressIn={0}
                           onPress={() => openPlaylist(playlist.id)}
                           style={styles.playlistRowItem}
                           activeOpacity={0.7}
@@ -377,7 +377,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                                 onChangeText={setEditName}
                                 style={styles.editTextInput}
                               />
-                              <TouchableOpacity
+                              <TouchableOpacity delayPressIn={0}
                                 onPress={() => handleRenamePlaylist(playlist.id)}
                                 style={styles.editBtnOk}
                                 activeOpacity={0.7}
@@ -401,7 +401,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                         {/* Playlist actions */}
                         {!isEditing && (
                           <View style={styles.playlistActions}>
-                            <TouchableOpacity
+                            <TouchableOpacity delayPressIn={0}
                               onPress={() => {
                                 setEditingId(playlist.id);
                                 setEditName(playlist.name);
@@ -412,7 +412,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                             >
                               <MaterialCommunityIcons name="pencil-outline" size={16} color="rgba(255,255,255,0.5)" />
                             </TouchableOpacity>
-                            <TouchableOpacity
+                            <TouchableOpacity delayPressIn={0}
                               onPress={() => removePlaylist(playlist.id)}
                               style={styles.actionBtn}
                               activeOpacity={0.7}
@@ -507,7 +507,7 @@ function LoggedOutTabContent({ onSignIn }: { onSignIn: () => void }) {
           Sign in to save songs, create playlists, and more.
         </Text>
       </View>
-      <TouchableOpacity
+      <TouchableOpacity delayPressIn={0}
         onPress={onSignIn}
         style={styles.signInBtn}
         activeOpacity={0.8}

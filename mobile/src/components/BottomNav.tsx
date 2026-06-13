@@ -21,7 +21,7 @@ export function BottomNav({ page, onNavigate }: BottomNavProps) {
       {tabs.map(({ key, label, icon }) => {
         const active = page === key;
         return (
-          <TouchableOpacity
+          <TouchableOpacity delayPressIn={0}
             key={key}
             onPress={() => onNavigate(key)}
             style={styles.navButton}
