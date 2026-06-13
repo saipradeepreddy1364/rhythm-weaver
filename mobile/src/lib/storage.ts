@@ -55,8 +55,32 @@ class MemoryStorage {
   }
 }
 
+class SessionMemoryStorage {
+  private cache: Record<string, string> = {};
+
+  async ensureInitialized(): Promise<void> {
+    return;
+  }
+
+  getItem(key: string): string | null {
+    return this.cache[key] || null;
+  }
+
+  setItem(key: string, value: string): void {
+    this.cache[key] = value;
+  }
+
+  removeItem(key: string): void {
+    delete this.cache[key];
+  }
+
+  clear(): void {
+    this.cache = {};
+  }
+}
+
 export const localStorage = new MemoryStorage();
-export const sessionStorage = new MemoryStorage();
+export const sessionStorage = new SessionMemoryStorage();
 
 // Apply polyfills to global context so standard browser-focused libraries can also use them
 if (typeof global !== "undefined") {
