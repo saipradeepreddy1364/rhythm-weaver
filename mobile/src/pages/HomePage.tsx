@@ -1328,7 +1328,16 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
             >
               {user ? (
                 <Text style={styles.userInitial}>
-                  {(user.username?.charAt(0) || user.email?.charAt(0) || "U").toUpperCase()}
+                  {(() => {
+                    const name = user.username;
+                    if (name && name.toLowerCase() !== "user" && name.trim().length > 0) {
+                      return name.charAt(0).toUpperCase();
+                    }
+                    if (user.email && user.email.trim().length > 0) {
+                      return user.email.charAt(0).toUpperCase();
+                    }
+                    return "U";
+                  })()}
                 </Text>
               ) : (
                 <MaterialCommunityIcons name="account" size={18} color="#fff" />

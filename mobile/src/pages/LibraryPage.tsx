@@ -185,7 +185,16 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
         >
           {user ? (
             <Text style={styles.profileInitial}>
-              {(user.username?.charAt(0) || user.email?.charAt(0) || "U").toUpperCase()}
+              {(() => {
+                const name = user.username;
+                if (name && name.toLowerCase() !== "user" && name.trim().length > 0) {
+                  return name.charAt(0).toUpperCase();
+                }
+                if (user.email && user.email.trim().length > 0) {
+                  return user.email.charAt(0).toUpperCase();
+                }
+                return "U";
+              })()}
             </Text>
           ) : (
             <MaterialCommunityIcons name="account-outline" size={20} color="#000" />
