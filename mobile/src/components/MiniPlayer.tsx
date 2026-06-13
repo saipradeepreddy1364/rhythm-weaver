@@ -57,6 +57,7 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
             onPress={togglePlay}
             style={styles.playOverlay}
             activeOpacity={0.8}
+            delayPressIn={0}
           >
             <MaterialCommunityIcons
               name={isPlaying ? "pause" : "play"}
@@ -71,6 +72,7 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
           style={styles.infoButton}
           onPress={() => setShowPlayer(true)}
           activeOpacity={0.8}
+          delayPressIn={0}
         >
           <Text style={styles.titleText} numberOfLines={1}>
             {currentSong.title}
@@ -90,6 +92,7 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
             }
           ]}
           activeOpacity={0.7}
+          delayPressIn={0}
         >
           <MaterialCommunityIcons
             name="playlist-play"

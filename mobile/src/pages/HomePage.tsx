@@ -1097,6 +1097,7 @@ function AlbumRow({
                     roundCovers && { borderRadius: 60 }
                   ]}
                   activeOpacity={0.8}
+                  delayPressIn={0}
                 >
                   {album.coverArt ? (
                     <Image source={{ uri: album.coverArt }} style={styles.albumCoverImage} />
@@ -1111,6 +1112,7 @@ function AlbumRow({
                       onPress={() => playSong(album.songs[0], album.songs)}
                       style={styles.playOverlayBtn}
                       activeOpacity={0.8}
+                      delayPressIn={0}
                     >
                       <MaterialCommunityIcons name="play" size={16} color="#000" style={{ marginLeft: 1 }} />
                     </TouchableOpacity>
@@ -1176,6 +1178,7 @@ function CollapsibleSection({
           onPress={() => setExpanded(!expanded)}
           style={styles.expandBtn}
           activeOpacity={0.7}
+          delayPressIn={0}
         >
           <MaterialCommunityIcons
             name={expanded ? "chevron-up" : "chevron-down"}
@@ -1210,6 +1213,7 @@ function QuickPick({ song, queue }: { song: Song; queue: Song[] }) {
       onPress={() => playSong(song, queue)}
       style={styles.quickPickCard}
       activeOpacity={0.8}
+      delayPressIn={0}
     >
       {song.albumArt ? (
         <Image source={{ uri: song.albumArt }} style={styles.quickPickArt} />
@@ -1320,6 +1324,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
               onPress={() => user ? setShowUserMenu(!showUserMenu) : setShowAuthModal(true)}
               style={[styles.userMenuBtn, user && styles.activeUserMenuBtn]}
               activeOpacity={0.7}
+              delayPressIn={0}
             >
               {user ? (
                 <Text style={styles.userInitial}>
@@ -1336,7 +1341,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
                   <Text style={styles.dropdownName} numberOfLines={1}>{user.username}</Text>
                   <Text style={styles.dropdownEmail} numberOfLines={1}>{user.email}</Text>
                 </View>
-                <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn} activeOpacity={0.7}>
+                <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn} activeOpacity={0.7} delayPressIn={0}>
                   <MaterialCommunityIcons name="logout" size={14} color="#fff" style={{ marginRight: 6 }} />
                   <Text style={styles.logoutText}>Sign Out</Text>
                 </TouchableOpacity>

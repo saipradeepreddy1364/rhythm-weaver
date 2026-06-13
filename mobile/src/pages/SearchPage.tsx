@@ -235,7 +235,7 @@ function CategorySongModal({
       <View style={modalStyles.content}>
         {/* Header */}
         <View style={modalStyles.header}>
-          <TouchableOpacity onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
+          <TouchableOpacity onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7} delayPressIn={0}>
             <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
           </TouchableOpacity>
 
@@ -390,7 +390,7 @@ function LanguageAlbumModal({
       <View style={modalStyles.content}>
         {/* Header */}
         <View style={modalStyles.header}>
-          <TouchableOpacity onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
+          <TouchableOpacity onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7} delayPressIn={0}>
             <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
           </TouchableOpacity>
 
@@ -508,6 +508,7 @@ function CategoryCard({ label, query, onSelect }: CategoryCardProps) {
       onPress={() => onSelect(label, songs, coverArt || "")}
       style={styles.categoryBtn}
       activeOpacity={0.8}
+      delayPressIn={0}
     >
       <View style={styles.categoryCoverWrapper}>
         {coverArt ? (
@@ -611,7 +612,7 @@ function AlbumModal({
       <View style={modalStyles.content}>
         {/* Header */}
         <View style={modalStyles.header}>
-          <TouchableOpacity onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
+          <TouchableOpacity onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7} delayPressIn={0}>
             <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
           </TouchableOpacity>
 
@@ -783,7 +784,7 @@ function ArtistModal({
       <View style={modalStyles.content}>
         {/* Header */}
         <View style={modalStyles.header}>
-          <TouchableOpacity onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
+          <TouchableOpacity onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7} delayPressIn={0}>
             <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
           </TouchableOpacity>
 
@@ -799,6 +800,7 @@ function ArtistModal({
               onPress={() => playSong(songs[0], songs)}
               style={modalStyles.playBtn}
               activeOpacity={0.8}
+              delayPressIn={0}
             >
               <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
             </TouchableOpacity>
@@ -987,6 +989,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                   onPress={() => setActiveTab(tab)}
                   style={[styles.filterTabBtn, isActive && styles.activeFilterTabBtn]}
                   activeOpacity={0.7}
+                  delayPressIn={0}
                 >
                   <Text style={[styles.filterTabText, isActive && styles.activeFilterTabText]}>
                     {tab.toUpperCase()}
@@ -1051,6 +1054,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                     onPress={() => setActiveAlbum(album)}
                     style={styles.albumRowItem}
                     activeOpacity={0.7}
+                    delayPressIn={0}
                   >
                     {album.coverArt ? (
                       <Image source={{ uri: album.coverArt }} style={styles.albumCoverImage} />
@@ -1079,6 +1083,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                     onPress={() => setActiveArtist(artist)}
                     style={styles.albumRowItem}
                     activeOpacity={0.7}
+                    delayPressIn={0}
                   >
                     {artist.coverArt ? (
                       <Image source={{ uri: artist.coverArt }} style={[styles.albumCoverImage, { borderRadius: 22 }]} />

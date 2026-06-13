@@ -91,6 +91,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
             }}
             style={styles.backBtn}
             activeOpacity={0.7}
+            delayPressIn={0}
           >
             <MaterialCommunityIcons name="close" size={20} color="#fff" />
           </TouchableOpacity>
@@ -119,6 +120,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                 onPress={() => playSong(playlistSongs[0], playlistSongs, true)}
                 style={styles.playAllBtn}
                 activeOpacity={0.8}
+                delayPressIn={0}
               >
                 <MaterialCommunityIcons name="play" size={16} color="#000" style={{ marginRight: 6 }} />
                 <Text style={styles.playAllBtnText}>Play All</Text>
@@ -179,6 +181,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
           onPress={() => user ? setShowUserMenu(!showUserMenu) : setShowAuthModal(true)}
           style={styles.profileBtn}
           activeOpacity={0.7}
+          delayPressIn={0}
         >
           {user ? (
             <Text style={styles.profileInitial}>
@@ -195,7 +198,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
               <Text style={styles.dropdownName} numberOfLines={1}>{user.username}</Text>
               <Text style={styles.dropdownEmail} numberOfLines={1}>{user.email}</Text>
             </View>
-            <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn} activeOpacity={0.7}>
+            <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn} activeOpacity={0.7} delayPressIn={0}>
               <MaterialCommunityIcons name="logout" size={14} color="#fff" style={{ marginRight: 6 }} />
               <Text style={styles.logoutText}>Sign Out</Text>
             </TouchableOpacity>
@@ -210,6 +213,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
             onPress={() => setTab("liked")}
             style={[styles.tabBtn, activeTabStr === "liked" && styles.activeTabBtn]}
             activeOpacity={0.7}
+            delayPressIn={0}
           >
             <Text style={[styles.tabBtnText, activeTabStr === "liked" && styles.activeTabBtnText]}>
               Liked
@@ -222,6 +226,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
             onPress={() => setTab("playlists")}
             style={[styles.tabBtn, activeTabStr === "playlists" && styles.activeTabBtn]}
             activeOpacity={0.7}
+            delayPressIn={0}
           >
             <Text style={[styles.tabBtnText, activeTabStr === "playlists" && styles.activeTabBtnText]}>
               Playlists
@@ -233,6 +238,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
           onPress={() => setTab("downloads")}
           style={[styles.tabBtn, activeTabStr === "downloads" && styles.activeTabBtn]}
           activeOpacity={0.7}
+          delayPressIn={0}
         >
           <Text style={[styles.tabBtnText, activeTabStr === "downloads" && styles.activeTabBtnText]}>
             Downloads
@@ -244,6 +250,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
             onPress={() => setTab("recent")}
             style={[styles.tabBtn, activeTabStr === "recent" && styles.activeTabBtn]}
             activeOpacity={0.7}
+            delayPressIn={0}
           >
             <Text style={[styles.tabBtnText, activeTabStr === "recent" && styles.activeTabBtnText]}>
               Recent
@@ -291,6 +298,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                     onPress={() => setCreatingPlaylist(true)}
                     style={styles.creatorTrigger}
                     activeOpacity={0.7}
+                    delayPressIn={0}
                   >
                     <MaterialCommunityIcons name="plus" size={20} color="#1DB954" style={{ marginRight: 8 }} />
                     <Text style={styles.creatorTriggerText}>Create Playlist</Text>
@@ -310,6 +318,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                       disabled={!newPlaylistName.trim()}
                       style={[styles.creatorBtn, !newPlaylistName.trim() && { opacity: 0.5 }]}
                       activeOpacity={0.7}
+                      delayPressIn={0}
                     >
                       <MaterialCommunityIcons name="check" size={18} color="#000" />
                     </TouchableOpacity>
@@ -317,6 +326,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                       onPress={() => setCreatingPlaylist(false)}
                       style={[styles.creatorBtn, { backgroundColor: "rgba(255,255,255,0.08)" }]}
                       activeOpacity={0.7}
+                      delayPressIn={0}
                     >
                       <MaterialCommunityIcons name="close" size={18} color="#fff" />
                     </TouchableOpacity>
@@ -340,6 +350,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                           onPress={() => openPlaylist(playlist.id)}
                           style={styles.playlistRowItem}
                           activeOpacity={0.7}
+                          delayPressIn={0}
                         >
                           <View style={styles.coverArtWrapper}>
                             {playlist.cover_art ? (
@@ -361,6 +372,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                                 onPress={() => handleRenamePlaylist(playlist.id)}
                                 style={styles.editBtnOk}
                                 activeOpacity={0.7}
+                                delayPressIn={0}
                               >
                                 <MaterialCommunityIcons name="check" size={14} color="#000" />
                               </TouchableOpacity>
@@ -387,6 +399,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                               }}
                               style={styles.actionBtn}
                               activeOpacity={0.7}
+                              delayPressIn={0}
                             >
                               <MaterialCommunityIcons name="pencil-outline" size={16} color="rgba(255,255,255,0.5)" />
                             </TouchableOpacity>
@@ -394,6 +407,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                               onPress={() => removePlaylist(playlist.id)}
                               style={styles.actionBtn}
                               activeOpacity={0.7}
+                              delayPressIn={0}
                             >
                               <MaterialCommunityIcons name="trash-can-outline" size={16} color="rgba(255,255,255,0.5)" />
                             </TouchableOpacity>

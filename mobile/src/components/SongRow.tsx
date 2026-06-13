@@ -53,6 +53,7 @@ export function SongRow({ song, queue, onRequireAuth, fromLibrary }: SongRowProp
       ]}
       onPress={handleClick}
       activeOpacity={0.7}
+      delayPressIn={0}
     >
       {/* Album art */}
       <View style={styles.albumArtContainer}>
@@ -98,6 +99,7 @@ export function SongRow({ song, queue, onRequireAuth, fromLibrary }: SongRowProp
           onPress={handleAddToQueue}
           style={styles.actionButton}
           activeOpacity={0.7}
+          delayPressIn={0}
         >
           <MaterialCommunityIcons
             name="playlist-play"
@@ -121,6 +123,7 @@ export function SongRow({ song, queue, onRequireAuth, fromLibrary }: SongRowProp
           style={styles.actionButton}
           activeOpacity={0.7}
           disabled={downloading}
+          delayPressIn={0}
         >
           {downloading ? (
             <ActivityIndicator size="small" color="#1DB954" />

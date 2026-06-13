@@ -68,6 +68,7 @@ function LyricsPanel({
             onPress={onClose}
             style={styles.closeButton}
             activeOpacity={0.7}
+            delayPressIn={0}
           >
             <MaterialCommunityIcons name="close" size={20} color="#fff" />
           </TouchableOpacity>
@@ -131,6 +132,7 @@ export function SongCard({ song, queue, index }: SongCardProps) {
         style={[styles.card, isActive && styles.activeCard]}
         onPress={handleClick}
         activeOpacity={0.7}
+        delayPressIn={0}
       >
         {/* Index or play icon */}
         {index !== undefined && (
@@ -176,6 +178,7 @@ export function SongCard({ song, queue, index }: SongCardProps) {
           onPress={handleLyricsClick}
           style={styles.actionButton}
           activeOpacity={0.7}
+          delayPressIn={0}
         >
           <MaterialCommunityIcons
             name="file-music-outline"
@@ -189,6 +192,7 @@ export function SongCard({ song, queue, index }: SongCardProps) {
           onPress={() => toggleFavorite(song.id)}
           style={styles.actionButton}
           activeOpacity={0.7}
+          delayPressIn={0}
         >
           <MaterialCommunityIcons
             name={isFav ? "heart" : "heart-outline"}

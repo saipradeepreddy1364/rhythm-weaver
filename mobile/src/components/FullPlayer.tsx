@@ -168,6 +168,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
               onPress={() => setShowPlayer(false)}
               style={styles.headerButton}
               activeOpacity={0.7}
+              delayPressIn={0}
             >
               <MaterialCommunityIcons name="chevron-down" size={24} color="#fff" />
             </TouchableOpacity>
@@ -178,6 +179,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
               onPress={handleAddToQueue}
               style={styles.headerButton}
               activeOpacity={0.7}
+              delayPressIn={0}
             >
               <MaterialCommunityIcons
                 name="playlist-play"
@@ -197,6 +199,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
                   onPress={() => setActiveTab(tab)}
                   style={[styles.tabButton, isActive && styles.activeTabButton]}
                   activeOpacity={0.7}
+                  delayPressIn={0}
                 >
                   <Text style={[styles.tabButtonText, isActive && styles.activeTabButtonText]}>
                     {tab.charAt(0).toUpperCase() + tab.slice(1)}
@@ -262,6 +265,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
                 style={styles.metaButton}
                 activeOpacity={0.7}
                 disabled={downloading}
+                delayPressIn={0}
               >
                 {downloading ? (
                   <ActivityIndicator size="small" color="#1DB954" />
@@ -287,6 +291,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
               onLayout={(e: any) => setProgressBarWidth(e.nativeEvent.layout.width)}
               onPress={handleProgressBarPress}
               activeOpacity={1}
+              delayPressIn={0}
             >
               <View style={[styles.progressBarFill, { width: `${pct}%` }]} />
               <View style={[styles.progressBarThumb, { left: `${pct}%`, marginLeft: -6 }]} />
@@ -307,7 +312,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
 
           {/* Playback controls */}
           <View style={styles.controlsSection}>
-            <TouchableOpacity onPress={toggleShuffle} style={styles.controlBtn} activeOpacity={0.7}>
+            <TouchableOpacity onPress={toggleShuffle} style={styles.controlBtn} activeOpacity={0.7} delayPressIn={0}>
               <MaterialCommunityIcons
                 name="shuffle"
                 size={22}
@@ -316,7 +321,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
               {shuffle && <View style={styles.dotIndicator} />}
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={prevSong} style={styles.controlBtn} activeOpacity={0.7}>
+            <TouchableOpacity onPress={prevSong} style={styles.controlBtn} activeOpacity={0.7} delayPressIn={0}>
               <MaterialCommunityIcons name="skip-previous" size={36} color="#fff" />
             </TouchableOpacity>
 
@@ -324,6 +329,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
               onPress={togglePlay}
               style={styles.playPauseBtn}
               activeOpacity={0.8}
+              delayPressIn={0}
             >
               <MaterialCommunityIcons
                 name={isPlaying ? "pause" : "play"}
@@ -332,11 +338,11 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
               />
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={nextSong} style={styles.controlBtn} activeOpacity={0.7}>
+            <TouchableOpacity onPress={nextSong} style={styles.controlBtn} activeOpacity={0.7} delayPressIn={0}>
               <MaterialCommunityIcons name="skip-next" size={36} color="#fff" />
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={cycleRepeat} style={styles.controlBtn} activeOpacity={0.7}>
+            <TouchableOpacity onPress={cycleRepeat} style={styles.controlBtn} activeOpacity={0.7} delayPressIn={0}>
               <View style={{ position: "relative" }}>
                 <MaterialCommunityIcons
                   name="repeat"

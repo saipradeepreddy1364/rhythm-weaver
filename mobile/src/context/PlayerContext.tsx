@@ -168,7 +168,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const activeTrack = useActiveTrack();
   const progressData = useProgress(500);
 
-  const isPlaying = playbackState ? playbackState.state === State.Playing : false;
+  const isPlaying = playbackState
+    ? (playbackState.state === State.Playing ||
+       playbackState.state === State.Buffering ||
+       playbackState.state === State.Loading)
+    : false;
   const progress = progressData.position;
   const duration = progressData.duration;
 
