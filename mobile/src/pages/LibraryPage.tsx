@@ -5,7 +5,6 @@ import { useAuth } from "../context/AuthContext";
 import { useLibrary, Playlist } from "../context/LibraryContext";
 import { usePlayer } from "../context/PlayerContext";
 import { SongRow } from "../components/SongRow";
-import { AuthModal } from "../components/AuthModal";
 
 import { localStorage, sessionStorage } from "../lib/storage";
 import type { Song } from "../data/songs";
@@ -176,43 +175,6 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.dashboardTitle}>Your Library</Text>
-
-        <TouchableOpacity delayPressIn={0}
-          onPress={() => user ? setShowUserMenu(!showUserMenu) : setShowAuthModal(true)}
-          style={styles.profileBtn}
-          activeOpacity={0.7}
-          delayPressIn={0}
-        >
-          {user ? (
-            <Text style={styles.profileInitial}>
-              {(() => {
-                const name = user.username;
-                if (name && name.toLowerCase() !== "user" && name.trim().length > 0) {
-                  return name.charAt(0).toUpperCase();
-                }
-                if (user.email && user.email.trim().length > 0) {
-                  return user.email.charAt(0).toUpperCase();
-                }
-                return "U";
-              })()}
-            </Text>
-          ) : (
-            <MaterialCommunityIcons name="account-outline" size={20} color="#000" />
-          )}
-        </TouchableOpacity>
-
-        {showUserMenu && user ? (
-          <View style={styles.userDropdown}>
-            <View style={styles.dropdownInfo}>
-              <Text style={styles.dropdownName} numberOfLines={1}>{user.username}</Text>
-              <Text style={styles.dropdownEmail} numberOfLines={1}>{user.email}</Text>
-            </View>
-            <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn} activeOpacity={0.7} delayPressIn={0}>
-              <MaterialCommunityIcons name="logout" size={14} color="#fff" style={{ marginRight: 6 }} />
-              <Text style={styles.logoutText}>Sign Out</Text>
-            </TouchableOpacity>
-          </View>
-        ) : null}
       </View>
 
       {/* Tabs */}
@@ -478,7 +440,6 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
           </View>
         )}
       </ScrollView>
-      <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} />
     </View>
   );
 }

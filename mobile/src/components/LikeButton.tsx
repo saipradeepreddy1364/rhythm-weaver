@@ -29,11 +29,6 @@ export function LikeButton({
   };
 
   const handlePress = async () => {
-    if (!user) {
-      onRequireAuth?.();
-      return;
-    }
-
     setAnimating(true);
     await toggleLike(song);
     setTimeout(() => setAnimating(false), 400);

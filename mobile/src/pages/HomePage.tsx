@@ -7,7 +7,6 @@ import { useAuth } from "../context/AuthContext";
 import { useLibrary, Playlist } from "../context/LibraryContext";
 import { usePlayer } from "../context/PlayerContext";
 import { SongRow } from "../components/SongRow";
-import { AuthModal } from "../components/AuthModal";
 import { useNavigation } from "@react-navigation/native";
 import { MiniPlayer } from "../components/MiniPlayer";
 import { localStorage, sessionStorage } from "../lib/storage";
@@ -907,6 +906,7 @@ function AlbumModal({
                   song={song}
                   queue={songs}
                   onRequireAuth={onRequireAuth}
+                  hideActions={true}
                 />
               ))}
 
@@ -1039,6 +1039,7 @@ function LanguageCategoryModal({
                   song={song}
                   queue={displaySongs}
                   onRequireAuth={onRequireAuth}
+                  hideActions={true}
                 />
               ))}
             </View>
@@ -1170,7 +1171,7 @@ function CollapsibleSection({
       <Text style={styles.sectionHeader}>{title}</Text>
       <View style={styles.songsListContainer}>
         {visible.map((song) => (
-          <SongRow key={song.id} song={song} queue={songs} onRequireAuth={onRequireAuth} />
+          <SongRow key={song.id} song={song} queue={songs} onRequireAuth={onRequireAuth} hideActions={true} />
         ))}
       </View>
       {songs.length > PREVIEW ? (
@@ -1318,45 +1319,6 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
             </View>
             <Text style={styles.headerLogoText}>Medley</Text>
           </View>
-
-          <View style={styles.headerRight}>
-            <TouchableOpacity delayPressIn={0}
-              onPress={() => user ? setShowUserMenu(!showUserMenu) : setShowAuthModal(true)}
-              style={[styles.userMenuBtn, user && styles.activeUserMenuBtn]}
-              activeOpacity={0.7}
-              delayPressIn={0}
-            >
-              {user ? (
-                <Text style={styles.userInitial}>
-                  {(() => {
-                    const name = user.username;
-                    if (name && name.toLowerCase() !== "user" && name.trim().length > 0) {
-                      return name.charAt(0).toUpperCase();
-                    }
-                    if (user.email && user.email.trim().length > 0) {
-                      return user.email.charAt(0).toUpperCase();
-                    }
-                    return "U";
-                  })()}
-                </Text>
-              ) : (
-                <MaterialCommunityIcons name="account" size={18} color="#fff" />
-              )}
-            </TouchableOpacity>
-
-            {showUserMenu && user ? (
-              <View style={styles.userDropdown}>
-                <View style={styles.dropdownInfo}>
-                  <Text style={styles.dropdownName} numberOfLines={1}>{user.username}</Text>
-                  <Text style={styles.dropdownEmail} numberOfLines={1}>{user.email}</Text>
-                </View>
-                <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn} activeOpacity={0.7} delayPressIn={0}>
-                  <MaterialCommunityIcons name="logout" size={14} color="#fff" style={{ marginRight: 6 }} />
-                  <Text style={styles.logoutText}>Sign Out</Text>
-                </TouchableOpacity>
-              </View>
-            ) : null}
-          </View>
         </View>
 
         {/* Quick Picks */}
@@ -1411,6 +1373,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
                 song={song}
                 queue={recentlyPlayed}
                 onRequireAuth={handleRequireAuth}
+                hideActions={true}
               />
             ))}
           </SimpleSection>
@@ -1454,7 +1417,6 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
       ) : null}
 
       {/* Authentication Dialog */}
-      <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} />
     </View>
   );
 }

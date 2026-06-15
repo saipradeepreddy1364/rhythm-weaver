@@ -251,9 +251,22 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       loadRecentlyPlayed();
       loadPlaylists();
     } else {
-      setLikedSongs([]);
-      setRecentlyPlayed([]);
-      setStoredPlaylists([]);
+      // Load local guest data from localStorage
+      try {
+        const localLiked = localStorage.getItem("rw_guest_liked");
+        setLikedSongs(localLiked ? JSON.parse(localLiked) : []);
+
+        const localRecent = localStorage.getItem("rw_guest_recent");
+        setRecentlyPlayed(localRecent ? JSON.parse(localRecent) : []);
+
+        const localPlaylists = localStorage.getItem("rw_guest_playlists");
+        setStoredPlaylists(localPlaylists ? JSON.parse(localPlaylists) : []);
+      } catch (err) {
+        console.warn("Failed to load local guest library data:", err);
+        setLikedSongs([]);
+        setRecentlyPlayed([]);
+        setStoredPlaylists([]);
+      }
     }
   }, [user, loadLikedSongs, loadRecentlyPlayed, loadPlaylists]);
 
@@ -270,7 +283,15 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     // Update local state instantly
     setRecentlyPlayed((prev) => {
       const filtered = prev.filter((s) => s.id !== song.id);
-      return [song, ...filtered].slice(0, 50);
+      const next = [song, ...filtered].slice(0, 50);
+      if (!user) {
+        try {
+          localStorage.setItem("rw_guest_recent", JSON.stringify(next));
+        } catch (err) {
+          console.warn("Failed to save guest recent songs:", err);
+        }
+      }
+      return next;
     });
 
     if (!user) return;
@@ -312,8 +333,22 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const toggleLike = useCallback(
     async (song: Song) => {
-      if (!user) return;
       const liked = likedSongs.some((s) => s.id === song.id);
+      if (!user) {
+        let nextLiked: Song[];
+        if (liked) {
+          nextLiked = likedSongs.filter((s) => s.id !== song.id);
+        } else {
+          nextLiked = [song, ...likedSongs];
+        }
+        setLikedSongs(nextLiked);
+        try {
+          localStorage.setItem("rw_guest_liked", JSON.stringify(nextLiked));
+        } catch (err) {
+          console.warn("Failed to save guest liked songs:", err);
+        }
+        return;
+      }
       try {
         if (liked) {
           setLikedSongs((prev) => prev.filter((s) => s.id !== song.id));
@@ -352,11 +387,30 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     [likedSongs, user]
   );
 
-  // ── Playlist CRUD (Supabase database backed) ─────────────────────────────────
+  // ── Playlist CRUD (Supabase database backed & Guest Local storage fallback) ──
 
   const createNewPlaylist = useCallback(
     async (name: string): Promise<Playlist | null> => {
-      if (!user) return null;
+      if (!user) {
+        const newP: StoredPlaylist = {
+          id: "guest_" + Date.now(),
+          name,
+          created_at: new Date().toISOString(),
+          cover_art: undefined,
+          song_count: 0,
+          songs: [],
+        };
+        setStoredPlaylists((prev) => {
+          const next = [newP, ...prev];
+          try {
+            localStorage.setItem("rw_guest_playlists", JSON.stringify(next));
+          } catch (err) {
+            console.warn("Failed to save guest playlists:", err);
+          }
+          return next;
+        });
+        return newP;
+      }
       try {
         const { data, error } = await supabase
           .from("playlists")
@@ -389,7 +443,16 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const removePlaylist = useCallback(
     async (playlistId: string) => {
-      if (!user) return;
+      if (!user) {
+        setStoredPlaylists((prev) => {
+          const next = prev.filter((p) => p.id !== playlistId);
+          try {
+            localStorage.setItem("rw_guest_playlists", JSON.stringify(next));
+          } catch {}
+          return next;
+        });
+        return;
+      }
       try {
         setStoredPlaylists((prev) => prev.filter((p) => p.id !== playlistId));
         await supabase.from("playlists").delete().eq("id", playlistId);
@@ -402,7 +465,16 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const updatePlaylistName = useCallback(
     async (playlistId: string, newName: string) => {
-      if (!user) return;
+      if (!user) {
+        setStoredPlaylists((prev) => {
+          const next = prev.map((p) => (p.id === playlistId ? { ...p, name: newName } : p));
+          try {
+            localStorage.setItem("rw_guest_playlists", JSON.stringify(next));
+          } catch {}
+          return next;
+        });
+        return;
+      }
       try {
         setStoredPlaylists((prev) =>
           prev.map((p) => (p.id === playlistId ? { ...p, name: newName } : p))
@@ -417,7 +489,24 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const addToPlaylist = useCallback(
     async (playlistId: string, song: Song) => {
-      if (!user) return;
+      if (!user) {
+        setStoredPlaylists((prev) => {
+          const next = prev.map((p) => {
+            if (p.id !== playlistId) return p;
+            if (p.songs.some((s) => s.id === song.id)) return p;
+            return {
+              ...p,
+              song_count: (p.song_count ?? 0) + 1,
+              songs: [...p.songs, song],
+            };
+          });
+          try {
+            localStorage.setItem("rw_guest_playlists", JSON.stringify(next));
+          } catch {}
+          return next;
+        });
+        return;
+      }
       try {
         // Update local state song count
         setStoredPlaylists((prev) =>
@@ -463,7 +552,23 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const removeFromPlaylist = useCallback(
     async (playlistId: string, songId: string) => {
-      if (!user) return;
+      if (!user) {
+        setStoredPlaylists((prev) => {
+          const next = prev.map((p) => {
+            if (p.id !== playlistId) return p;
+            return {
+              ...p,
+              song_count: Math.max(0, (p.song_count ?? 1) - 1),
+              songs: p.songs.filter((s) => s.id !== songId),
+            };
+          });
+          try {
+            localStorage.setItem("rw_guest_playlists", JSON.stringify(next));
+          } catch {}
+          return next;
+        });
+        return;
+      }
       try {
         setStoredPlaylists((prev) =>
           prev.map((p) => {
@@ -490,6 +595,10 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const getPlaylist = useCallback(
     async (playlistId: string): Promise<Song[]> => {
+      if (playlistId.startsWith("guest_")) {
+        const p = storedPlaylists.find((p) => p.id === playlistId);
+        return p ? p.songs : [];
+      }
       try {
         const { data } = await supabase
           .from("playlist_songs")
@@ -510,7 +619,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       }
       return [];
     },
-    []
+    [storedPlaylists]
   );
 
   return (

@@ -26,10 +26,6 @@ export function AddToPlaylistMenu({
   const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
 
   const handleOpen = () => {
-    if (!user) {
-      onRequireAuth?.();
-      return;
-    }
     setOpen(true);
   };
 

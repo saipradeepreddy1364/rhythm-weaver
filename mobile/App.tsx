@@ -26,7 +26,6 @@ import SearchPage from "./src/pages/SearchPage";
 import LibraryPage from "./src/pages/LibraryPage";
 import { MiniPlayer } from "./src/components/MiniPlayer";
 import { FullPlayer } from "./src/components/FullPlayer";
-import { AuthModal } from "./src/components/AuthModal";
 
 const Tab = createBottomTabNavigator();
 
@@ -78,7 +77,7 @@ function AppContent() {
   };
 
   const handleRequireAuth = () => {
-    if (!user) setShowAuthModal(true);
+    // Guest mode enabled - no auth required
   };
 
   // Check auth once on mount
@@ -155,9 +154,6 @@ function AppContent() {
 
       {/* Full screen overlay player (native version of FullPlayer component) */}
       {showPlayer && <FullPlayer onRequireAuth={handleRequireAuth} />}
-
-      {/* Authentication Modal */}
-      <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} />
 
       {/* Premium OTA Update Modal */}
       <Modal
