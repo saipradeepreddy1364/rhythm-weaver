@@ -868,10 +868,7 @@ function AlbumModal({
           </View>
 
           {songs.length > 0 ? (
-            <TouchableOpacity delayPressIn={0} onPress={() => playSong(songs[0], songs)}
-              style={modalStyles.playBtn}
-              activeOpacity={0.8}
-            >
+            <TouchableOpacity delayPressIn={0} onPress={() => playSong(songs[0], songs)} style={modalStyles.playBtn} activeOpacity={0.8}>
               <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
             </TouchableOpacity>
           ) : null}
@@ -982,10 +979,7 @@ function LanguageCategoryModal({
           </View>
 
           {displaySongs.length > 0 ? (
-            <TouchableOpacity delayPressIn={0} onPress={() => playSong(displaySongs[0], displaySongs)}
-              style={modalStyles.playBtn}
-              activeOpacity={0.8}
-            >
+            <TouchableOpacity delayPressIn={0} onPress={() => playSong(displaySongs[0], displaySongs)} style={modalStyles.playBtn} activeOpacity={0.8}>
               <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
             </TouchableOpacity>
           ) : null}
@@ -1003,10 +997,7 @@ function LanguageCategoryModal({
             const count = tab === "All" ? allSongs.length : (subSongs[tab]?.length || 0);
 
             return (
-              <TouchableOpacity delayPressIn={0} key={tab} onPress={() => setActiveTab(tab)}
-                style={[styles.langTab, isActive && styles.activeLangTab]}
-                activeOpacity={0.7}
-              >
+              <TouchableOpacity delayPressIn={0} key={tab} onPress={() => setActiveTab(tab)} style={[styles.langTab, isActive && styles.activeLangTab]} activeOpacity={0.7}>
                 <Text style={[styles.langTabText, isActive && styles.activeLangTabText]}>
                   {tab} {count > 0 ? `(${count})` : ""}
                 </Text>
@@ -1087,14 +1078,7 @@ function AlbumRow({
 
             return (
               <View key={album.title} style={styles.albumItem}>
-                <TouchableOpacity delayPressIn={0} onPress={() => onOpen(album)}
-                  style={[
-                    styles.albumArtBtn,
-                    roundCovers && { borderRadius: 60 }
-                  ]}
-                  activeOpacity={0.8}
-                  delayPressIn={0}
-                >
+                <TouchableOpacity delayPressIn={0} onPress={() => onOpen(album)} style={[ styles.albumArtBtn, roundCovers && { borderRadius: 60 } ]} activeOpacity={0.8}>
                   {album.coverArt ? (
                     <Image source={{ uri: album.coverArt }} style={styles.albumCoverImage} />
                   ) : (
@@ -1104,11 +1088,7 @@ function AlbumRow({
                   )}
 
                   {!roundCovers && album.songs.length > 0 ? (
-                    <TouchableOpacity delayPressIn={0} onPress={() => playSong(album.songs[0], album.songs)}
-                      style={styles.playOverlayBtn}
-                      activeOpacity={0.8}
-                      delayPressIn={0}
-                    >
+                    <TouchableOpacity delayPressIn={0} onPress={() => playSong(album.songs[0], album.songs)} style={styles.playOverlayBtn} activeOpacity={0.8}>
                       <MaterialCommunityIcons name="play" size={16} color="#000" style={{ marginLeft: 1 }} />
                     </TouchableOpacity>
                   ) : null}
@@ -1169,11 +1149,7 @@ function CollapsibleSection({
         ))}
       </View>
       {songs.length > PREVIEW ? (
-        <TouchableOpacity delayPressIn={0} onPress={() => setExpanded(!expanded)}
-          style={styles.expandBtn}
-          activeOpacity={0.7}
-          delayPressIn={0}
-        >
+        <TouchableOpacity delayPressIn={0} onPress={() => setExpanded(!expanded)} style={styles.expandBtn} activeOpacity={0.7}>
           <MaterialCommunityIcons
             name={expanded ? "chevron-up" : "chevron-down"}
             size={16}
@@ -1203,11 +1179,7 @@ function SimpleSection({ title, children }: { title: string; children: React.Rea
 function QuickPick({ song, queue }: { song: Song; queue: Song[] }) {
   const { playSong } = usePlayer();
   return (
-    <TouchableOpacity delayPressIn={0} onPress={() => playSong(song, queue)}
-      style={styles.quickPickCard}
-      activeOpacity={0.8}
-      delayPressIn={0}
-    >
+    <TouchableOpacity delayPressIn={0} onPress={() => playSong(song, queue)} style={styles.quickPickCard} activeOpacity={0.8}>
       {song.albumArt ? (
         <Image source={{ uri: song.albumArt }} style={styles.quickPickArt} />
       ) : (

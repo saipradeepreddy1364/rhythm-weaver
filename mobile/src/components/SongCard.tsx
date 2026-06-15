@@ -173,11 +173,7 @@ export function SongCard({ song, queue, index }: SongCardProps) {
         </TouchableOpacity>
 
         {/* Favorite button */}
-        <TouchableOpacity delayPressIn={0} onPress={() => toggleFavorite(song.id)}
-          style={styles.actionButton}
-          activeOpacity={0.7}
-          delayPressIn={0}
-        >
+        <TouchableOpacity delayPressIn={0} onPress={() => toggleFavorite(song.id)} style={styles.actionButton} activeOpacity={0.7}>
           <MaterialCommunityIcons
             name={isFav ? "heart" : "heart-outline"}
             size={18}

@@ -247,10 +247,7 @@ function CategorySongModal({
           </View>
 
           {songs.length > 0 ? (
-            <TouchableOpacity delayPressIn={0} onPress={() => playSong(songs[0], songs)}
-              style={modalStyles.playBtn}
-              activeOpacity={0.8}
-            >
+            <TouchableOpacity delayPressIn={0} onPress={() => playSong(songs[0], songs)} style={modalStyles.playBtn} activeOpacity={0.8}>
               <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
             </TouchableOpacity>
           ) : null}
@@ -401,10 +398,7 @@ function LanguageAlbumModal({
           </View>
 
           {songs.length > 0 ? (
-            <TouchableOpacity delayPressIn={0} onPress={() => playSong(songs[0], songs)}
-              style={modalStyles.playBtn}
-              activeOpacity={0.8}
-            >
+            <TouchableOpacity delayPressIn={0} onPress={() => playSong(songs[0], songs)} style={modalStyles.playBtn} activeOpacity={0.8}>
               <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
             </TouchableOpacity>
           ) : null}
@@ -502,11 +496,7 @@ function CategoryCard({ label, query, onSelect }: CategoryCardProps) {
   }, [query, label]);
 
   return (
-    <TouchableOpacity delayPressIn={0} onPress={() => onSelect(label, songs, coverArt || "")}
-      style={styles.categoryBtn}
-      activeOpacity={0.8}
-      delayPressIn={0}
-    >
+    <TouchableOpacity delayPressIn={0} onPress={() => onSelect(label, songs, coverArt || "")} style={styles.categoryBtn} activeOpacity={0.8}>
       <View style={styles.categoryCoverWrapper}>
         {coverArt ? (
           <Image source={{ uri: coverArt }} style={styles.categoryCover} />
@@ -621,10 +611,7 @@ function AlbumModal({
           </View>
 
           {songs.length > 0 ? (
-            <TouchableOpacity delayPressIn={0} onPress={() => playSong(songs[0], songs)}
-              style={modalStyles.playBtn}
-              activeOpacity={0.8}
-            >
+            <TouchableOpacity delayPressIn={0} onPress={() => playSong(songs[0], songs)} style={modalStyles.playBtn} activeOpacity={0.8}>
               <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
             </TouchableOpacity>
           ) : null}
@@ -792,11 +779,7 @@ function ArtistModal({
           </View>
 
           {songs.length > 0 ? (
-            <TouchableOpacity delayPressIn={0} onPress={() => playSong(songs[0], songs)}
-              style={modalStyles.playBtn}
-              activeOpacity={0.8}
-              delayPressIn={0}
-            >
+            <TouchableOpacity delayPressIn={0} onPress={() => playSong(songs[0], songs)} style={modalStyles.playBtn} activeOpacity={0.8}>
               <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
             </TouchableOpacity>
           ) : null}
@@ -979,11 +962,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
             {(["all", "songs", "albums", "artists"] as const).map((tab) => {
               const isActive = activeTab === tab;
               return (
-                <TouchableOpacity delayPressIn={0} key={tab} onPress={() => setActiveTab(tab)}
-                  style={[styles.filterTabBtn, isActive && styles.activeFilterTabBtn]}
-                  activeOpacity={0.7}
-                  delayPressIn={0}
-                >
+                <TouchableOpacity delayPressIn={0} key={tab} onPress={() => setActiveTab(tab)} style={[styles.filterTabBtn, isActive && styles.activeFilterTabBtn]} activeOpacity={0.7}>
                   <Text style={[styles.filterTabText, isActive && styles.activeFilterTabText]}>
                     {tab.toUpperCase()}
                   </Text>
@@ -1042,11 +1021,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
               <View style={styles.resultSection}>
                 {activeTab === "all" && <Text style={styles.sectionSubHeader}>Albums</Text>}
                 {albumsResult.slice(0, activeTab === "all" ? 6 : undefined).map((album) => (
-                  <TouchableOpacity delayPressIn={0} key={album.title} onPress={() => setActiveAlbum(album)}
-                    style={styles.albumRowItem}
-                    activeOpacity={0.7}
-                    delayPressIn={0}
-                  >
+                  <TouchableOpacity delayPressIn={0} key={album.title} onPress={() => setActiveAlbum(album)} style={styles.albumRowItem} activeOpacity={0.7}>
                     {album.coverArt ? (
                       <Image source={{ uri: album.coverArt }} style={styles.albumCoverImage} />
                     ) : (
@@ -1069,11 +1044,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
               <View style={styles.resultSection}>
                 {activeTab === "all" && <Text style={styles.sectionSubHeader}>Artists</Text>}
                 {artistsResult.slice(0, activeTab === "all" ? 6 : undefined).map((artist) => (
-                  <TouchableOpacity delayPressIn={0} key={artist.name} onPress={() => setActiveArtist(artist)}
-                    style={styles.albumRowItem}
-                    activeOpacity={0.7}
-                    delayPressIn={0}
-                  >
+                  <TouchableOpacity delayPressIn={0} key={artist.name} onPress={() => setActiveArtist(artist)} style={styles.albumRowItem} activeOpacity={0.7}>
                     {artist.coverArt ? (
                       <Image source={{ uri: artist.coverArt }} style={[styles.albumCoverImage, { borderRadius: 22 }]} />
                     ) : (

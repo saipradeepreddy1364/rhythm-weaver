@@ -85,7 +85,11 @@ export function AddToPlaylistMenu({
         onRequestClose={handleClose}
       >
         <TouchableOpacity delayPressIn={0} style={styles.modalBackdrop} activeOpacity={1} onPress={handleClose}>
-          <TouchableOpacity delayPressIn={0} style={styles.dialog} activeOpacity={1} // Prevents click propagation to backdrop>
+          <TouchableOpacity
+            delayPressIn={0}
+            style={styles.dialog}
+            activeOpacity={1}
+          >
             {/* Header */}
             <View style={styles.dialogHeader}>
               <Text style={styles.dialogTitle}>Add to Playlist</Text>
@@ -105,10 +109,7 @@ export function AddToPlaylistMenu({
                 const isAdded = addedIds.has(p.id);
 
                 return (
-                  <TouchableOpacity delayPressIn={0} key={p.id} onPress={() => handleAdd(p.id)}
-                    style={styles.playlistRow}
-                    activeOpacity={0.7}
-                  >
+                  <TouchableOpacity delayPressIn={0} key={p.id} onPress={() => handleAdd(p.id)} style={styles.playlistRow} activeOpacity={0.7}>
                     <View style={styles.coverWrapper}>
                       {p.cover_art ? (
                         <Image source={{ uri: p.cover_art }} style={styles.coverArt} />
@@ -141,10 +142,7 @@ export function AddToPlaylistMenu({
             {/* Bottom creator */}
             <View style={styles.creatorSection}>
               {!creating ? (
-                <TouchableOpacity delayPressIn={0} onPress={() => setCreating(true)}
-                  style={styles.newPlaylistBtn}
-                  activeOpacity={0.7}
-                >
+                <TouchableOpacity delayPressIn={0} onPress={() => setCreating(true)} style={styles.newPlaylistBtn} activeOpacity={0.7}>
                   <MaterialCommunityIcons name="plus" size={18} color="#1DB954" style={{ marginRight: 6 }} />
                   <Text style={styles.newPlaylistText}>New playlist</Text>
                 </TouchableOpacity>

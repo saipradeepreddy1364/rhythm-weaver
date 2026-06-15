@@ -113,18 +113,12 @@ export function AuthModal({ open, onClose, defaultTab = "login" }: AuthModalProp
             <ScrollView contentContainerStyle={styles.scrollContent}>
               {/* Tab Selector */}
               <View style={styles.tabBar}>
-                <TouchableOpacity delayPressIn={0} onPress={() => switchTab("login")}
-                  style={[styles.tabBtn, tab === "login" && styles.activeTabBtn]}
-                  activeOpacity={0.7}
-                >
+                <TouchableOpacity delayPressIn={0} onPress={() => switchTab("login")} style={[styles.tabBtn, tab === "login" && styles.activeTabBtn]} activeOpacity={0.7}>
                   <Text style={[styles.tabBtnText, tab === "login" && styles.activeTabBtnText]}>
                     Sign In
                   </Text>
                 </TouchableOpacity>
-                <TouchableOpacity delayPressIn={0} onPress={() => switchTab("register")}
-                  style={[styles.tabBtn, tab === "register" && styles.activeTabBtn]}
-                  activeOpacity={0.7}
-                >
+                <TouchableOpacity delayPressIn={0} onPress={() => switchTab("register")} style={[styles.tabBtn, tab === "register" && styles.activeTabBtn]} activeOpacity={0.7}>
                   <Text style={[styles.tabBtnText, tab === "register" && styles.activeTabBtnText]}>
                     Sign Up
                   </Text>
@@ -186,10 +180,7 @@ export function AuthModal({ open, onClose, defaultTab = "login" }: AuthModalProp
                     autoCapitalize="none"
                     style={[styles.inputField, { flex: 1, borderWidth: 0 }]}
                   />
-                  <TouchableOpacity delayPressIn={0} onPress={() => setShowPassword(!showPassword)}
-                    style={styles.eyeBtn}
-                    activeOpacity={0.7}
-                  >
+                  <TouchableOpacity delayPressIn={0} onPress={() => setShowPassword(!showPassword)} style={styles.eyeBtn} activeOpacity={0.7}>
                     <MaterialCommunityIcons
                       name={showPassword ? "eye-off" : "eye"}
                       size={18}

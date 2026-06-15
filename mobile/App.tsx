@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image, ActivityIndicator, SafeAreaView, StatusBar, Platform, Modal } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image, ActivityIndicator, SafeAreaView, StatusBar, Platform, Modal, AppState } from 'react-native'
 import React, { useRef, useState, useEffect } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
@@ -37,6 +37,32 @@ function AppContent() {
   const [isDownloadingUpdate, setIsDownloadingUpdate] = useState(false);
   const [updateDownloaded, setUpdateDownloaded] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
+
+  const navigationRef = useRef<any>(null);
+  const appState = useRef(AppState.currentState);
+
+  // Reset navigation to Home when app is closed (backgrounded) and opened again (foregrounded)
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextAppState) => {
+      if (
+        appState.current.match(/inactive|background/) &&
+        nextAppState === "active"
+      ) {
+        if (navigationRef.current && typeof navigationRef.current.navigate === "function") {
+          try {
+            navigationRef.current.navigate("Home");
+          } catch (err) {
+            console.warn("Redirect to Home failed:", err);
+          }
+        }
+      }
+      appState.current = nextAppState;
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
 
   // Check for OTA updates on app mount
   useEffect(() => {
@@ -91,7 +117,7 @@ function AppContent() {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#121212" />
       
-      <NavigationContainer>
+      <NavigationContainer ref={navigationRef}>
         <Tab.Navigator
           id="root-tabs"
           screenOptions={() => ({
@@ -236,8 +262,8 @@ export default function App() {
         // 1. Ensure storage is initialized
         await localStorage.ensureInitialized();
 
-        // 2. Wait for the homePagePrefetcher to be ready, up to a maximum of 5 seconds
-        const maxWait = 5000;
+        // 2. Wait for the homePagePrefetcher to be ready, up to a maximum of 30 seconds (allows for backend spin-up)
+        const maxWait = 30000;
         while (!homePagePrefetcher.ready && (Date.now() - startTime) < maxWait) {
           await new Promise((resolve) => setTimeout(resolve, 100));
         }
