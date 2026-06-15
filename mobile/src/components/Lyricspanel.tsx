@@ -88,8 +88,7 @@ export function LyricsPanel({ songId, songTitle, onClose }: LyricsPanelProps) {
 
         <View style={styles.headerRight}>
           {(state.status === "error" || state.status === "missing") && songId && (
-            <TouchableOpacity delayPressIn={0}
-              onPress={() => fetchLyrics(songId)}
+            <TouchableOpacity delayPressIn={0} onPress={() => fetchLyrics(songId)}
               style={styles.circleBtn}
               activeOpacity={0.7}
             >
@@ -97,11 +96,7 @@ export function LyricsPanel({ songId, songTitle, onClose }: LyricsPanelProps) {
             </TouchableOpacity>
           )}
           {onClose && (
-            <TouchableOpacity delayPressIn={0}
-              onPress={onClose}
-              style={styles.circleBtn}
-              activeOpacity={0.7}
-            >
+            <TouchableOpacity delayPressIn={0} onPress={onClose} style={styles.circleBtn} activeOpacity={0.7}>
               <MaterialCommunityIcons name="close" size={16} color="rgba(255,255,255,0.6)" />
             </TouchableOpacity>
           )}

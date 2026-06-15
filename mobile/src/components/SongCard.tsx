@@ -64,12 +64,7 @@ function LyricsPanel({
             <Text style={styles.modalTitle} numberOfLines={1}>{song.title}</Text>
             <Text style={styles.modalArtist} numberOfLines={1}>{song.artist}</Text>
           </View>
-          <TouchableOpacity
-            onPress={onClose}
-            style={styles.closeButton}
-            activeOpacity={0.7}
-            delayPressIn={0}
-          >
+          <TouchableOpacity delayPressIn={0} onPress={onClose} style={styles.closeButton} activeOpacity={0.7}>
             <MaterialCommunityIcons name="close" size={20} color="#fff" />
           </TouchableOpacity>
         </View>
@@ -128,12 +123,7 @@ export function SongCard({ song, queue, index }: SongCardProps) {
 
   return (
     <>
-      <TouchableOpacity
-        style={[styles.card, isActive && styles.activeCard]}
-        onPress={handleClick}
-        activeOpacity={0.7}
-        delayPressIn={0}
-      >
+      <TouchableOpacity delayPressIn={0} style={[styles.card, isActive && styles.activeCard]} onPress={handleClick} activeOpacity={0.7}>
         {/* Index or play icon */}
         {index !== undefined && (
           <Text style={styles.indexText}>
@@ -174,12 +164,7 @@ export function SongCard({ song, queue, index }: SongCardProps) {
         </View>
 
         {/* Lyrics button */}
-        <TouchableOpacity
-          onPress={handleLyricsClick}
-          style={styles.actionButton}
-          activeOpacity={0.7}
-          delayPressIn={0}
-        >
+        <TouchableOpacity delayPressIn={0} onPress={handleLyricsClick} style={styles.actionButton} activeOpacity={0.7}>
           <MaterialCommunityIcons
             name="file-music-outline"
             size={18}
@@ -188,8 +173,7 @@ export function SongCard({ song, queue, index }: SongCardProps) {
         </TouchableOpacity>
 
         {/* Favorite button */}
-        <TouchableOpacity delayPressIn={0}
-          onPress={() => toggleFavorite(song.id)}
+        <TouchableOpacity delayPressIn={0} onPress={() => toggleFavorite(song.id)}
           style={styles.actionButton}
           activeOpacity={0.7}
           delayPressIn={0}

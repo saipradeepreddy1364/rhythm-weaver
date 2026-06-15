@@ -109,7 +109,7 @@ function AppContent() {
               fontSize: 11,
               fontWeight: "600",
             },
-            tabBarButton: (props) => (
+            tabBarButton: ({ ref, ...props }: any) => (
               <TouchableOpacity delayPressIn={0} {...props} />
             ),
           })}

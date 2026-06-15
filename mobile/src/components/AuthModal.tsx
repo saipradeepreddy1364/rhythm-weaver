@@ -113,8 +113,7 @@ export function AuthModal({ open, onClose, defaultTab = "login" }: AuthModalProp
             <ScrollView contentContainerStyle={styles.scrollContent}>
               {/* Tab Selector */}
               <View style={styles.tabBar}>
-                <TouchableOpacity delayPressIn={0}
-                  onPress={() => switchTab("login")}
+                <TouchableOpacity delayPressIn={0} onPress={() => switchTab("login")}
                   style={[styles.tabBtn, tab === "login" && styles.activeTabBtn]}
                   activeOpacity={0.7}
                 >
@@ -122,8 +121,7 @@ export function AuthModal({ open, onClose, defaultTab = "login" }: AuthModalProp
                     Sign In
                   </Text>
                 </TouchableOpacity>
-                <TouchableOpacity delayPressIn={0}
-                  onPress={() => switchTab("register")}
+                <TouchableOpacity delayPressIn={0} onPress={() => switchTab("register")}
                   style={[styles.tabBtn, tab === "register" && styles.activeTabBtn]}
                   activeOpacity={0.7}
                 >
@@ -188,8 +186,7 @@ export function AuthModal({ open, onClose, defaultTab = "login" }: AuthModalProp
                     autoCapitalize="none"
                     style={[styles.inputField, { flex: 1, borderWidth: 0 }]}
                   />
-                  <TouchableOpacity delayPressIn={0}
-                    onPress={() => setShowPassword(!showPassword)}
+                  <TouchableOpacity delayPressIn={0} onPress={() => setShowPassword(!showPassword)}
                     style={styles.eyeBtn}
                     activeOpacity={0.7}
                   >
@@ -219,12 +216,7 @@ export function AuthModal({ open, onClose, defaultTab = "login" }: AuthModalProp
               )}
 
               {/* Action Button */}
-              <TouchableOpacity delayPressIn={0}
-                onPress={handleSubmit}
-                disabled={loading}
-                style={[styles.submitBtn, loading && styles.disabledSubmitBtn]}
-                activeOpacity={0.8}
-              >
+              <TouchableOpacity delayPressIn={0} onPress={handleSubmit} disabled={loading} style={[styles.submitBtn, loading && styles.disabledSubmitBtn]} activeOpacity={0.8}>
                 {loading ? (
                   <ActivityIndicator size="small" color="#000" />
                 ) : (

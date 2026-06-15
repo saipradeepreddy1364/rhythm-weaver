@@ -35,14 +35,7 @@ export function LikeButton({
   };
 
   return (
-    <TouchableOpacity delayPressIn={0}
-      onPress={handlePress}
-      activeOpacity={0.7}
-      style={[
-        styles.button,
-        animating && styles.animated
-      ]}
-    >
+    <TouchableOpacity delayPressIn={0} onPress={handlePress} activeOpacity={0.7} style={[ styles.button, animating && styles.animated ]}>
       <MaterialCommunityIcons
         name={liked ? "heart" : "heart-outline"}
         size={sizeMap[size]}

@@ -164,8 +164,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         <View style={styles.contentContainer}>
           {/* Header */}
           <View style={styles.header}>
-            <TouchableOpacity delayPressIn={0}
-              onPress={() => setShowPlayer(false)}
+            <TouchableOpacity delayPressIn={0} onPress={() => setShowPlayer(false)}
               style={styles.headerButton}
               activeOpacity={0.7}
               delayPressIn={0}
@@ -175,12 +174,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
 
             <Text style={styles.headerTitle}>Now Playing</Text>
 
-            <TouchableOpacity
-              onPress={handleAddToQueue}
-              style={styles.headerButton}
-              activeOpacity={0.7}
-              delayPressIn={0}
-            >
+            <TouchableOpacity delayPressIn={0} onPress={handleAddToQueue} style={styles.headerButton} activeOpacity={0.7}>
               <MaterialCommunityIcons
                 name="playlist-play"
                 size={22}
@@ -194,9 +188,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             {(["cover", "lyrics"] as TabType[]).map((tab) => {
               const isActive = activeTab === tab;
               return (
-                <TouchableOpacity delayPressIn={0}
-                  key={tab}
-                  onPress={() => setActiveTab(tab)}
+                <TouchableOpacity delayPressIn={0} key={tab} onPress={() => setActiveTab(tab)}
                   style={[styles.tabButton, isActive && styles.activeTabButton]}
                   activeOpacity={0.7}
                   delayPressIn={0}
@@ -260,13 +252,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             </View>
 
             <View style={styles.metaActions}>
-              <TouchableOpacity
-                onPress={handleDownload}
-                style={styles.metaButton}
-                activeOpacity={0.7}
-                disabled={downloading}
-                delayPressIn={0}
-              >
+              <TouchableOpacity delayPressIn={0} onPress={handleDownload} style={styles.metaButton} activeOpacity={0.7} disabled={downloading}>
                 {downloading ? (
                   <ActivityIndicator size="small" color="#1DB954" />
                 ) : (
@@ -286,9 +272,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
 
           {/* Progress Seek Bar */}
           <View style={styles.progressSection}>
-            <TouchableOpacity delayPressIn={0}
-              style={styles.progressBarTrack}
-              onLayout={(e: any) => setProgressBarWidth(e.nativeEvent.layout.width)}
+            <TouchableOpacity delayPressIn={0} style={styles.progressBarTrack} onLayout={(e: any) => setProgressBarWidth(e.nativeEvent.layout.width)}
               onPress={handleProgressBarPress}
               activeOpacity={1}
               delayPressIn={0}
@@ -312,7 +296,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
 
           {/* Playback controls */}
           <View style={styles.controlsSection}>
-            <TouchableOpacity onPress={toggleShuffle} style={styles.controlBtn} activeOpacity={0.7} delayPressIn={0}>
+            <TouchableOpacity delayPressIn={0} onPress={toggleShuffle} style={styles.controlBtn} activeOpacity={0.7}>
               <MaterialCommunityIcons
                 name="shuffle"
                 size={22}
@@ -321,16 +305,11 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
               {shuffle && <View style={styles.dotIndicator} />}
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={prevSong} style={styles.controlBtn} activeOpacity={0.7} delayPressIn={0}>
+            <TouchableOpacity delayPressIn={0} onPress={prevSong} style={styles.controlBtn} activeOpacity={0.7}>
               <MaterialCommunityIcons name="skip-previous" size={36} color="#fff" />
             </TouchableOpacity>
 
-            <TouchableOpacity
-              onPress={togglePlay}
-              style={styles.playPauseBtn}
-              activeOpacity={0.8}
-              delayPressIn={0}
-            >
+            <TouchableOpacity delayPressIn={0} onPress={togglePlay} style={styles.playPauseBtn} activeOpacity={0.8}>
               <MaterialCommunityIcons
                 name={isPlaying ? "pause" : "play"}
                 size={36}
@@ -338,11 +317,11 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
               />
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={nextSong} style={styles.controlBtn} activeOpacity={0.7} delayPressIn={0}>
+            <TouchableOpacity delayPressIn={0} onPress={nextSong} style={styles.controlBtn} activeOpacity={0.7}>
               <MaterialCommunityIcons name="skip-next" size={36} color="#fff" />
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={cycleRepeat} style={styles.controlBtn} activeOpacity={0.7} delayPressIn={0}>
+            <TouchableOpacity delayPressIn={0} onPress={cycleRepeat} style={styles.controlBtn} activeOpacity={0.7}>
               <View style={{ position: "relative" }}>
                 <MaterialCommunityIcons
                   name="repeat"

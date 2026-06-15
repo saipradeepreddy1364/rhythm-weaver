@@ -47,15 +47,7 @@ export function SongRow({ song, queue, onRequireAuth, fromLibrary, hideActions }
   };
 
   return (
-    <TouchableOpacity
-      style={[
-        styles.rowContainer,
-        isActive && styles.activeContainer
-      ]}
-      onPress={handleClick}
-      activeOpacity={0.7}
-      delayPressIn={0}
-    >
+    <TouchableOpacity delayPressIn={0} style={[ styles.rowContainer, isActive && styles.activeContainer ]} onPress={handleClick} activeOpacity={0.7}>
       {/* Album art */}
       <View style={styles.albumArtContainer}>
         {song.albumArt ? (
@@ -97,12 +89,7 @@ export function SongRow({ song, queue, onRequireAuth, fromLibrary, hideActions }
       {!hideActions && (
         <View style={styles.actionsContainer}>
           {/* Add to Queue */}
-          <TouchableOpacity
-            onPress={handleAddToQueue}
-            style={styles.actionButton}
-            activeOpacity={0.7}
-            delayPressIn={0}
-          >
+          <TouchableOpacity delayPressIn={0} onPress={handleAddToQueue} style={styles.actionButton} activeOpacity={0.7}>
             <MaterialCommunityIcons
               name="playlist-play"
               size={20}
@@ -120,13 +107,7 @@ export function SongRow({ song, queue, onRequireAuth, fromLibrary, hideActions }
           </View>
 
           {/* Download Song */}
-          <TouchableOpacity
-            onPress={handleDownload}
-            style={styles.actionButton}
-            activeOpacity={0.7}
-            disabled={downloading}
-            delayPressIn={0}
-          >
+          <TouchableOpacity delayPressIn={0} onPress={handleDownload} style={styles.actionButton} activeOpacity={0.7} disabled={downloading}>
             {downloading ? (
               <ActivityIndicator size="small" color="#1DB954" />
             ) : (
