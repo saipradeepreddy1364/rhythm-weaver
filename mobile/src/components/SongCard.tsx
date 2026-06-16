@@ -4,6 +4,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Song, formatDuration } from "../data/songs";
 import { usePlayer } from "../context/PlayerContext";
 import { api } from "../services/api";
+import { useLibrary } from "../context/LibraryContext";
 
 interface SongCardProps {
   song: Song;
@@ -100,8 +101,9 @@ function LyricsPanel({
 // ─── SongCard ─────────────────────────────────────────────────────────────────
 
 export function SongCard({ song, queue, index }: SongCardProps) {
-  const { playSong, currentSong, isPlaying, togglePlay, toggleFavorite, isFavorite } =
+  const { playSong, currentSong, isPlaying, togglePlay } =
     usePlayer();
+  const { isLiked, toggleLike } = useLibrary();
   const isActive = currentSong?.id === song.id;
   const [showLyrics, setShowLyrics] = useState(false);
 
@@ -119,7 +121,7 @@ export function SongCard({ song, queue, index }: SongCardProps) {
     setShowLyrics(true);
   };
 
-  const isFav = isFavorite(song.id);
+  const isFav = isLiked(song);
 
   return (
     <>
@@ -173,11 +175,11 @@ export function SongCard({ song, queue, index }: SongCardProps) {
         </TouchableOpacity>
 
         {/* Favorite button */}
-        <TouchableOpacity delayPressIn={0} onPress={() => toggleFavorite(song.id)} style={styles.actionButton} activeOpacity={0.7}>
+        <TouchableOpacity delayPressIn={0} onPress={() => toggleLike(song)} style={styles.actionButton} activeOpacity={0.7}>
           <MaterialCommunityIcons
             name={isFav ? "heart" : "heart-outline"}
             size={18}
-            color={isFav ? "#1DB954" : "rgba(255,255,255,0.5)"}
+            color={isFav ? "#f43f5e" : "rgba(255,255,255,0.5)"}
           />
         </TouchableOpacity>
 
