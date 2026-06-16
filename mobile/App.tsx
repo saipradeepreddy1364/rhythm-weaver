@@ -262,8 +262,8 @@ export default function App() {
         // 1. Ensure storage is initialized
         await localStorage.ensureInitialized();
 
-        // 2. Wait for the homePagePrefetcher to be ready, up to a maximum of 30 seconds (allows for backend spin-up)
-        const maxWait = 30000;
+        // 2. Wait for the homePagePrefetcher to be ready, up to a maximum of 6 seconds (covers quick load, prevents hanging)
+        const maxWait = 6000;
         while (!homePagePrefetcher.ready && (Date.now() - startTime) < maxWait) {
           await new Promise((resolve) => setTimeout(resolve, 100));
         }
