@@ -88,14 +88,21 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   // Load downloads from localStorage on mount
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem("rw_downloads");
-      if (raw) {
-        setDownloadedSongs(JSON.parse(raw));
+    let active = true;
+    localStorage.ensureInitialized().then(() => {
+      if (!active) return;
+      try {
+        const raw = localStorage.getItem("rw_downloads");
+        if (raw) {
+          setDownloadedSongs(JSON.parse(raw));
+        }
+      } catch (err) {
+        console.warn("Failed to load downloaded songs:", err);
       }
-    } catch (err) {
-      console.warn("Failed to load downloaded songs:", err);
-    }
+    });
+    return () => {
+      active = false;
+    };
   }, []);
 
   const isDownloaded = useCallback(
@@ -246,28 +253,35 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   // Trigger loads when user changes
   useEffect(() => {
-    if (user) {
-      loadLikedSongs();
-      loadRecentlyPlayed();
-      loadPlaylists();
-    } else {
-      // Load local guest data from localStorage
-      try {
-        const localLiked = localStorage.getItem("rw_guest_liked");
-        setLikedSongs(localLiked ? JSON.parse(localLiked) : []);
+    let active = true;
+    localStorage.ensureInitialized().then(() => {
+      if (!active) return;
+      if (user) {
+        loadLikedSongs();
+        loadRecentlyPlayed();
+        loadPlaylists();
+      } else {
+        // Load local guest data from localStorage
+        try {
+          const localLiked = localStorage.getItem("rw_guest_liked");
+          setLikedSongs(localLiked ? JSON.parse(localLiked) : []);
 
-        const localRecent = localStorage.getItem("rw_guest_recent");
-        setRecentlyPlayed(localRecent ? JSON.parse(localRecent) : []);
+          const localRecent = localStorage.getItem("rw_guest_recent");
+          setRecentlyPlayed(localRecent ? JSON.parse(localRecent) : []);
 
-        const localPlaylists = localStorage.getItem("rw_guest_playlists");
-        setStoredPlaylists(localPlaylists ? JSON.parse(localPlaylists) : []);
-      } catch (err) {
-        console.warn("Failed to load local guest library data:", err);
-        setLikedSongs([]);
-        setRecentlyPlayed([]);
-        setStoredPlaylists([]);
+          const localPlaylists = localStorage.getItem("rw_guest_playlists");
+          setStoredPlaylists(localPlaylists ? JSON.parse(localPlaylists) : []);
+        } catch (err) {
+          console.warn("Failed to load local guest library data:", err);
+          setLikedSongs([]);
+          setRecentlyPlayed([]);
+          setStoredPlaylists([]);
+        }
       }
-    }
+    });
+    return () => {
+      active = false;
+    };
   }, [user, loadLikedSongs, loadRecentlyPlayed, loadPlaylists]);
 
   // ── Derived playlists ─────────────────────────────────────────────────────────

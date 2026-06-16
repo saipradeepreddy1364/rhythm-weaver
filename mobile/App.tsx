@@ -1,5 +1,5 @@
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image, ActivityIndicator, SafeAreaView, StatusBar, Platform, Modal, AppState } from 'react-native'
-import React, { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect, useCallback } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { PaperProvider } from "react-native-paper";
@@ -106,6 +106,10 @@ function AppContent() {
     // Guest mode enabled - no auth required
   };
 
+  const renderHome = useCallback(() => <HomePage onRequireAuth={handleRequireAuth} />, []);
+  const renderSearch = useCallback(() => <SearchPage onRequireAuth={handleRequireAuth} />, []);
+  const renderLibrary = useCallback(() => <LibraryPage onRequireAuth={handleRequireAuth} />, []);
+
   // Check auth once on mount
   useEffect(() => {
     checkAuth();
@@ -147,9 +151,8 @@ function AppContent() {
                 <MaterialCommunityIcons name="home" color={color} size={size} />
               ),
             }}
-          >
-            {() => <HomePage onRequireAuth={handleRequireAuth} />}
-          </Tab.Screen>
+            component={renderHome}
+          />
           
           <Tab.Screen
             name="Search"
@@ -158,9 +161,8 @@ function AppContent() {
                 <MaterialCommunityIcons name="magnify" color={color} size={size} />
               ),
             }}
-          >
-            {() => <SearchPage onRequireAuth={handleRequireAuth} />}
-          </Tab.Screen>
+            component={renderSearch}
+          />
 
           <Tab.Screen
             name="Library"
@@ -169,9 +171,8 @@ function AppContent() {
                 <MaterialCommunityIcons name="playlist-music" color={color} size={size} />
               ),
             }}
-          >
-            {() => <LibraryPage onRequireAuth={handleRequireAuth} />}
-          </Tab.Screen>
+            component={renderLibrary}
+          />
         </Tab.Navigator>
       </NavigationContainer>
 
