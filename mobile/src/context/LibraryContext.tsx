@@ -78,7 +78,7 @@ function dbRowToSong(row: any): Song {
 const LibraryContext = createContext<LibraryContextType | undefined>(undefined);
 
 export function LibraryProvider({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
 
   const [likedSongs, setLikedSongs]           = useState<Song[]>([]);
   const [recentlyPlayed, setRecentlyPlayed]   = useState<Song[]>([]);
@@ -251,8 +251,10 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     }
   }, [user]);
 
-  // Trigger loads when user changes
+  // Trigger loads when user changes or when authentication check completes
   useEffect(() => {
+    if (loading) return; // Wait until authentication check is complete to avoid race conditions
+
     let active = true;
     localStorage.ensureInitialized().then(() => {
       if (!active) return;
@@ -282,7 +284,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     return () => {
       active = false;
     };
-  }, [user, loadLikedSongs, loadRecentlyPlayed, loadPlaylists]);
+  }, [user, loading, loadLikedSongs, loadRecentlyPlayed, loadPlaylists]);
 
   // ── Derived playlists ─────────────────────────────────────────────────────────
 
