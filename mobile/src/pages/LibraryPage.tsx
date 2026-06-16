@@ -201,24 +201,31 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
         {/* Tab content: Liked Songs */}
         {activeTabStr === "liked" && (
           <View style={{ paddingBottom: 60 }}>
-            {!user ? (
-              <LoggedOutTabContent onSignIn={handleRequireAuth} />
-            ) : likedSongs.length === 0 ? (
+            {likedSongs.length === 0 ? (
               <LibraryEmpty
                 icon="heart-outline"
                 title="Songs you like will appear here"
                 subtitle="Tap the heart icon on any song to save it."
               />
             ) : (
-              likedSongs.map((song) => (
-                <SongRow
-                  key={song.id}
-                  song={song}
-                  queue={likedSongs}
-                  onRequireAuth={handleRequireAuth}
-                  fromLibrary={true}
-                />
-              ))
+              (() => {
+                const seen = new Set<string>();
+                const uniqueLiked = likedSongs.filter((song) => {
+                  const key = (song.title || "").toLowerCase().trim() + "|" + (song.artist || "").toLowerCase().trim();
+                  if (seen.has(key)) return false;
+                  seen.add(key);
+                  return true;
+                });
+                return uniqueLiked.map((song) => (
+                  <SongRow
+                    key={song.id}
+                    song={song}
+                    queue={uniqueLiked}
+                    onRequireAuth={handleRequireAuth}
+                    fromLibrary={true}
+                  />
+                ));
+              })()
             )}
           </View>
         )}
@@ -226,97 +233,91 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
         {/* Tab content: Playlists */}
         {activeTabStr === "playlists" && (
           <View style={{ paddingBottom: 60 }}>
-            {!user ? (
-              <LoggedOutTabContent onSignIn={handleRequireAuth} />
+            {/* Creator tool */}
+            {!creatingPlaylist ? (
+              <TouchableOpacity delayPressIn={0} onPress={() => setCreatingPlaylist(true)} style={styles.creatorTrigger} activeOpacity={0.7}>
+                <MaterialCommunityIcons name="plus" size={20} color="#1DB954" style={{ marginRight: 8 }} />
+                <Text style={styles.creatorTriggerText}>Create Playlist</Text>
+              </TouchableOpacity>
             ) : (
-              <>
-                {/* Creator tool */}
-                {!creatingPlaylist ? (
-                  <TouchableOpacity delayPressIn={0} onPress={() => setCreatingPlaylist(true)} style={styles.creatorTrigger} activeOpacity={0.7}>
-                    <MaterialCommunityIcons name="plus" size={20} color="#1DB954" style={{ marginRight: 8 }} />
-                    <Text style={styles.creatorTriggerText}>Create Playlist</Text>
-                  </TouchableOpacity>
-                ) : (
-                  <View style={styles.creatorInputBar}>
-                    <TextInput
-                      autoFocus
-                      value={newPlaylistName}
-                      onChangeText={setNewPlaylistName}
-                      placeholder="Playlist name..."
-                      placeholderTextColor="rgba(255,255,255,0.3)"
-                      style={styles.textInput}
-                    />
-                    <TouchableOpacity delayPressIn={0} onPress={handleCreatePlaylist} disabled={!newPlaylistName.trim()} style={[styles.creatorBtn, !newPlaylistName.trim() && { opacity: 0.5 }]} activeOpacity={0.7}>
-                      <MaterialCommunityIcons name="check" size={18} color="#000" />
-                    </TouchableOpacity>
-                    <TouchableOpacity delayPressIn={0} onPress={() => setCreatingPlaylist(false)} style={[styles.creatorBtn, { backgroundColor: "rgba(255,255,255,0.08)" }]} activeOpacity={0.7}>
-                      <MaterialCommunityIcons name="close" size={18} color="#fff" />
-                    </TouchableOpacity>
-                  </View>
-                )}
+              <View style={styles.creatorInputBar}>
+                <TextInput
+                  autoFocus
+                  value={newPlaylistName}
+                  onChangeText={setNewPlaylistName}
+                  placeholder="Playlist name..."
+                  placeholderTextColor="rgba(255,255,255,0.3)"
+                  style={styles.textInput}
+                />
+                <TouchableOpacity delayPressIn={0} onPress={handleCreatePlaylist} disabled={!newPlaylistName.trim()} style={[styles.creatorBtn, !newPlaylistName.trim() && { opacity: 0.5 }]} activeOpacity={0.7}>
+                  <MaterialCommunityIcons name="check" size={18} color="#000" />
+                </TouchableOpacity>
+                <TouchableOpacity delayPressIn={0} onPress={() => setCreatingPlaylist(false)} style={[styles.creatorBtn, { backgroundColor: "rgba(255,255,255,0.08)" }]} activeOpacity={0.7}>
+                  <MaterialCommunityIcons name="close" size={18} color="#fff" />
+                </TouchableOpacity>
+              </View>
+            )}
 
-                {/* List */}
-                {playlists.length === 0 && !creatingPlaylist ? (
-                  <LibraryEmpty
-                    icon="playlist-music"
-                    title="Create your first playlist"
-                    subtitle="Group songs into custom playlists to listen later."
-                  />
-                ) : (
-                  playlists.map((playlist) => {
-                    const isEditing = editingId === playlist.id;
+            {/* List */}
+            {playlists.length === 0 && !creatingPlaylist ? (
+              <LibraryEmpty
+                icon="playlist-music"
+                title="Create your first playlist"
+                subtitle="Group songs into custom playlists to listen later."
+              />
+            ) : (
+              playlists.map((playlist) => {
+                const isEditing = editingId === playlist.id;
 
-                    return (
-                      <View key={playlist.id} style={styles.playlistItemContainer}>
-                        <TouchableOpacity delayPressIn={0} onPress={() => openPlaylist(playlist.id)} style={styles.playlistRowItem} activeOpacity={0.7}>
-                          <View style={styles.coverArtWrapper}>
-                            {playlist.cover_art ? (
-                              <Image source={{ uri: playlist.cover_art }} style={styles.coverArt} />
-                            ) : (
-                              <MaterialCommunityIcons name="playlist-music" size={20} color="rgba(255,255,255,0.4)" />
-                            )}
-                          </View>
-
-                          {isEditing ? (
-                            <View style={styles.editBarRow}>
-                              <TextInput
-                                autoFocus
-                                value={editName}
-                                onChangeText={setEditName}
-                                style={styles.editTextInput}
-                              />
-                              <TouchableOpacity delayPressIn={0} onPress={() => handleRenamePlaylist(playlist.id)} style={styles.editBtnOk} activeOpacity={0.7}>
-                                <MaterialCommunityIcons name="check" size={14} color="#000" />
-                              </TouchableOpacity>
-                            </View>
-                          ) : (
-                            <View style={styles.playlistMeta}>
-                              <Text style={styles.playlistTitleText} numberOfLines={1}>
-                                {playlist.name}
-                              </Text>
-                              <Text style={styles.playlistSubtitleText}>
-                                {playlist.song_count ?? 0} songs
-                              </Text>
-                            </View>
-                          )}
-                        </TouchableOpacity>
-
-                        {/* Playlist actions */}
-                        {!isEditing && (
-                          <View style={styles.playlistActions}>
-                            <TouchableOpacity delayPressIn={0} onPress={() => { setEditingId(playlist.id); setEditName(playlist.name); }} style={styles.actionBtn} activeOpacity={0.7}>
-                              <MaterialCommunityIcons name="pencil-outline" size={16} color="rgba(255,255,255,0.5)" />
-                            </TouchableOpacity>
-                            <TouchableOpacity delayPressIn={0} onPress={() => removePlaylist(playlist.id)} style={styles.actionBtn} activeOpacity={0.7}>
-                              <MaterialCommunityIcons name="trash-can-outline" size={16} color="rgba(255,255,255,0.5)" />
-                            </TouchableOpacity>
-                          </View>
+                return (
+                  <View key={playlist.id} style={styles.playlistItemContainer}>
+                    <TouchableOpacity delayPressIn={0} onPress={() => openPlaylist(playlist.id)} style={styles.playlistRowItem} activeOpacity={0.7}>
+                      <View style={styles.coverArtWrapper}>
+                        {playlist.cover_art ? (
+                          <Image source={{ uri: playlist.cover_art }} style={styles.coverArt} />
+                        ) : (
+                          <MaterialCommunityIcons name="playlist-music" size={20} color="rgba(255,255,255,0.4)" />
                         )}
                       </View>
-                    );
-                  })
-                )}
-              </>
+
+                      {isEditing ? (
+                        <View style={styles.editBarRow}>
+                          <TextInput
+                            autoFocus
+                            value={editName}
+                            onChangeText={setEditName}
+                            style={styles.editTextInput}
+                          />
+                          <TouchableOpacity delayPressIn={0} onPress={() => handleRenamePlaylist(playlist.id)} style={styles.editBtnOk} activeOpacity={0.7}>
+                            <MaterialCommunityIcons name="check" size={14} color="#000" />
+                          </TouchableOpacity>
+                        </View>
+                      ) : (
+                        <View style={styles.playlistMeta}>
+                          <Text style={styles.playlistTitleText} numberOfLines={1}>
+                            {playlist.name}
+                          </Text>
+                          <Text style={styles.playlistSubtitleText}>
+                            {playlist.song_count ?? 0} songs
+                          </Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+
+                    {/* Playlist actions */}
+                    {!isEditing && (
+                      <View style={styles.playlistActions}>
+                        <TouchableOpacity delayPressIn={0} onPress={() => { setEditingId(playlist.id); setEditName(playlist.name); }} style={styles.actionBtn} activeOpacity={0.7}>
+                          <MaterialCommunityIcons name="pencil-outline" size={16} color="rgba(255,255,255,0.5)" />
+                        </TouchableOpacity>
+                        <TouchableOpacity delayPressIn={0} onPress={() => removePlaylist(playlist.id)} style={styles.actionBtn} activeOpacity={0.7}>
+                          <MaterialCommunityIcons name="trash-can-outline" size={16} color="rgba(255,255,255,0.5)" />
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </View>
+                );
+              })
             )}
           </View>
         )}
@@ -331,15 +332,24 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                 subtitle="Tap the download icon on any song to listen offline."
               />
             ) : (
-              downloadedSongs.map((song) => (
-                <SongRow
-                  key={song.id}
-                  song={song}
-                  queue={downloadedSongs}
-                  onRequireAuth={handleRequireAuth}
-                  fromLibrary={true}
-                />
-              ))
+              (() => {
+                const seen = new Set<string>();
+                const uniqueDownloads = downloadedSongs.filter((song) => {
+                  const key = (song.title || "").toLowerCase().trim() + "|" + (song.artist || "").toLowerCase().trim();
+                  if (seen.has(key)) return false;
+                  seen.add(key);
+                  return true;
+                });
+                return uniqueDownloads.map((song) => (
+                  <SongRow
+                    key={song.id}
+                    song={song}
+                    queue={uniqueDownloads}
+                    onRequireAuth={handleRequireAuth}
+                    fromLibrary={true}
+                  />
+                ));
+              })()
             )}
           </View>
         )}
@@ -347,23 +357,30 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
         {/* Tab content: Recently Played */}
         {activeTabStr === "recent" && (
           <View style={{ paddingBottom: 60 }}>
-            {!user ? (
-              <LoggedOutTabContent onSignIn={handleRequireAuth} />
-            ) : recentFiltered.length === 0 ? (
+            {recentFiltered.length === 0 ? (
               <LibraryEmpty
                 icon="clock-outline"
                 title="No recently played tracks"
                 subtitle="Songs you listen to will be remembered here."
               />
             ) : (
-              recentFiltered.map((song) => (
-                <SongRow
-                  key={song.id}
-                  song={song}
-                  queue={recentFiltered}
-                  onRequireAuth={handleRequireAuth}
-                />
-              ))
+              (() => {
+                const seen = new Set<string>();
+                const uniqueRecent = recentFiltered.filter((song) => {
+                  const key = (song.title || "").toLowerCase().trim() + "|" + (song.artist || "").toLowerCase().trim();
+                  if (seen.has(key)) return false;
+                  seen.add(key);
+                  return true;
+                });
+                return uniqueRecent.map((song) => (
+                  <SongRow
+                    key={song.id}
+                    song={song}
+                    queue={uniqueRecent}
+                    onRequireAuth={handleRequireAuth}
+                  />
+                ));
+              })()
             )}
           </View>
         )}

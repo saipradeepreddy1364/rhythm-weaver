@@ -521,8 +521,11 @@ async function fetchLanguageSongs(queries: string[], targetPerQuery = 50): Promi
 function dedup(songs: Song[], seen: Set<string>): Song[] {
   const out: Song[] = [];
   for (const s of songs) {
-    if (s.id && !seen.has(s.id)) {
+    if (!s.id) continue;
+    const titleKey = (s.title || "").toLowerCase().trim() + "|" + (s.artist || "").toLowerCase().trim();
+    if (!seen.has(s.id) && !seen.has(titleKey)) {
       seen.add(s.id);
+      seen.add(titleKey);
       out.push(s);
     }
   }
@@ -541,8 +544,11 @@ async function fetchAllPages(query: string, maxPages = 60, seen?: Set<string>): 
       const songs = items.map(mapApiSong).map(cleanSong).filter((s) => Boolean(s.audioUrl));
       let added = 0;
       for (const s of songs) {
-        if (s.id && !localSeen.has(s.id)) {
+        if (!s.id) continue;
+        const titleKey = (s.title || "").toLowerCase().trim() + "|" + (s.artist || "").toLowerCase().trim();
+        if (!localSeen.has(s.id) && !localSeen.has(titleKey)) {
           localSeen.add(s.id);
+          localSeen.add(titleKey);
           all.push(s);
           added++;
         }
@@ -606,9 +612,13 @@ async function fetchCurrentYearFilmAlbums(unmountedRef: React.RefObject<boolean>
       if (!albumMap.has(key)) albumMap.set(key, { songs: [], coverArt: "" });
       const entry = albumMap.get(key)!;
       if (!entry.coverArt && song.albumArt) entry.coverArt = song.albumArt;
-      if (song.id && !seen.has(song.id)) {
-        seen.add(song.id);
-        entry.songs.push(song);
+      if (song.id) {
+        const titleKey = (song.title || "").toLowerCase().trim() + "|" + (song.artist || "").toLowerCase().trim();
+        if (!seen.has(song.id) && !seen.has(titleKey)) {
+          seen.add(song.id);
+          seen.add(titleKey);
+          entry.songs.push(song);
+        }
       }
     }
   }
@@ -659,7 +669,14 @@ async function loadArtistAlbums(
       if (!artistMap.has(name)) artistMap.set(name, { songs: [], coverArt: "" });
       const entry = artistMap.get(name)!;
       if (!entry.coverArt && song.albumArt) entry.coverArt = song.albumArt;
-      if (song.id && !songSeen.has(song.id)) { songSeen.add(song.id); entry.songs.push(song); }
+      if (song.id) {
+        const titleKey = (song.title || "").toLowerCase().trim() + "|" + (song.artist || "").toLowerCase().trim();
+        if (!songSeen.has(song.id) && !songSeen.has(titleKey)) {
+          songSeen.add(song.id);
+          songSeen.add(titleKey);
+          entry.songs.push(song);
+        }
+      }
     }
   }
 
@@ -1451,7 +1468,13 @@ class HomePagePrefetcher {
     if (!sectionsOk) {
       promises.push((async () => {
         const seen = new Set<string>();
-        this._sections.forEach(s => s.songs.forEach(song => song.id && seen.add(song.id)));
+        this._sections.forEach(s => s.songs.forEach(song => {
+          if (song.id) {
+            seen.add(song.id);
+            const titleKey = (song.title || "").toLowerCase().trim() + "|" + (song.artist || "").toLowerCase().trim();
+            seen.add(titleKey);
+          }
+        }));
 
         const allResults = await Promise.all(
           SECTION_DEFS.map(({ pool, seed }) => fetchSection(pickQuery(pool, seed), 20))

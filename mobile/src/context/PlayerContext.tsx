@@ -62,16 +62,22 @@ function filterQueueByHistory(song: Song, songQueue: Song[]): Song[] {
   const activeHistory = history.filter((h) => now - h.timestamp < RECENT_LIMIT_MS);
   
   const recentIds = new Set<string>();
-  const recentTitles = new Set<string>();
+  const recentKeys = new Set<string>();
   activeHistory.forEach((h) => {
     recentIds.add(h.id);
-    if (h.title) recentTitles.add(h.title.toLowerCase().trim());
+    if (h.title) {
+      const key = h.title.toLowerCase().trim() + "|" + (h.artist || "").toLowerCase().trim();
+      recentKeys.add(key);
+    }
   });
   
   return songQueue.filter((s) => {
     if (s.id === song.id) return true;
     if (recentIds.has(s.id)) return false;
-    if (s.title && recentTitles.has(s.title.toLowerCase().trim())) return false;
+    if (s.title) {
+      const key = s.title.toLowerCase().trim() + "|" + (s.artist || "").toLowerCase().trim();
+      if (recentKeys.has(key)) return false;
+    }
     return true;
   });
 }
@@ -190,24 +196,25 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
         if (songs.length > 0) {
           const existingIds = new Set(queueRef.current.map((s) => s.id));
-          const existingTitles = new Set(queueRef.current.map((s) => s.title?.toLowerCase().trim()).filter(Boolean));
+          const existingKeys = new Set(queueRef.current.map((s) => (s.title || "").toLowerCase().trim() + "|" + (s.artist || "").toLowerCase().trim()));
 
           const history = getPlaybackHistory();
           const now = Date.now();
           const activeHistory = history.filter((h) => now - h.timestamp < RECENT_LIMIT_MS);
 
           const recentIds = new Set<string>();
-          const recentTitles = new Set<string>();
+          const recentKeys = new Set<string>();
           activeHistory.forEach((h) => {
             recentIds.add(h.id);
-            if (h.title) recentTitles.add(h.title.toLowerCase().trim());
+            if (h.title) {
+              recentKeys.add(h.title.toLowerCase().trim() + "|" + (h.artist || "").toLowerCase().trim());
+            }
           });
 
           const filtered = songs.filter((s) => {
-            if (existingIds.has(s.id)) return false;
-            if (s.title && existingTitles.has(s.title.toLowerCase().trim())) return false;
-            if (recentIds.has(s.id)) return false;
-            if (s.title && recentTitles.has(s.title.toLowerCase().trim())) return false;
+            const key = (s.title || "").toLowerCase().trim() + "|" + (s.artist || "").toLowerCase().trim();
+            if (existingIds.has(s.id) || existingKeys.has(key)) return false;
+            if (recentIds.has(s.id) || recentKeys.has(key)) return false;
             return true;
           });
 
@@ -240,24 +247,25 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         .filter((s: any): s is Song => !!s && !!s.id);
 
       const existingIds = new Set(queueRef.current.map((s) => s.id));
-      const existingTitles = new Set(queueRef.current.map((s) => s.title?.toLowerCase().trim()).filter(Boolean));
+      const existingKeys = new Set(queueRef.current.map((s) => (s.title || "").toLowerCase().trim() + "|" + (s.artist || "").toLowerCase().trim()));
 
       const history = getPlaybackHistory();
       const now = Date.now();
       const activeHistory = history.filter((h) => now - h.timestamp < RECENT_LIMIT_MS);
 
       const recentIds = new Set<string>();
-      const recentTitles = new Set<string>();
+      const recentKeys = new Set<string>();
       activeHistory.forEach((h) => {
         recentIds.add(h.id);
-        if (h.title) recentTitles.add(h.title.toLowerCase().trim());
+        if (h.title) {
+          recentKeys.add(h.title.toLowerCase().trim() + "|" + (h.artist || "").toLowerCase().trim());
+        }
       });
 
       const filtered = songs.filter((s) => {
-        if (existingIds.has(s.id)) return false;
-        if (s.title && existingTitles.has(s.title.toLowerCase().trim())) return false;
-        if (recentIds.has(s.id)) return false;
-        if (s.title && recentTitles.has(s.title.toLowerCase().trim())) return false;
+        const key = (s.title || "").toLowerCase().trim() + "|" + (s.artist || "").toLowerCase().trim();
+        if (existingIds.has(s.id) || existingKeys.has(key)) return false;
+        if (recentIds.has(s.id) || recentKeys.has(key)) return false;
         return true;
       });
 
@@ -411,6 +419,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
       // Filter out songs played in the last 6 hours (except selected song itself)
       q = filterQueueByHistory(song, q);
+
+      // Deduplicate the queue by title + artist to prevent duplicates playing in sequence
+      const seenKeys = new Set<string>();
+      q = q.filter((s) => {
+        if (s.id === song.id) {
+          seenKeys.add((s.title || "").toLowerCase().trim() + "|" + (s.artist || "").toLowerCase().trim());
+          return true;
+        }
+        const key = (s.title || "").toLowerCase().trim() + "|" + (s.artist || "").toLowerCase().trim();
+        if (seenKeys.has(key)) return false;
+        seenKeys.add(key);
+        return true;
+      });
 
       // Ensure the selected song is present in the queue
       if (!q.some((s) => s.id === song.id)) {

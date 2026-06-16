@@ -35,7 +35,7 @@ interface LibraryContextType {
   downloadedSongs: Song[];
   downloadingIds: string[];
   toggleLike: (song: Song) => Promise<void>;
-  isLiked: (songId: string) => boolean;
+  isLiked: (song: Song) => boolean;
   addToRecentlyPlayed: (song: Song) => void;
   createNewPlaylist: (name: string) => Promise<Playlist | null>;
   removePlaylist: (playlistId: string) => Promise<void>;
@@ -327,17 +327,32 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   // ── Like / Unlike ─────────────────────────────────────────────────────────────
 
   const isLiked = useCallback(
-    (songId: string) => likedSongs.some((s) => s.id === songId),
+    (song: Song) => {
+      if (!song) return false;
+      const songKey = (song.title || "").toLowerCase().trim() + "|" + (song.artist || "").toLowerCase().trim();
+      return likedSongs.some((s) => {
+        const sKey = (s.title || "").toLowerCase().trim() + "|" + (s.artist || "").toLowerCase().trim();
+        return sKey === songKey || s.id === song.id;
+      });
+    },
     [likedSongs]
   );
 
   const toggleLike = useCallback(
     async (song: Song) => {
-      const liked = likedSongs.some((s) => s.id === song.id);
+      if (!song) return;
+      const songKey = (song.title || "").toLowerCase().trim() + "|" + (song.artist || "").toLowerCase().trim();
+      const liked = likedSongs.some((s) => {
+        const sKey = (s.title || "").toLowerCase().trim() + "|" + (s.artist || "").toLowerCase().trim();
+        return sKey === songKey || s.id === song.id;
+      });
       if (!user) {
         let nextLiked: Song[];
         if (liked) {
-          nextLiked = likedSongs.filter((s) => s.id !== song.id);
+          nextLiked = likedSongs.filter((s) => {
+            const sKey = (s.title || "").toLowerCase().trim() + "|" + (s.artist || "").toLowerCase().trim();
+            return sKey !== songKey && s.id !== song.id;
+          });
         } else {
           nextLiked = [song, ...likedSongs];
         }
@@ -351,12 +366,22 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       }
       try {
         if (liked) {
-          setLikedSongs((prev) => prev.filter((s) => s.id !== song.id));
-          await supabase
-            .from("liked_songs")
-            .delete()
-            .eq("user_id", user.id)
-            .eq("song_id", song.id);
+          // Find all matching liked songs to delete them from database
+          const matchedSongs = likedSongs.filter((s) => {
+            const sKey = (s.title || "").toLowerCase().trim() + "|" + (s.artist || "").toLowerCase().trim();
+            return sKey === songKey || s.id === song.id;
+          });
+          setLikedSongs((prev) => prev.filter((s) => {
+            const sKey = (s.title || "").toLowerCase().trim() + "|" + (s.artist || "").toLowerCase().trim();
+            return sKey !== songKey && s.id !== song.id;
+          }));
+          for (const ms of matchedSongs) {
+            await supabase
+              .from("liked_songs")
+              .delete()
+              .eq("user_id", user.id)
+              .eq("song_id", ms.id);
+          }
         } else {
           setLikedSongs((prev) => [song, ...prev]);
           const audioUrl = song.audioUrl || `https://musicbackend-xg4u.onrender.com/api/songs/${song.id}/stream`;
