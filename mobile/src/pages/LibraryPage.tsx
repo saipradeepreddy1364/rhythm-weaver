@@ -242,6 +242,16 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.dashboardTitle}>Your Library</Text>
+        {(global as any).triggerOTAUpdateModal && (
+          <TouchableOpacity 
+            delayPressIn={0} 
+            onPress={() => (global as any).triggerOTAUpdateModal()} 
+            style={styles.devHeaderBtn}
+            activeOpacity={0.7}
+          >
+            <MaterialCommunityIcons name="cloud-refresh" size={22} color="#1DB954" />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Tabs */}
@@ -565,6 +575,11 @@ const styles = StyleSheet.create({
     zIndex: 10,
     borderBottomWidth: 1,
     borderBottomColor: "rgba(255,255,255,0.05)",
+  },
+  devHeaderBtn: {
+    padding: 6,
+    borderRadius: 20,
+    backgroundColor: "rgba(29, 185, 84, 0.1)",
   },
   backBtn: {
     width: 34,

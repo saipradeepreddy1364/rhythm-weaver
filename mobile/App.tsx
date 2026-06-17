@@ -66,6 +66,11 @@ function AppContent() {
 
   // Check for OTA updates on app mount
   useEffect(() => {
+    // Expose a global method to manually trigger/preview the OTA update modal
+    (global as any).triggerOTAUpdateModal = () => {
+      setUpdateAvailable(true);
+    };
+
     const checkUpdatesTimer = setTimeout(async () => {
       if (__DEV__) {
         // Trigger simulated OTA updates popup in dev mode after 3 seconds for UI preview
@@ -82,7 +87,10 @@ function AppContent() {
       }
     }, 3000);
 
-    return () => clearTimeout(checkUpdatesTimer);
+    return () => {
+      clearTimeout(checkUpdatesTimer);
+      delete (global as any).triggerOTAUpdateModal;
+    };
   }, []);
 
   const handleDownloadUpdate = async () => {
