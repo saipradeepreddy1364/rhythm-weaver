@@ -67,7 +67,11 @@ function AppContent() {
   // Check for OTA updates on app mount
   useEffect(() => {
     const checkUpdatesTimer = setTimeout(async () => {
-      if (__DEV__) return;
+      if (__DEV__) {
+        // Trigger simulated OTA updates popup in dev mode after 3 seconds for UI preview
+        setUpdateAvailable(true);
+        return;
+      }
       try {
         const update = await Updates.checkForUpdateAsync();
         if (update.isAvailable) {
@@ -85,6 +89,12 @@ function AppContent() {
     setIsDownloadingUpdate(true);
     setUpdateError(null);
     try {
+      if (__DEV__) {
+        // Simulate download delay in dev mode
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        setUpdateDownloaded(true);
+        return;
+      }
       await Updates.fetchUpdateAsync();
       setUpdateDownloaded(true);
     } catch (e: any) {
@@ -96,10 +106,22 @@ function AppContent() {
 
   const handleRestartApp = async () => {
     try {
+      if (__DEV__) {
+        // Simulates app reload by resetting modal states in dev mode
+        setUpdateDownloaded(false);
+        setUpdateAvailable(false);
+        return;
+      }
       await Updates.reloadAsync();
     } catch (e) {
       console.error("Failed to reload app:", e);
     }
+  };
+
+  const closeUpdateModal = () => {
+    setUpdateAvailable(false);
+    setIsDownloadingUpdate(false);
+    setUpdateDownloaded(false);
   };
 
   const handleRequireAuth = () => {
@@ -120,6 +142,18 @@ function AppContent() {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#121212" />
+      
+      {__DEV__ && !updateAvailable && !isDownloadingUpdate && !updateDownloaded && (
+        <TouchableOpacity 
+          delayPressIn={0} 
+          style={styles.devFloatingBtn} 
+          onPress={() => setUpdateAvailable(true)}
+          activeOpacity={0.8}
+        >
+          <MaterialCommunityIcons name="cloud-refresh" size={18} color="#000" />
+          <Text style={styles.devFloatingBtnText}>Preview OTA</Text>
+        </TouchableOpacity>
+      )}
       
       <NavigationContainer ref={navigationRef}>
         <Tab.Navigator
@@ -220,7 +254,7 @@ function AppContent() {
                   <TouchableOpacity delayPressIn={0} style={styles.primaryButton} onPress={handleRestartApp}>
                     <Text style={styles.primaryButtonText}>Restart Now</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity delayPressIn={0} style={styles.secondaryButton} onPress={() => setUpdateAvailable(false)}>
+                  <TouchableOpacity delayPressIn={0} style={styles.secondaryButton} onPress={closeUpdateModal}>
                     <Text style={styles.secondaryButtonText}>Later</Text>
                   </TouchableOpacity>
                 </>
@@ -234,7 +268,7 @@ function AppContent() {
                   <TouchableOpacity delayPressIn={0} style={styles.primaryButton} onPress={handleDownloadUpdate}>
                     <Text style={styles.primaryButtonText}>Update Now</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity delayPressIn={0} style={styles.secondaryButton} onPress={() => setUpdateAvailable(false)}>
+                  <TouchableOpacity delayPressIn={0} style={styles.secondaryButton} onPress={closeUpdateModal}>
                     <Text style={styles.secondaryButtonText}>Later</Text>
                   </TouchableOpacity>
                 </>
@@ -407,5 +441,28 @@ const styles = StyleSheet.create({
     color: "#1DB954",
     fontSize: 14,
     fontWeight: "600",
+  },
+  devFloatingBtn: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 50 : 30,
+    right: 16,
+    backgroundColor: "#1DB954",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    zIndex: 9999,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 8,
+  },
+  devFloatingBtnText: {
+    color: "#000000",
+    fontSize: 12,
+    fontWeight: "bold",
+    marginLeft: 6,
   },
 });
