@@ -334,6 +334,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true;
     let queueEndedListener: any;
+    let playbackErrorListener: any;
 
     const init = async () => {
       try {
@@ -365,6 +366,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
               await nextSongInternal();
             }
           );
+
+          playbackErrorListener = TrackPlayer.addEventListener(
+            Event.PlaybackError,
+            async (error) => {
+              console.warn("[PlayerContext] Playback error encountered:", error);
+              await nextSongInternal();
+            }
+          );
         }
       } catch (e) {
         // Suppress error if already setup
@@ -376,6 +385,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       active = false;
       if (queueEndedListener) {
         queueEndedListener.remove();
+      }
+      if (playbackErrorListener) {
+        playbackErrorListener.remove();
       }
     };
   }, [nextSongInternal]);

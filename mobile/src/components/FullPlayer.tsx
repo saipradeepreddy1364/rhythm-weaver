@@ -274,7 +274,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
                 {totalDuration > 0 ? formatDuration(Math.floor(progress)) : "0:00"}
               </Text>
               <Text style={styles.percentageText}>
-                {totalDuration > 0 ? `${Math.round(pct)}%` : "…"}
+                {totalDuration > 0 ? `${Math.round(pct)}%` : "--"}
               </Text>
               <Text style={styles.timeText}>
                 {totalDuration > 0 ? formatDuration(Math.floor(totalDuration)) : "0:00"}

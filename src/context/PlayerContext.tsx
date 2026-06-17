@@ -83,9 +83,17 @@ function resolveTrack(s: Song) {
   } catch {}
   
   const downloaded = downloadedList.find((d) => d.id === s.id);
+  
+  let trackUrl = s.audioUrl;
+  if (downloaded?.audioUrl) {
+    trackUrl = downloaded.audioUrl;
+  } else if (!trackUrl || trackUrl.includes("saavncdn.com") || trackUrl.includes("oasth.me")) {
+    trackUrl = `https://musicbackend-xg4u.onrender.com/api/songs/${s.id}/stream`;
+  }
+
   return {
     id: s.id,
-    url: downloaded?.audioUrl || s.audioUrl || `https://musicbackend-xg4u.onrender.com/api/songs/${s.id}/stream`,
+    url: trackUrl,
     title: s.title,
     artist: s.artist,
     album: s.album || s.movie || "",
@@ -167,36 +175,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const activeTrack = useActiveTrack();
   const progressData = useProgress(500);
 
-  const isPlaying = playbackState ? playbackState.state === State.Playing : false;
+  const isPlaying = playbackState
+    ? (playbackState.state === State.Playing ||
+       playbackState.state === State.Buffering ||
+       playbackState.state === State.Loading)
+    : false;
   const progress = progressData.position;
   const duration = progressData.duration;
-
-  // TrackPlayer Setup on mount
-  useEffect(() => {
-    const init = async () => {
-      try {
-        await TrackPlayer.setupPlayer({});
-        await TrackPlayer.updateOptions({
-          capabilities: [
-            Capability.Play,
-            Capability.Pause,
-            Capability.SkipToNext,
-            Capability.SkipToPrevious,
-            Capability.SeekTo,
-          ],
-          compactCapabilities: [
-            Capability.Play,
-            Capability.Pause,
-            Capability.SkipToNext,
-          ],
-        });
-        await TrackPlayer.setVolume(volume);
-      } catch (e) {
-        // Suppress error if already setup
-      }
-    };
-    init();
-  }, []);
 
   // Sync active track changes back to currentSong and queueIndex
   useEffect(() => {
@@ -323,6 +308,65 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
     }
   }, [fetchRadioSongs]);
+
+  // TrackPlayer Setup on mount with event listeners and cleanups
+  useEffect(() => {
+    let active = true;
+    let queueEndedListener: any;
+    let playbackErrorListener: any;
+
+    const init = async () => {
+      try {
+        await TrackPlayer.setupPlayer({});
+        await TrackPlayer.updateOptions({
+          capabilities: [
+            Capability.Play,
+            Capability.Pause,
+            Capability.SkipToNext,
+            Capability.SkipToPrevious,
+            Capability.SeekTo,
+          ],
+          compactCapabilities: [
+            Capability.Play,
+            Capability.Pause,
+            Capability.SkipToNext,
+          ],
+        });
+        await TrackPlayer.setVolume(volume);
+
+        if (active) {
+          queueEndedListener = TrackPlayer.addEventListener(
+            Event.PlaybackQueueEnded,
+            async (event) => {
+              console.log("[PlayerContext] Playback queue ended, triggering nextSong/radio mode");
+              await nextSongInternal();
+            }
+          );
+
+          playbackErrorListener = TrackPlayer.addEventListener(
+            Event.PlaybackError,
+            async (error) => {
+              console.warn("[PlayerContext] Playback error encountered:", error);
+              await nextSongInternal();
+            }
+          );
+        }
+      } catch (e) {
+        // Suppress error if already setup
+      }
+    };
+    init();
+
+    return () => {
+      active = false;
+      if (queueEndedListener) {
+        queueEndedListener.remove();
+      }
+      if (playbackErrorListener) {
+        playbackErrorListener.remove();
+      }
+    };
+  }, [nextSongInternal]);
 
   const playSong = useCallback(
     async (song: Song, songQueue?: Song[]) => {
