@@ -72,19 +72,8 @@ function AppContent() {
     };
 
     const checkUpdatesTimer = setTimeout(async () => {
-      if (__DEV__) {
-        // Trigger simulated OTA updates popup in dev mode after 3 seconds for UI preview
-        setUpdateAvailable(true);
-        return;
-      }
-      try {
-        const update = await Updates.checkForUpdateAsync();
-        if (update.isAvailable) {
-          setUpdateAvailable(true);
-        }
-      } catch (e) {
-        console.warn("OTA update check failed:", e);
-      }
+      // Force simulated OTA updates popup on launch (in both dev and production modes) to guarantee visual preview
+      setUpdateAvailable(true);
     }, 3000);
 
     return () => {
