@@ -101,7 +101,45 @@ function resolveTrack(s: Song) {
   };
 }
 
+async function resolvePipedAudioUrl(videoId: string): Promise<string | null> {
+  const PIPED_INSTANCES = [
+    "https://pipedapi.kavin.rocks",
+    "https://api.piped.yt",
+    "https://piped-api.codespace.cz",
+    "https://pipedapi.reallyaweso.me",
+    "https://pipedapi.owo.si",
+    "https://api.looleh.xyz"
+  ];
+  for (const instance of PIPED_INSTANCES) {
+    try {
+      const res = await Promise.race([
+        fetch(`${instance}/streams/${videoId}`),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
+      ]);
+      if (!res.ok) continue;
+      const data = await res.json();
+      const audioStreams = data.audioStreams || [];
+      if (audioStreams.length === 0) continue;
+      // Pick the last stream (highest quality)
+      const bestStream = audioStreams[audioStreams.length - 1];
+      return bestStream.url || null;
+    } catch (err) {
+      console.warn(`[PlayerContext] Piped streams fetch ${instance} failed:`, err);
+    }
+  }
+  return null;
+}
+
 async function getDirectAudioUrl(url: string): Promise<string> {
+  if (url && url.startsWith("youtube://")) {
+    const videoId = url.replace("youtube://", "");
+    console.log(`[PlayerContext] Resolving YouTube URL for video ID: ${videoId}`);
+    const resolved = await resolvePipedAudioUrl(videoId);
+    if (resolved) {
+      console.log(`[PlayerContext] Successfully resolved YouTube URL: ${resolved.substring(0, 50)}...`);
+      return resolved;
+    }
+  }
   return url;
 }
 
@@ -347,6 +385,27 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             Event.PlaybackError,
             async (error) => {
               console.warn("[PlayerContext] Playback error encountered:", error);
+              try {
+                const activeIndex = await TrackPlayer.getActiveTrackIndex();
+                if (activeIndex !== undefined && activeIndex !== null) {
+                  const track = await TrackPlayer.getTrack(activeIndex);
+                  if (track && track.url && track.url.startsWith("youtube://")) {
+                    const videoId = track.url.replace("youtube://", "");
+                    console.log(`[PlayerContext] Playback error on YouTube track. Resolving video ID: ${videoId}`);
+                    const directUrl = await resolvePipedAudioUrl(videoId);
+                    if (directUrl) {
+                      track.url = directUrl;
+                      await TrackPlayer.remove(activeIndex);
+                      await TrackPlayer.add(track, activeIndex);
+                      await TrackPlayer.skip(activeIndex);
+                      await TrackPlayer.play();
+                      return;
+                    }
+                  }
+                }
+              } catch (e) {
+                console.warn("[PlayerContext] Error resolving YouTube URL after playback error:", e);
+              }
               await nextSongInternal();
             }
           );

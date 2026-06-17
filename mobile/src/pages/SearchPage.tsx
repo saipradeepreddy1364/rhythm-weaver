@@ -864,6 +864,42 @@ function groupIntoArtists(songs: Song[]): Artist[] {
   return [...map.values()];
 }
 
+async function searchPiped(query: string): Promise<Song[]> {
+  const PIPED_INSTANCES = [
+    "https://pipedapi.kavin.rocks",
+    "https://api.piped.yt",
+    "https://piped-api.codespace.cz",
+    "https://pipedapi.reallyaweso.me",
+    "https://pipedapi.owo.si",
+    "https://api.looleh.xyz"
+  ];
+  for (const instance of PIPED_INSTANCES) {
+    try {
+      const res = await Promise.race([
+        fetch(`${instance}/search?q=${encodeURIComponent(query)}&filter=videos`),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
+      ]);
+      if (!res.ok) continue;
+      const data = await res.json();
+      const items = data.items || [];
+      if (items.length === 0) continue;
+      return items.slice(0, 30).map((item: any) => ({
+        id: `yt-${item.videoId}`,
+        title: decodeHtml(item.title || "Unknown Title"),
+        artist: decodeHtml(item.uploaderName || "YouTube"),
+        duration: item.duration || 0,
+        albumArt: item.thumbnail || "",
+        audioUrl: `youtube://${item.videoId}`,
+        album: "YouTube Web",
+        movie: "YouTube Web"
+      }));
+    } catch (err) {
+      console.warn(`[SearchPage] Piped instance ${instance} failed:`, err);
+    }
+  }
+  return [];
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 interface SearchPageProps {
   onRequireAuth?: () => void;
@@ -907,16 +943,33 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
     }
 
     setLoading(true);
-    api.globalSearch(clean, 1, 60)
+    api.searchSongs(clean, 1, 60)
       .then((res) => {
         const raw = extractResults(res);
         const songs = raw.map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
-        setResults(songs);
-        setLoading(false);
+        if (songs.length === 0) {
+          console.log(`[SearchPage] JioSaavn returned 0 songs. Trying YouTube fallback...`);
+          searchPiped(clean).then((ytSongs) => {
+            setResults(ytSongs);
+            setLoading(false);
+          }).catch(() => {
+            setResults([]);
+            setLoading(false);
+          });
+        } else {
+          setResults(songs);
+          setLoading(false);
+        }
       })
-      .catch(() => {
-        setResults([]);
-        setLoading(false);
+      .catch((err) => {
+        console.warn(`[SearchPage] JioSaavn API failed. Trying YouTube fallback...`, err);
+        searchPiped(clean).then((ytSongs) => {
+          setResults(ytSongs);
+          setLoading(false);
+        }).catch(() => {
+          setResults([]);
+          setLoading(false);
+        });
       });
   }, [debouncedQuery]);
 
