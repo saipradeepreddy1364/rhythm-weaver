@@ -28,6 +28,15 @@ interface StoredPlaylist extends Playlist {
   songs: Song[];
 }
 
+export interface AlbumData {
+  title: string;
+  coverArt: string;
+  songs: Song[];
+  type: string;
+  query?: string;
+  fullyLoaded?: boolean;
+}
+
 interface LibraryContextType {
   likedSongs: Song[];
   recentlyPlayed: Song[];
@@ -48,6 +57,9 @@ interface LibraryContextType {
   downloadSong: (song: Song) => Promise<void>;
   deleteDownloadedSong: (songId: string) => Promise<void>;
   isDownloaded: (songId: string) => boolean;
+  likedAlbums: AlbumData[];
+  toggleLikeAlbum: (album: AlbumData) => Promise<void>;
+  isAlbumLiked: (album: AlbumData) => boolean;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -80,13 +92,14 @@ const LibraryContext = createContext<LibraryContextType | undefined>(undefined);
 export function LibraryProvider({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
 
+  const [likedAlbums, setLikedAlbums]         = useState<AlbumData[]>([]);
   const [likedSongs, setLikedSongs]           = useState<Song[]>([]);
   const [recentlyPlayed, setRecentlyPlayed]   = useState<Song[]>([]);
   const [storedPlaylists, setStoredPlaylists] = useState<StoredPlaylist[]>([]);
   const [downloadedSongs, setDownloadedSongs] = useState<Song[]>([]);
   const [downloadingIds, setDownloadingIds]   = useState<string[]>([]);
 
-  // Load downloads from localStorage on mount
+  // Load downloads and liked albums from localStorage on mount
   useEffect(() => {
     let active = true;
     localStorage.ensureInitialized().then(() => {
@@ -98,6 +111,15 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         }
       } catch (err) {
         console.warn("Failed to load downloaded songs:", err);
+      }
+
+      try {
+        const rawAlbums = localStorage.getItem("rw_liked_albums");
+        if (rawAlbums) {
+          setLikedAlbums(JSON.parse(rawAlbums));
+        }
+      } catch (err) {
+        console.warn("Failed to load liked albums:", err);
       }
     });
     return () => {
@@ -116,7 +138,10 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       setDownloadingIds((prev) => [...prev, song.id]);
 
       try {
-        const audioUrl = song.audioUrl || `https://musicbackend-xg4u.onrender.com/api/songs/${song.id}/stream`;
+        let audioUrl = song.audioUrl;
+        if (!audioUrl || audioUrl.includes("saavncdn.com") || audioUrl.includes("oasth.me")) {
+          audioUrl = `https://musicbackend-xg4u.onrender.com/api/songs/${song.id}/stream`;
+        }
         const audioLocalUri = FileSystem.documentDirectory + song.id + ".mp3";
 
         // Download audio file
@@ -663,6 +688,43 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     [storedPlaylists]
   );
 
+  const isAlbumLiked = useCallback(
+    (album: AlbumData) => {
+      if (!album) return false;
+      return likedAlbums.some(
+        (a) => a.title.toLowerCase().trim() === album.title.toLowerCase().trim()
+      );
+    },
+    [likedAlbums]
+  );
+
+  const toggleLikeAlbum = useCallback(
+    async (album: AlbumData) => {
+      if (!album) return;
+
+      let nextLiked: AlbumData[];
+      const isLiked = likedAlbums.some(
+        (a) => a.title.toLowerCase().trim() === album.title.toLowerCase().trim()
+      );
+
+      if (isLiked) {
+        nextLiked = likedAlbums.filter(
+          (a) => a.title.toLowerCase().trim() !== album.title.toLowerCase().trim()
+        );
+      } else {
+        nextLiked = [album, ...likedAlbums];
+      }
+
+      setLikedAlbums(nextLiked);
+      try {
+        localStorage.setItem("rw_liked_albums", JSON.stringify(nextLiked));
+      } catch (err) {
+        console.warn("Failed to save liked albums:", err);
+      }
+    },
+    [likedAlbums]
+  );
+
   return (
     <LibraryContext.Provider
       value={{
@@ -685,6 +747,9 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         downloadSong,
         deleteDownloadedSong,
         isDownloaded,
+        likedAlbums,
+        toggleLikeAlbum,
+        isAlbumLiked,
       }}
     >
       {children}

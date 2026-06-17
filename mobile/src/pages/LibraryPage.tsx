@@ -9,7 +9,7 @@ import { SongRow } from "../components/SongRow";
 import { localStorage, sessionStorage } from "../lib/storage";
 import type { Song } from "../data/songs";
 
-type Tab = "liked" | "playlists" | "recent" | "downloads" | { type: "playlist"; id: string };
+type Tab = "liked" | "albums" | "playlists" | "recent" | "downloads" | { type: "playlist"; id: string } | { type: "album"; title: string };
 
 interface LibraryPageProps {
   onRequireAuth: () => void;
@@ -28,6 +28,8 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
     loadLikedSongs,
     loadPlaylists,
     downloadedSongs,
+    likedAlbums,
+    toggleLikeAlbum,
   } = useLibrary();
   const { playSong } = usePlayer();
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -140,6 +142,84 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
     );
   }
 
+  // ── Album Detail View ──
+  const currentAlbum =
+    typeof tab === "object" && tab.type === "album"
+      ? likedAlbums.find((a) => a.title.toLowerCase().trim() === tab.title.toLowerCase().trim())
+      : null;
+
+  if (currentAlbum) {
+    const handleUnlikeAlbum = async () => {
+      await toggleLikeAlbum(currentAlbum);
+      setTab("albums");
+    };
+
+    return (
+      <View style={styles.container}>
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity delayPressIn={0} onPress={() => setTab("albums")} style={styles.backBtn} activeOpacity={0.7}>
+            <MaterialCommunityIcons name="close" size={20} color="#fff" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            {currentAlbum.title}
+          </Text>
+        </View>
+
+        <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
+          {/* Cover Header */}
+          <View style={styles.detailCoverSection}>
+            <View style={styles.largeCoverArt}>
+              {currentAlbum.coverArt ? (
+                <Image source={{ uri: currentAlbum.coverArt }} style={styles.coverImage} />
+              ) : (
+                <MaterialCommunityIcons name="playlist-music" size={60} color="#000" />
+              )}
+            </View>
+            <Text style={styles.detailTitle}>{currentAlbum.title}</Text>
+            <Text style={styles.detailSubtitle}>
+              {currentAlbum.songs.length} songs
+            </Text>
+
+            <View style={{ flexDirection: "row", gap: 12, marginTop: 16 }}>
+              {currentAlbum.songs.length > 0 ? (
+                <TouchableOpacity delayPressIn={0} onPress={() => playSong(currentAlbum.songs[0], currentAlbum.songs, true)} style={styles.playAllBtn} activeOpacity={0.8}>
+                  <MaterialCommunityIcons name="play" size={16} color="#000" style={{ marginRight: 6 }} />
+                  <Text style={styles.playAllBtnText}>Play All</Text>
+                </TouchableOpacity>
+              ) : null}
+
+              <TouchableOpacity delayPressIn={0} onPress={handleUnlikeAlbum} style={[styles.playAllBtn, { backgroundColor: "rgba(255,255,255,0.08)" }]} activeOpacity={0.8}>
+                <MaterialCommunityIcons name="heart" size={16} color="#f43f5e" style={{ marginRight: 6 }} />
+                <Text style={[styles.playAllBtnText, { color: "#fff" }]}>Remove</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {currentAlbum.songs.length === 0 ? (
+            <LibraryEmpty
+              icon="disc"
+              title="This album is empty"
+              subtitle=""
+            />
+          ) : (
+            <View style={{ paddingBottom: 60 }}>
+              {currentAlbum.songs.map((song) => (
+                <SongRow
+                  key={song.id}
+                  song={song}
+                  queue={currentAlbum.songs}
+                  onRequireAuth={handleRequireAuth}
+                  fromLibrary={true}
+                />
+              ))}
+            </View>
+          )}
+        </ScrollView>
+      </View>
+    );
+  }
+
   // ── Library Dashboard Tab View ──
   const activeTabStr = typeof tab === "string" ? tab : "playlists";
 
@@ -178,6 +258,14 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
           <TouchableOpacity delayPressIn={0} onPress={() => setTab("playlists")} style={[styles.tabBtn, activeTabStr === "playlists" && styles.activeTabBtn]} activeOpacity={0.7}>
             <Text style={[styles.tabBtnText, activeTabStr === "playlists" && styles.activeTabBtnText]}>
               Playlists
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        {!isOffline && (
+          <TouchableOpacity delayPressIn={0} onPress={() => setTab("albums")} style={[styles.tabBtn, activeTabStr === "albums" && styles.activeTabBtn]} activeOpacity={0.7}>
+            <Text style={[styles.tabBtnText, activeTabStr === "albums" && styles.activeTabBtnText]}>
+              Albums
             </Text>
           </TouchableOpacity>
         )}
@@ -318,6 +406,46 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                   </View>
                 );
               })
+            )}
+          </View>
+        )}
+
+        {/* Tab content: Albums */}
+        {activeTabStr === "albums" && (
+          <View style={{ paddingBottom: 60 }}>
+            {likedAlbums.length === 0 ? (
+              <LibraryEmpty
+                icon="disc"
+                title="No liked albums yet"
+                subtitle="Open any album or movie and tap the heart to add it."
+              />
+            ) : (
+              likedAlbums.map((album) => (
+                <View key={album.title} style={styles.playlistItemContainer}>
+                  <TouchableOpacity delayPressIn={0} onPress={() => setTab({ type: "album", title: album.title })} style={styles.playlistRowItem} activeOpacity={0.7}>
+                    <View style={styles.coverArtWrapper}>
+                      {album.coverArt ? (
+                        <Image source={{ uri: album.coverArt }} style={styles.coverArt} />
+                      ) : (
+                        <MaterialCommunityIcons name="disc" size={20} color="rgba(255,255,255,0.4)" />
+                      )}
+                    </View>
+                    <View style={styles.playlistMeta}>
+                      <Text style={styles.playlistTitleText} numberOfLines={1}>
+                        {album.title}
+                      </Text>
+                      <Text style={styles.playlistSubtitleText}>
+                        {album.type === "movie" ? "Movie Soundtrack" : album.type === "artist" ? "Artist Discography" : "Album"} · {album.songs.length} songs
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                  <View style={styles.playlistActions}>
+                    <TouchableOpacity delayPressIn={0} onPress={() => toggleLikeAlbum(album)} style={styles.actionBtn} activeOpacity={0.7}>
+                      <MaterialCommunityIcons name="heart" size={16} color="#f43f5e" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))
             )}
           </View>
         )}

@@ -746,6 +746,18 @@ function AlbumModal({
   onRequireAuth: () => void;
 }) {
   const { playSong }                  = usePlayer();
+  const { isAlbumLiked, toggleLikeAlbum } = useLibrary();
+
+  const isLiked = isAlbumLiked(album);
+
+  const handleLikePress = async () => {
+    await toggleLikeAlbum({
+      ...album,
+      songs,
+      fullyLoaded: !loadingMore
+    });
+  };
+
   const [songs, setSongs]             = useState<Song[]>(() => {
     const seen = new Set<string>();
     return album.songs.filter(s => {
@@ -883,6 +895,14 @@ function AlbumModal({
               {typeLabel} · {songs.length} songs
             </Text>
           </View>
+
+          <TouchableOpacity delayPressIn={0} onPress={handleLikePress} style={[modalStyles.backBtn, { marginRight: 12 }]} activeOpacity={0.7}>
+            <MaterialCommunityIcons
+              name={isLiked ? "heart" : "heart-outline"}
+              size={20}
+              color={isLiked ? "#f43f5e" : "#fff"}
+            />
+          </TouchableOpacity>
 
           {songs.length > 0 ? (
             <TouchableOpacity delayPressIn={0} onPress={() => playSong(songs[0], songs)} style={modalStyles.playBtn} activeOpacity={0.8}>

@@ -90,9 +90,17 @@ function resolveTrack(s: Song) {
   } catch {}
   
   const downloaded = downloadedList.find((d) => d.id === s.id);
+  
+  let trackUrl = s.audioUrl;
+  if (downloaded?.audioUrl) {
+    trackUrl = downloaded.audioUrl;
+  } else if (!trackUrl || trackUrl.includes("saavncdn.com") || trackUrl.includes("oasth.me")) {
+    trackUrl = `https://musicbackend-xg4u.onrender.com/api/songs/${s.id}/stream`;
+  }
+
   return {
     id: s.id,
-    url: downloaded?.audioUrl || s.audioUrl || `https://musicbackend-xg4u.onrender.com/api/songs/${s.id}/stream`,
+    url: trackUrl,
     title: s.title,
     artist: s.artist,
     album: s.album || s.movie || "",
