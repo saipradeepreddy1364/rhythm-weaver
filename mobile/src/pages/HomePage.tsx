@@ -1320,6 +1320,17 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
             </View>
             <Text style={styles.headerLogoText}>Medley</Text>
           </View>
+
+          {(global as any).triggerOTAUpdateModal && (
+            <TouchableOpacity 
+              delayPressIn={0} 
+              onPress={() => (global as any).triggerOTAUpdateModal()} 
+              style={styles.devHeaderBtn}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons name="cloud-refresh" size={20} color="#1DB954" />
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Quick Picks */}
@@ -1610,6 +1621,11 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     backgroundColor: "#121212",
     zIndex: 10,
+  },
+  devHeaderBtn: {
+    padding: 6,
+    borderRadius: 20,
+    backgroundColor: "rgba(29, 185, 84, 0.1)",
   },
   headerLeft: {
     flexDirection: "row",
