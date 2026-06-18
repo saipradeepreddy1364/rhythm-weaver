@@ -26,6 +26,15 @@ interface StoredPlaylist extends Playlist {
   songs: Song[];
 }
 
+export interface AlbumData {
+  title: string;
+  coverArt: string;
+  songs: Song[];
+  type: string;
+  query?: string;
+  fullyLoaded?: boolean;
+}
+
 interface LibraryContextType {
   likedSongs: Song[];
   recentlyPlayed: Song[];
@@ -41,6 +50,9 @@ interface LibraryContextType {
   getPlaylist: (playlistId: string) => Promise<Song[]>;
   loadLikedSongs: () => void;
   loadPlaylists: () => void;
+  likedAlbums: AlbumData[];
+  toggleLikeAlbum: (album: AlbumData) => Promise<void>;
+  isAlbumLiked: (album: AlbumData) => boolean;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -73,9 +85,69 @@ const LibraryContext = createContext<LibraryContextType | undefined>(undefined);
 export function LibraryProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
 
+  const [likedAlbums, setLikedAlbums]         = useState<AlbumData[]>([]);
   const [likedSongs, setLikedSongs]           = useState<Song[]>([]);
   const [recentlyPlayed, setRecentlyPlayed]   = useState<Song[]>([]);
   const [storedPlaylists, setStoredPlaylists] = useState<StoredPlaylist[]>([]);
+
+  // ── Load liked albums ────────────────────────────────────────────────────────
+
+  const loadLikedAlbums = useCallback(async () => {
+    if (!user) {
+      try {
+        const rawAlbums = localStorage.getItem("rw_guest_liked_albums") || localStorage.getItem("rw_liked_albums");
+        if (rawAlbums) {
+          setLikedAlbums(JSON.parse(rawAlbums));
+        } else {
+          setLikedAlbums([]);
+        }
+      } catch (err) {
+        console.warn("Failed to load guest liked albums:", err);
+      }
+      return;
+    }
+
+    try {
+      console.log("[Library] Loading liked albums from database...");
+      const { data, error } = await supabase
+        .from("liked_albums")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("liked_at", { ascending: false });
+
+      if (error) {
+        console.warn("[Library] Database load failed, falling back to local storage:", error.message);
+        const userRaw = localStorage.getItem(`rw_user_liked_albums_${user.id}`);
+        if (userRaw) {
+          setLikedAlbums(JSON.parse(userRaw));
+        } else {
+          const genericRaw = localStorage.getItem("rw_liked_albums");
+          if (genericRaw) {
+            setLikedAlbums(JSON.parse(genericRaw));
+          } else {
+            setLikedAlbums([]);
+          }
+        }
+      } else if (data) {
+        const albums: AlbumData[] = data.map((row: any) => {
+          let songs: Song[] = [];
+          if (row.songs_data) {
+            songs = typeof row.songs_data === "string" ? JSON.parse(row.songs_data) : row.songs_data;
+          }
+          return {
+            title: row.album_title,
+            coverArt: row.cover_art || "",
+            songs: songs,
+            type: row.album_type || "album",
+            fullyLoaded: true
+          };
+        });
+        setLikedAlbums(albums);
+      }
+    } catch (err) {
+      console.warn("Failed to load liked albums from database:", err);
+    }
+  }, [user]);
 
   // ── Load liked songs from Supabase ───────────────────────────────────────────
 
@@ -156,6 +228,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   // Trigger loads when user changes
   useEffect(() => {
+    loadLikedAlbums();
     if (user) {
       loadLikedSongs();
       loadRecentlyPlayed();
@@ -165,7 +238,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       setRecentlyPlayed([]);
       setStoredPlaylists([]);
     }
-  }, [user, loadLikedSongs, loadRecentlyPlayed, loadPlaylists]);
+  }, [user, loadLikedSongs, loadRecentlyPlayed, loadPlaylists, loadLikedAlbums]);
 
   // ── Derived playlists ─────────────────────────────────────────────────────────
 
@@ -423,6 +496,83 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     []
   );
 
+
+
+  const isAlbumLiked = useCallback(
+    (album: AlbumData) => {
+      if (!album) return false;
+      return likedAlbums.some(
+        (a) => a.title.toLowerCase().trim() === album.title.toLowerCase().trim()
+      );
+    },
+    [likedAlbums]
+  );
+
+  const toggleLikeAlbum = useCallback(
+    async (album: AlbumData) => {
+      if (!album) return;
+
+      let nextLiked: AlbumData[];
+      const isLiked = likedAlbums.some(
+        (a) => a.title.toLowerCase().trim() === album.title.toLowerCase().trim()
+      );
+
+      if (isLiked) {
+        nextLiked = likedAlbums.filter(
+          (a) => a.title.toLowerCase().trim() !== album.title.toLowerCase().trim()
+        );
+      } else {
+        nextLiked = [album, ...likedAlbums];
+      }
+
+      setLikedAlbums(nextLiked);
+
+      if (!user) {
+        try {
+          localStorage.setItem("rw_guest_liked_albums", JSON.stringify(nextLiked));
+        } catch (err) {
+          console.warn("Failed to save guest liked albums:", err);
+        }
+        return;
+      }
+
+      try {
+        localStorage.setItem(`rw_user_liked_albums_${user.id}`, JSON.stringify(nextLiked));
+      } catch (err) {
+        console.warn("Failed to save user liked albums locally:", err);
+      }
+
+      try {
+        if (isLiked) {
+          const { error } = await supabase
+            .from("liked_albums")
+            .delete()
+            .eq("user_id", user.id)
+            .eq("album_title", album.title);
+          
+          if (error) {
+            console.warn("[Library] DB delete failed (expected if table not created yet):", error.message);
+          }
+        } else {
+          const { error } = await supabase.from("liked_albums").insert({
+            user_id: user.id,
+            album_title: album.title,
+            cover_art: album.coverArt || "",
+            album_type: album.type || "album",
+            songs_data: album.songs || [],
+          });
+
+          if (error) {
+            console.warn("[Library] DB insert failed (expected if table not created yet):", error.message);
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to sync liked album change with database:", err);
+      }
+    },
+    [likedAlbums, user]
+  );
+
   return (
     <LibraryContext.Provider
       value={{
@@ -440,6 +590,9 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         getPlaylist,
         loadLikedSongs,
         loadPlaylists,
+        likedAlbums,
+        toggleLikeAlbum,
+        isAlbumLiked,
       }}
     >
       {children}
