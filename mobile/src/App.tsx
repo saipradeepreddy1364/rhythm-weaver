@@ -44,6 +44,10 @@ function AppContent() {
     return () => clearInterval(interval);
   }, []);
 
+  return (
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#121212" />
+      
       <View style={{ flex: 1, backgroundColor: "#121212" }}>
         <ScrollView
           ref={scrollViewRef}
