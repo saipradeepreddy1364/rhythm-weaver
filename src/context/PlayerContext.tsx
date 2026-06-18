@@ -435,7 +435,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       let q = songQueue || [song];
 
       // Filter out songs played in the last 6 hours (except selected song itself)
-      q = filterQueueByHistory(song, q);
+      // Only filter by history if the user is playing a single song without an explicit group/queue
+      if (!songQueue || songQueue.length <= 1) {
+        q = filterQueueByHistory(song, q);
+      }
 
       // Ensure the selected song is present in the queue
       if (!q.some((s) => s.id === song.id)) {
