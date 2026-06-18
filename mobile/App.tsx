@@ -1,7 +1,7 @@
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image, ActivityIndicator, SafeAreaView, StatusBar, Platform, Modal, AppState, Dimensions } from 'react-native'
 import React, { useRef, useState, useEffect, useCallback } from "react";
 import { NavigationContainer } from "@react-navigation/native";
-import { createStackNavigator } from "@react-navigation/stack";
+import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { PaperProvider } from "react-native-paper";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Updates from "expo-updates";
@@ -27,7 +27,7 @@ import LibraryPage from "./src/pages/LibraryPage";
 import { MiniPlayer } from "./src/components/MiniPlayer";
 import { FullPlayer } from "./src/components/FullPlayer";
 
-const Stack = createStackNavigator();
+const Tab = createBottomTabNavigator();
 
 function AppContent() {
   const { currentSong, showPlayer } = usePlayer();
@@ -166,8 +166,8 @@ function AppContent() {
       )}
       
       <NavigationContainer ref={navigationRef}>
-        <Stack.Navigator screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="Main">
+        <Tab.Navigator screenOptions={{ headerShown: false, tabBarStyle: { display: 'none' } }}>
+          <Tab.Screen name="Main">
             {() => (
               <View style={{ flex: 1, backgroundColor: "#121212" }}>
                 <ScrollView
@@ -219,8 +219,8 @@ function AppContent() {
                 </View>
               </View>
             )}
-          </Stack.Screen>
-        </Stack.Navigator>
+          </Tab.Screen>
+        </Tab.Navigator>
       </NavigationContainer>
 
       {/* Floating Mini Player (native version of MiniPlayer component) */}
