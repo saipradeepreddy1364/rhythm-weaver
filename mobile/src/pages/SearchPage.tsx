@@ -943,34 +943,31 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
     }
 
     setLoading(true);
-    api.searchSongs(clean, 1, 60)
-      .then((res) => {
-        const raw = extractResults(res);
-        const songs = raw.map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
-        if (songs.length === 0) {
-          console.log(`[SearchPage] JioSaavn returned 0 songs. Trying YouTube fallback...`);
-          searchPiped(clean).then((ytSongs) => {
-            setResults(ytSongs);
-            setLoading(false);
-          }).catch(() => {
-            setResults([]);
-            setLoading(false);
-          });
-        } else {
-          setResults(songs);
-          setLoading(false);
-        }
-      })
-      .catch((err) => {
-        console.warn(`[SearchPage] JioSaavn API failed. Trying YouTube fallback...`, err);
-        searchPiped(clean).then((ytSongs) => {
-          setResults(ytSongs);
-          setLoading(false);
-        }).catch(() => {
-          setResults([]);
-          setLoading(false);
-        });
-      });
+    Promise.all([
+      api.searchSongs(clean, 1, 60)
+        .then((res) => {
+          const raw = extractResults(res);
+          return raw.map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
+        })
+        .catch((err) => {
+          console.warn("[SearchPage] JioSaavn search failed:", err);
+          return [];
+        }),
+      searchPiped(clean)
+        .catch((err) => {
+          console.warn("[SearchPage] YouTube search failed:", err);
+          return [];
+        })
+    ]).then(([jioSongs, ytSongs]) => {
+      // Combine results: JioSaavn songs first, then YouTube songs
+      const combined = [...jioSongs, ...ytSongs];
+      setResults(combined);
+      setLoading(false);
+    }).catch((err) => {
+      console.error("[SearchPage] Search parallel execution failed:", err);
+      setResults([]);
+      setLoading(false);
+    });
   }, [debouncedQuery]);
 
   const handleRequireAuth = () => {
@@ -989,6 +986,8 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
   const songsResult = results;
   const albumsResult = groupIntoAlbums(results);
   const artistsResult = groupIntoArtists(results);
+  const jioSongs = results.filter((s) => !s.id.startsWith("yt-"));
+  const ytSongs = results.filter((s) => s.id.startsWith("yt-"));
 
   return (
     <View style={styles.container}>
@@ -1059,12 +1058,31 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
         ) : (
           // Results list view
           <View style={{ paddingBottom: 60 }}>
-            {/* All / Songs */}
-            {(activeTab === "all" || activeTab === "songs") && songsResult.length > 0 ? (
+            {/* All - JioSaavn Songs */}
+            {activeTab === "all" && jioSongs.length > 0 ? (
               <View style={styles.resultSection}>
-                {activeTab === "all" && <Text style={styles.sectionSubHeader}>Songs</Text>}
-                {songsResult.slice(0, activeTab === "all" ? 6 : undefined).map((song) => (
-                  <SongRow key={song.id} song={song} queue={songsResult} onRequireAuth={handleRequireAuth} />
+                <Text style={styles.sectionSubHeader}>Songs</Text>
+                {jioSongs.slice(0, 6).map((song) => (
+                  <SongRow key={song.id} song={song} queue={results} onRequireAuth={handleRequireAuth} />
+                ))}
+              </View>
+            ) : null}
+
+            {/* All - YouTube / Web Results */}
+            {activeTab === "all" && ytSongs.length > 0 ? (
+              <View style={styles.resultSection}>
+                <Text style={styles.sectionSubHeader}>YouTube / Web Results</Text>
+                {ytSongs.slice(0, 6).map((song) => (
+                  <SongRow key={song.id} song={song} queue={results} onRequireAuth={handleRequireAuth} />
+                ))}
+              </View>
+            ) : null}
+
+            {/* Songs Tab - Show all combined */}
+            {activeTab === "songs" && results.length > 0 ? (
+              <View style={styles.resultSection}>
+                {results.map((song) => (
+                  <SongRow key={song.id} song={song} queue={results} onRequireAuth={handleRequireAuth} />
                 ))}
               </View>
             ) : null}

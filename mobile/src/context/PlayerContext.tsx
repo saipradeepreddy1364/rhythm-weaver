@@ -248,6 +248,63 @@ const LANGUAGE_QUERY_POOLS: Record<string, string[]> = {
   ]
 };
 
+const SIMILAR_LANGUAGES: Record<string, string[]> = {
+  telugu: ["tamil", "kannada", "malayalam", "hindi"],
+  tamil: ["telugu", "kannada", "malayalam", "hindi"],
+  kannada: ["telugu", "tamil", "malayalam", "hindi"],
+  malayalam: ["telugu", "tamil", "kannada", "hindi"],
+  hindi: ["punjabi", "bhojpuri", "haryanvi", "english"],
+  punjabi: ["hindi", "haryanvi", "english"],
+  english: ["hindi", "punjabi"],
+};
+
+function decodeHtml(str: string): string {
+  if (!str) return str;
+  return str
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&apos;/g, "'");
+}
+
+async function searchPiped(query: string): Promise<Song[]> {
+  const PIPED_INSTANCES = [
+    "https://pipedapi.adminforge.de",
+    "https://pipedapi.projectsegfau.lt",
+    "https://pipedapi.kavin.rocks",
+    "https://pipedapi-libre.kavin.rocks",
+    "https://pipedapi.leptons.xyz",
+    "https://api.looleh.xyz"
+  ];
+  for (const instance of PIPED_INSTANCES) {
+    try {
+      const res = await Promise.race([
+        fetch(`${instance}/search?q=${encodeURIComponent(query)}&filter=videos`),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 4000))
+      ]);
+      if (!res.ok) continue;
+      const data = await res.json();
+      const items = data.items || [];
+      if (items.length === 0) continue;
+      return items.slice(0, 15).map((item: any) => ({
+        id: `yt-${item.videoId}`,
+        title: decodeHtml(item.title || "Unknown Title"),
+        artist: decodeHtml(item.uploaderName || "YouTube"),
+        duration: item.duration || 0,
+        albumArt: item.thumbnail || "",
+        audioUrl: `youtube://${item.videoId}`,
+        album: "YouTube Web",
+        movie: "YouTube Web"
+      }));
+    } catch (err) {
+      console.warn(`[PlayerContext] Piped fallback search failed on ${instance}:`, err);
+    }
+  }
+  return [];
+}
+
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
 
 const FAVORITES_KEY = "rw_favorites";
@@ -305,7 +362,23 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const fetchRadioSongs = useCallback(async (seed: Song): Promise<Song[]> => {
     let seedLang = seed.language ? seed.language.toLowerCase().trim() : "";
 
-    // 1. If language is not set, try to fetch the song details from JioSaavn API to retrieve language
+    // 1. If language is not set, look at other songs in the queue to infer it, or fetch it from JioSaavn API
+    if (!seedLang) {
+      const songsWithLang = queueRef.current.filter((s) => s.language);
+      if (songsWithLang.length > 0) {
+        const langCounts: Record<string, number> = {};
+        songsWithLang.forEach((s) => {
+          const l = s.language!.toLowerCase().trim();
+          langCounts[l] = (langCounts[l] || 0) + 1;
+        });
+        const sortedLangs = Object.keys(langCounts).sort((a, b) => langCounts[b] - langCounts[a]);
+        if (sortedLangs.length > 0) {
+          seedLang = sortedLangs[0];
+          console.log(`[PlayerContext] Inferred language category from active queue: ${seedLang}`);
+        }
+      }
+    }
+
     if (!seedLang && seed.id && !seed.id.startsWith("yt-") && !seed.audioUrl?.includes("piped")) {
       try {
         console.log(`[PlayerContext] Fetching full details to get language for: ${seed.id}`);
@@ -343,11 +416,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
     });
 
-    const addSongs = (list: Song[]) => {
+    const addSongs = (list: Song[], bypassLangFilter = false) => {
       list.forEach((s) => {
         if (!s || !s.id) return;
-        // Filter out songs that do not match the target language if a target language exists
-        if (seedLang && s.language && s.language.toLowerCase().trim() !== seedLang) {
+        // Filter out songs that do not match the target language if a target language exists (unless bypassed)
+        if (!bypassLangFilter && seedLang && s.language && s.language.toLowerCase().trim() !== seedLang) {
           return;
         }
         const key = (s.title || "").toLowerCase().trim() + "|" + (s.artist || "").toLowerCase().trim();
@@ -462,50 +535,140 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
     }
 
+    // Attempt 5b: Transition to similar languages / categories algorithm
+    if (recommendations.length < 12 && seedLang) {
+      const similarLangs = SIMILAR_LANGUAGES[seedLang] || [];
+      for (const simLang of similarLangs) {
+        if (recommendations.length >= 15) break;
+        const pools = LANGUAGE_QUERY_POOLS[simLang] || [`trending ${simLang} songs`];
+        const randomQ = pools[Math.floor(Math.random() * pools.length)];
+        try {
+          console.log(`[PlayerContext] Transitioning to similar category (${simLang}): "${randomQ}"`);
+          const res = await api.searchSongs(randomQ, 1, 25);
+          const raw = res?.data?.results || res?.results || [];
+          if (Array.isArray(raw)) {
+            const simSongs = raw
+              .map((item: any) => (mapApiSong ? mapApiSong(item) : item))
+              .filter((s: any): s is Song => !!s && !!s.id);
+            addSongs(simSongs, true); // Bypass language filter to allow similar languages
+          }
+        } catch (err) {
+          console.warn(`[PlayerContext] Similar language pool query failed for "${randomQ}":`, err);
+        }
+      }
+    }
+
+    // Attempt 6: Continuous play general trending fallback
+    if (recommendations.length < 10) {
+      const fallbackQueries = [
+        "popular songs",
+        "trending songs 2025",
+        "top music hits",
+        "lofi chill beats",
+        "global top hits"
+      ];
+      if (seedLang) {
+        fallbackQueries.unshift(
+          `top ${seedLang} hits`,
+          `trending ${seedLang} songs`,
+          `new ${seedLang} songs`
+        );
+      }
+      for (const q of fallbackQueries) {
+        if (recommendations.length >= 15) break;
+        try {
+          console.log(`[PlayerContext] Continuous playback fallback querying: "${q}"`);
+          const res = await api.searchSongs(q, 1, 25);
+          const raw = res?.data?.results || res?.results || [];
+          if (Array.isArray(raw)) {
+            const fallbackSongs = raw
+              .map((item: any) => (mapApiSong ? mapApiSong(item) : item))
+              .filter((s: any): s is Song => !!s && !!s.id);
+            addSongs(fallbackSongs, true);
+          }
+        } catch (err) {
+          console.warn(`[PlayerContext] Fallback query failed for "${q}":`, err);
+        }
+      }
+    }
+
+    // Attempt 7: Final YouTube search fallback (so playing never stops under any circumstances)
+    if (recommendations.length < 5) {
+      try {
+        const query = seedLang 
+          ? `trending ${seedLang} music songs`
+          : `${seed.title || "popular"} song music`;
+        console.log(`[PlayerContext] Final YouTube fallback querying: "${query}"`);
+        const ytSongs = await searchPiped(query);
+        addSongs(ytSongs, true);
+      } catch (err) {
+        console.warn("[PlayerContext] Final YouTube fallback failed:", err);
+      }
+    }
+
     return recommendations.slice(0, 20);
   }, []);
 
   const nextSongInternal = useCallback(async () => {
-    try {
-      await TrackPlayer.skipToNext();
-    } catch (err) {
-      const q = queueRef.current;
-      const idx = queueIndexRef.current;
-      if (q.length === 0) return;
+    const q = queueRef.current;
+    const idx = queueIndexRef.current;
+    if (q.length === 0) return;
 
-      if (repeatRef.current === "one") {
+    if (repeatRef.current === "one") {
+      try {
         await TrackPlayer.seekTo(0);
         await TrackPlayer.play();
-        return;
+      } catch {}
+      return;
+    }
+
+    if (idx < q.length - 1) {
+      try {
+        await TrackPlayer.skip(idx + 1);
+        await TrackPlayer.play();
+      } catch (err) {
+        console.warn("[PlayerContext] skip(next) failed, trying skipToNext:", err);
+        try {
+          await TrackPlayer.skipToNext();
+          await TrackPlayer.play();
+        } catch {}
       }
+    } else {
+      if (repeatRef.current === "all") {
+        try {
+          await TrackPlayer.skip(0);
+          await TrackPlayer.play();
+        } catch {}
+      } else if (repeatRef.current === "off") {
+        const seed = q[idx];
+        if (!radioFetchingRef.current && seed) {
+          radioFetchingRef.current = true;
+          setIsRadioMode(true);
+          const radioSongs = await fetchRadioSongs(seed);
+          radioFetchingRef.current = false;
 
-      if (repeatRef.current === "off") {
-        if (idx >= q.length - 1) {
-          const seed = q[idx];
-          if (!radioFetchingRef.current && seed) {
-            radioFetchingRef.current = true;
-            setIsRadioMode(true);
-            const radioSongs = await fetchRadioSongs(seed);
-            radioFetchingRef.current = false;
+          if (radioSongs.length === 0) {
+            setIsRadioMode(false);
+            await TrackPlayer.pause();
+            return;
+          }
 
-            if (radioSongs.length === 0) {
-              setIsRadioMode(false);
-              await TrackPlayer.pause();
-              return;
-            }
+          const newQ = [...queueRef.current, ...radioSongs];
+          setQueue(newQ);
 
-            const newQ = [...queueRef.current, ...radioSongs];
-            setQueue(newQ);
-
-            // Add new tracks to TrackPlayer
-            const tracksToAdd = radioSongs.map((s) => resolveTrack(s));
+          // Add new tracks to TrackPlayer
+          const tracksToAdd = radioSongs.map((s) => resolveTrack(s));
+          try {
             await TrackPlayer.add(tracksToAdd);
             await TrackPlayer.skip(queueRef.current.length);
             await TrackPlayer.play();
-          } else {
-            await TrackPlayer.pause();
+          } catch (err) {
+            console.warn("[PlayerContext] Failed to add radio songs:", err);
           }
-          return;
+        } else {
+          try {
+            await TrackPlayer.pause();
+          } catch {}
         }
       }
     }
@@ -624,11 +787,51 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         const idx = await TrackPlayer.getActiveTrackIndex();
         if (idx !== undefined && idx !== null) {
           setQueueIndex(idx);
+
+          // Proactive preloading: if we are within 3 songs of the end of the queue, prefetch recommendations
+          const q = queueRef.current;
+          if (q.length >= 1 && idx >= q.length - 3 && !radioFetchingRef.current) {
+            const seed = q[idx];
+            if (seed && activeRecommendationFetchRef.current !== seed.id) {
+              activeRecommendationFetchRef.current = seed.id;
+              console.log(`[PlayerContext] Proactive preloading recommendations near queue end (index ${idx} of ${q.length})`);
+              
+              fetchRadioSongs(seed).then(async (recommendations) => {
+                // Verify that the song hasn't changed while we were fetching
+                if (activeRecommendationFetchRef.current !== seed.id) return;
+                
+                if (recommendations.length > 0) {
+                  const existingIds = new Set(queueRef.current.map((s) => s.id));
+                  const existingKeys = new Set(queueRef.current.map((s) => (s.title || "").toLowerCase().trim() + "|" + (s.artist || "").toLowerCase().trim()));
+                  
+                  const uniqueRecs = recommendations.filter((r) => {
+                    const key = (r.title || "").toLowerCase().trim() + "|" + (r.artist || "").toLowerCase().trim();
+                    return !existingIds.has(r.id) && !existingKeys.has(key);
+                  });
+
+                  if (uniqueRecs.length > 0) {
+                    console.log(`[PlayerContext] Proactively appended ${uniqueRecs.length} recommendations to prevent playback gap.`);
+                    const updatedQueue = [...queueRef.current, ...uniqueRecs];
+                    setQueue(updatedQueue);
+                    
+                    try {
+                      const tracksToAdd = uniqueRecs.map((s) => resolveTrack(s));
+                      await TrackPlayer.add(tracksToAdd);
+                    } catch (err) {
+                      console.warn("[PlayerContext] Failed to add proactive recommendations to TrackPlayer:", err);
+                    }
+                  }
+                }
+              }).catch((err) => {
+                console.warn("[PlayerContext] Proactive recommendation fetch failed:", err);
+              });
+            }
+          }
         }
       } catch {}
     };
     syncIndex();
-  }, [activeTrack]);
+  }, [activeTrack, fetchRadioSongs]);
 
 
 
@@ -748,17 +951,38 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const prevSong = useCallback(async () => {
     const q = queueRef.current;
+    const idx = queueIndexRef.current;
     if (q.length === 0) return;
 
     if (progress > 3) {
-      await TrackPlayer.seekTo(0);
+      try {
+        await TrackPlayer.seekTo(0);
+      } catch {}
       return;
     }
 
-    try {
-      await TrackPlayer.skipToPrevious();
-    } catch {
-      // Fallback
+    if (idx > 0) {
+      try {
+        await TrackPlayer.skip(idx - 1);
+        await TrackPlayer.play();
+      } catch (err) {
+        console.warn("[PlayerContext] skip(prev) failed, trying skipToPrevious:", err);
+        try {
+          await TrackPlayer.skipToPrevious();
+          await TrackPlayer.play();
+        } catch {}
+      }
+    } else {
+      if (repeatRef.current === "all") {
+        try {
+          await TrackPlayer.skip(q.length - 1);
+          await TrackPlayer.play();
+        } catch {}
+      } else {
+        try {
+          await TrackPlayer.seekTo(0);
+        } catch {}
+      }
     }
   }, [progress]);
 
