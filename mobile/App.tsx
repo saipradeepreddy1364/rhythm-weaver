@@ -72,8 +72,23 @@ function AppContent() {
     };
 
     const checkUpdatesTimer = setTimeout(async () => {
-      // Force simulated OTA updates popup on launch (in both dev and production modes) to guarantee visual preview
-      setUpdateAvailable(true);
+      if (__DEV__) {
+        // Automatically show simulated updates popup in dev mode for UI review
+        setUpdateAvailable(true);
+        return;
+      }
+      try {
+        console.log("[App] Checking for production OTA updates...");
+        const update = await Updates.checkForUpdateAsync();
+        if (update.isAvailable) {
+          console.log("[App] Production OTA update found, raising popup!");
+          setUpdateAvailable(true);
+        } else {
+          console.log("[App] No production OTA updates available.");
+        }
+      } catch (e) {
+        console.warn("OTA update check failed:", e);
+      }
     }, 3000);
 
     return () => {
