@@ -110,6 +110,31 @@ export type Database = {
         };
         Update: Record<string, never>;
       };
+      liked_albums: {
+        Row: {
+          id: string;
+          user_id: string;
+          album_title: string;
+          cover_art: string | null;
+          album_type: string | null;
+          songs_data: any;
+          liked_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          album_title: string;
+          cover_art?: string | null;
+          album_type?: string | null;
+          songs_data: any;
+          liked_at?: string;
+        };
+        Update: {
+          cover_art?: string | null;
+          album_type?: string | null;
+          songs_data?: any;
+        };
+      };
       recently_played: {
         Row: {
           id: string;

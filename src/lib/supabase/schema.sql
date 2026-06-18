@@ -52,6 +52,29 @@ create policy "Users manage their own liked songs"
 create index if not exists liked_songs_user_id_idx on public.liked_songs(user_id);
 
 
+-- ── 2b. LIKED ALBUMS ─────────────────────────────────────────
+create table if not exists public.liked_albums (
+  id              uuid primary key default gen_random_uuid(),
+  user_id         uuid not null references auth.users(id) on delete cascade,
+  album_title     text not null,
+  cover_art       text,
+  album_type      text, -- e.g. 'album', 'movie', or 'artist'
+  songs_data      jsonb not null,
+  liked_at        timestamptz default now() not null,
+  unique (user_id, album_title)
+);
+
+alter table public.liked_albums enable row level security;
+
+create policy "Users manage their own liked albums"
+  on public.liked_albums for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+create index if not exists liked_albums_user_id_idx on public.liked_albums(user_id);
+
+
+
 -- ── 3. RECENTLY PLAYED ──────────────────────────────────────
 create table if not exists public.recently_played (
   id              uuid primary key default gen_random_uuid(),
