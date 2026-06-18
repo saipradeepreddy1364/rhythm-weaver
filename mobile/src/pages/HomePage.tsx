@@ -447,6 +447,7 @@ interface AlbumData {
 
 interface HomePageProps {
   onRequireAuth?: () => void;
+  setParentScrollEnabled?: (enabled: boolean) => void;
 }
 
 type RawSong = Song & { primaryArtists?: string; singers?: string };
@@ -1082,6 +1083,7 @@ function AlbumRow({
   onOpen,
   showCount,
   roundCovers,
+  setParentScrollEnabled,
 }: {
   title:       string;
   albums:      AlbumData[];
@@ -1089,13 +1091,20 @@ function AlbumRow({
   onOpen:      (album: AlbumData) => void;
   showCount?:  boolean;
   roundCovers?: boolean;
+  setParentScrollEnabled?: (enabled: boolean) => void;
 }) {
+  const scrollHandlers = setParentScrollEnabled ? {
+    onTouchStart: () => setParentScrollEnabled(false),
+    onTouchEnd: () => setParentScrollEnabled(true),
+    onTouchCancel: () => setParentScrollEnabled(true),
+  } : {};
+
   return (
     <View style={styles.albumRowContainer}>
       <Text style={styles.sectionHeader}>{title}</Text>
 
       {loading ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalScrollPadding}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalScrollPadding} {...scrollHandlers}>
           {Array.from({ length: 6 }).map((_, i) => (
             <View key={i} style={styles.albumLoaderItem}>
               <View
@@ -1109,7 +1118,7 @@ function AlbumRow({
           ))}
         </ScrollView>
       ) : albums.length > 0 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalScrollPadding}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalScrollPadding} {...scrollHandlers}>
           {albums.map((album) => {
             const { playSong } = usePlayer();
 
@@ -1232,7 +1241,7 @@ function QuickPick({ song, queue }: { song: Song; queue: Song[] }) {
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
-export default function HomePage({ onRequireAuth }: HomePageProps) {
+export default function HomePage({ onRequireAuth, setParentScrollEnabled }: HomePageProps) {
   const { user, logout }     = useAuth();
   const { recentlyPlayed }   = useLibrary();
 
@@ -1365,6 +1374,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
           loading={albumsLoading}
           onOpen={handleOpenAlbum}
           showCount={false}
+          setParentScrollEnabled={setParentScrollEnabled}
         />
 
         {/* Popular Artists */}
@@ -1374,6 +1384,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
           loading={albumsLoading && artistAlbums.length === 0}
           onOpen={handleOpenAlbum}
           roundCovers
+          setParentScrollEnabled={setParentScrollEnabled}
         />
 
         {/* Recently Played */}

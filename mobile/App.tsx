@@ -83,6 +83,7 @@ function AppContent() {
   const [updateError, setUpdateError] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<'Home' | 'Search' | 'Library'>('Home');
+  const [parentScrollEnabled, setParentScrollEnabled] = useState(true);
   const scrollViewRef = useRef<ScrollView>(null);
   const { width: screenWidth } = useWindowDimensions();
   const navigationRef = useRef<any>(null);
@@ -218,6 +219,7 @@ function AppContent() {
                   ref={scrollViewRef}
                   horizontal
                   pagingEnabled
+                  scrollEnabled={parentScrollEnabled}
                   showsHorizontalScrollIndicator={false}
                   onMomentumScrollEnd={(e) => {
                     const index = screenWidth > 0 ? Math.round(e.nativeEvent.contentOffset.x / screenWidth) : 0;
@@ -227,7 +229,7 @@ function AppContent() {
                   style={{ flex: 1 }}
                 >
                   <View style={{ width: screenWidth, flex: 1 }}>
-                    <HomePage onRequireAuth={handleRequireAuth} />
+                    <HomePage onRequireAuth={handleRequireAuth} setParentScrollEnabled={setParentScrollEnabled} />
                   </View>
                   <View style={{ width: screenWidth, flex: 1 }}>
                     <SearchPage onRequireAuth={handleRequireAuth} />

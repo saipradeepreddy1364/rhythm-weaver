@@ -74,6 +74,7 @@ function AppContent() {
   const [showAuthModal, setShowAuthModal] = useState(false);
 
   const [activeTab, setActiveTab] = useState<'Home' | 'Search' | 'Library'>('Home');
+  const [parentScrollEnabled, setParentScrollEnabled] = useState(true);
   const scrollViewRef = useRef<ScrollView>(null);
   const { width: screenWidth } = useWindowDimensions();
   const navigationRef = useRef<any>(null);
@@ -98,20 +99,21 @@ function AppContent() {
           <Tab.Screen name="Main">
             {() => (
               <View style={{ flex: 1, backgroundColor: "#121212" }}>
-                <ScrollView
+                 <ScrollView
                   ref={scrollViewRef}
                   horizontal
                   pagingEnabled
+                  scrollEnabled={parentScrollEnabled}
                   showsHorizontalScrollIndicator={false}
                   onMomentumScrollEnd={(e) => {
-                    const index = Math.round(e.nativeEvent.contentOffset.x / screenWidth);
+                    const index = screenWidth > 0 ? Math.round(e.nativeEvent.contentOffset.x / screenWidth) : 0;
                     const tabs: ('Home' | 'Search' | 'Library')[] = ['Home', 'Search', 'Library'];
                     setActiveTab(tabs[index]);
                   }}
                   style={{ flex: 1 }}
                 >
                   <View style={{ width: screenWidth, flex: 1 }}>
-                    <HomePage onRequireAuth={handleRequireAuth} />
+                    <HomePage onRequireAuth={handleRequireAuth} setParentScrollEnabled={setParentScrollEnabled} />
                   </View>
                   <View style={{ width: screenWidth, flex: 1 }}>
                     <SearchPage onRequireAuth={handleRequireAuth} />
