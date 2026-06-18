@@ -94,7 +94,7 @@ function resolveTrack(s: Song) {
   let trackUrl = s.audioUrl;
   if (downloaded?.audioUrl) {
     trackUrl = downloaded.audioUrl;
-  } else if (!trackUrl || trackUrl.includes("saavncdn.com") || trackUrl.includes("oasth.me")) {
+  } else if (!trackUrl || trackUrl.includes("oasth.me")) {
     trackUrl = `https://musicbackend-xg4u.onrender.com/api/songs/${s.id}/stream`;
   }
 
@@ -731,6 +731,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
                       await TrackPlayer.play();
                       return;
                     }
+                  } else if (track && track.url && (track.url.includes("saavncdn.com") || track.url.includes("oasth.me"))) {
+                    console.log(`[PlayerContext] Playback error on direct JioSaavn CDN track. Falling back to proxy.`);
+                    track.url = `https://musicbackend-xg4u.onrender.com/api/songs/${track.id}/stream`;
+                    await TrackPlayer.remove(activeIndex);
+                    await TrackPlayer.add(track, activeIndex);
+                    await TrackPlayer.skip(activeIndex);
+                    await TrackPlayer.play();
+                    return;
                   }
                 }
               } catch (e) {
