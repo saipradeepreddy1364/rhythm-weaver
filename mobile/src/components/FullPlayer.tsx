@@ -53,6 +53,10 @@ function extractLyricsText(data: any): string | null {
   return null;
 }
 
+function hasIndicCharacters(text: string): boolean {
+  return /[\u0900-\u0DFF]/.test(text);
+}
+
 async function fetchLyrics(songId: string): Promise<string | null> {
   try {
     const res = await fetch(`https://musicbackend-xg4u.onrender.com/api/songs/${songId}/lyrics`);
@@ -105,27 +109,80 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
 
     setTranslating(true);
     try {
-      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(lyrics)}`;
-      const res = await fetch(url);
-      if (res.ok) {
-        const data = await res.json();
-        let translatedText = "";
-        if (data && data[0]) {
-          for (const item of data[0]) {
-            if (item && item[0]) {
-              translatedText += item[0];
+      const hasIndic = hasIndicCharacters(lyrics);
+      let resolvedText = "";
+
+      if (targetLang === "en") {
+        if (hasIndic) {
+          // Telugu/Hindi script -> English script (Romanization)
+          const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&dt=rm&q=${encodeURIComponent(lyrics)}`;
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data[0]) {
+              for (const item of data[0]) {
+                if (item && item[3] && !item[0] && !item[1]) {
+                  resolvedText = item[3];
+                  break;
+                }
+              }
+            }
+          }
+        } else {
+          // Already in English script, use original
+          resolvedText = lyrics;
+        }
+      } else if (targetLang === "te") {
+        if (!hasIndic) {
+          // English script -> Telugu script
+          const url = `https://inputtools.google.com/request?text=${encodeURIComponent(lyrics)}&itc=te-t-i0-und&num=1&cp=0&cs=0&ie=utf-8&oe=utf-8&app=demopage`;
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data[0] === "SUCCESS" && data[1] && data[1][0] && data[1][0][1]) {
+              resolvedText = data[1][0][1][0] || "";
+            }
+          }
+        } else {
+          // Already in Telugu script, use original
+          resolvedText = lyrics;
+        }
+      } else if (targetLang === "hi") {
+        if (!hasIndic) {
+          // English script -> Hindi script
+          const url = `https://inputtools.google.com/request?text=${encodeURIComponent(lyrics)}&itc=hi-t-i0-und&num=1&cp=0&cs=0&ie=utf-8&oe=utf-8&app=demopage`;
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data[0] === "SUCCESS" && data[1] && data[1][0] && data[1][0][1]) {
+              resolvedText = data[1][0][1][0] || "";
+            }
+          }
+        } else {
+          // Fallback to translate Telugu to Hindi meaning
+          const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=hi&dt=t&q=${encodeURIComponent(lyrics)}`;
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data[0]) {
+              for (const item of data[0]) {
+                if (item && item[0]) {
+                  resolvedText += item[0];
+                }
+              }
             }
           }
         }
-        if (translatedText.trim()) {
-          setTranslatedLyrics((prev) => ({
-            ...prev,
-            [cacheKey]: translatedText,
-          }));
-        }
+      }
+
+      if (resolvedText.trim()) {
+        setTranslatedLyrics((prev) => ({
+          ...prev,
+          [cacheKey]: resolvedText,
+        }));
       }
     } catch (err) {
-      console.warn("Translation failed:", err);
+      console.warn("Transliteration/Translation failed:", err);
     } finally {
       setTranslating(false);
     }
@@ -269,9 +326,9 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
                     {(["original", "en", "hi", "te"] as const).map((lang) => {
                       const labelMap = {
                         original: "Original",
-                        en: "English",
-                        hi: "Hindi",
-                        te: "Telugu",
+                        en: "English Script",
+                        hi: "Hindi Script",
+                        te: "Telugu Script",
                       };
                       const isActive = translationLang === lang;
                       return (
