@@ -1,7 +1,7 @@
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image, ActivityIndicator, SafeAreaView, StatusBar, Platform, Modal, AppState, Dimensions } from 'react-native'
 import React, { useRef, useState, useEffect, useCallback } from "react";
 import { NavigationContainer } from "@react-navigation/native";
-import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { createStackNavigator } from "@react-navigation/stack";
 import { PaperProvider } from "react-native-paper";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Updates from "expo-updates";
@@ -27,7 +27,7 @@ import LibraryPage from "./src/pages/LibraryPage";
 import { MiniPlayer } from "./src/components/MiniPlayer";
 import { FullPlayer } from "./src/components/FullPlayer";
 
-const Tab = createBottomTabNavigator();
+const Stack = createStackNavigator();
 
 function AppContent() {
   const { currentSong, showPlayer } = usePlayer();
@@ -41,6 +41,7 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState<'Home' | 'Search' | 'Library'>('Home');
   const scrollViewRef = useRef<ScrollView>(null);
   const { width: screenWidth } = Dimensions.get('window');
+  const navigationRef = useRef<any>(null);
   const appState = useRef(AppState.currentState);
 
   // Reset navigation to Home when app is closed (backgrounded) and opened again (foregrounded)
@@ -164,55 +165,63 @@ function AppContent() {
         </TouchableOpacity>
       )}
       
-      <View style={{ flex: 1, backgroundColor: "#121212" }}>
-        <ScrollView
-          ref={scrollViewRef}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          onMomentumScrollEnd={(e) => {
-            const index = Math.round(e.nativeEvent.contentOffset.x / screenWidth);
-            const tabs: ('Home' | 'Search' | 'Library')[] = ['Home', 'Search', 'Library'];
-            setActiveTab(tabs[index]);
-          }}
-          style={{ flex: 1 }}
-        >
-          <View style={{ width: screenWidth, flex: 1 }}>
-            <HomePage onRequireAuth={handleRequireAuth} />
-          </View>
-          <View style={{ width: screenWidth, flex: 1 }}>
-            <SearchPage onRequireAuth={handleRequireAuth} />
-          </View>
-          <View style={{ width: screenWidth, flex: 1 }}>
-            <LibraryPage onRequireAuth={handleRequireAuth} />
-          </View>
-        </ScrollView>
+      <NavigationContainer ref={navigationRef}>
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="Main">
+            {() => (
+              <View style={{ flex: 1, backgroundColor: "#121212" }}>
+                <ScrollView
+                  ref={scrollViewRef}
+                  horizontal
+                  pagingEnabled
+                  showsHorizontalScrollIndicator={false}
+                  onMomentumScrollEnd={(e) => {
+                    const index = Math.round(e.nativeEvent.contentOffset.x / screenWidth);
+                    const tabs: ('Home' | 'Search' | 'Library')[] = ['Home', 'Search', 'Library'];
+                    setActiveTab(tabs[index]);
+                  }}
+                  style={{ flex: 1 }}
+                >
+                  <View style={{ width: screenWidth, flex: 1 }}>
+                    <HomePage onRequireAuth={handleRequireAuth} />
+                  </View>
+                  <View style={{ width: screenWidth, flex: 1 }}>
+                    <SearchPage onRequireAuth={handleRequireAuth} />
+                  </View>
+                  <View style={{ width: screenWidth, flex: 1 }}>
+                    <LibraryPage onRequireAuth={handleRequireAuth} />
+                  </View>
+                </ScrollView>
 
-        {/* Bottom Tab Bar */}
-        <View style={styles.tabBarStyle}>
-          {(['Home', 'Search', 'Library'] as const).map((tab) => {
-            const isActive = activeTab === tab;
-            const iconName = tab === 'Home' ? 'home' : tab === 'Search' ? 'magnify' : 'playlist-music';
-            const color = isActive ? "#1DB954" : "rgba(255, 255, 255, 0.5)";
-            return (
-              <TouchableOpacity
-                delayPressIn={0}
-                key={tab}
-                onPress={() => {
-                  setActiveTab(tab);
-                  const index = tab === 'Home' ? 0 : tab === 'Search' ? 1 : 2;
-                  scrollViewRef.current?.scrollTo({ x: index * screenWidth, animated: true });
-                }}
-                style={styles.tabBarButton}
-                activeOpacity={0.7}
-              >
-                <MaterialCommunityIcons name={iconName} color={color} size={24} />
-                <Text style={[styles.tabBarLabel, { color }]}>{tab}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-      </View>
+                {/* Bottom Tab Bar */}
+                <View style={styles.tabBarStyle}>
+                  {(['Home', 'Search', 'Library'] as const).map((tab) => {
+                    const isActive = activeTab === tab;
+                    const iconName = tab === 'Home' ? 'home' : tab === 'Search' ? 'magnify' : 'playlist-music';
+                    const color = isActive ? "#1DB954" : "rgba(255, 255, 255, 0.5)";
+                    return (
+                      <TouchableOpacity
+                        delayPressIn={0}
+                        key={tab}
+                        onPress={() => {
+                          setActiveTab(tab);
+                          const index = tab === 'Home' ? 0 : tab === 'Search' ? 1 : 2;
+                          scrollViewRef.current?.scrollTo({ x: index * screenWidth, animated: true });
+                        }}
+                        style={styles.tabBarButton}
+                        activeOpacity={0.7}
+                      >
+                        <MaterialCommunityIcons name={iconName} color={color} size={24} />
+                        <Text style={[styles.tabBarLabel, { color }]}>{tab}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+          </Stack.Screen>
+        </Stack.Navigator>
+      </NavigationContainer>
 
       {/* Floating Mini Player (native version of MiniPlayer component) */}
       {currentSong && <MiniPlayer onRequireAuth={handleRequireAuth} />}
