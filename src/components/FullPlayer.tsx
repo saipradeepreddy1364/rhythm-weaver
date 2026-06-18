@@ -100,6 +100,50 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   const [queuedFlash, setQueuedFlash] = useState(false);
   const [progressBarWidth, setProgressBarWidth] = useState(0);
 
+  const [translationLang, setTranslationLang] = useState<"original" | "hi" | "te" | "en">("original");
+  const [translatedLyrics, setTranslatedLyrics] = useState<Record<string, string>>({});
+  const [translating, setTranslating] = useState(false);
+
+  const translateLyrics = async (targetLang: "hi" | "te" | "en") => {
+    if (!lyrics || !currentSong) return;
+    const cacheKey = `${currentSong.id}_${targetLang}`;
+    if (translatedLyrics[cacheKey]) return;
+
+    setTranslating(true);
+    try {
+      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(lyrics)}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        let translatedText = "";
+        if (data && data[0]) {
+          for (const item of data[0]) {
+            if (item && item[0]) {
+              translatedText += item[0];
+            }
+          }
+        }
+        if (translatedText.trim()) {
+          setTranslatedLyrics((prev) => ({
+            ...prev,
+            [cacheKey]: translatedText,
+          }));
+        }
+      }
+    } catch (err) {
+      console.warn("Translation failed:", err);
+    } finally {
+      setTranslating(false);
+    }
+  };
+
+  const handleLangSelect = (lang: "original" | "hi" | "te" | "en") => {
+    setTranslationLang(lang);
+    if (lang !== "original") {
+      translateLyrics(lang);
+    }
+  };
+
   // Reset states when song changes
   useEffect(() => {
     setActiveTab("cover");
@@ -107,6 +151,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
     setVideoStreams([]);
     setSelectedStream(null);
     setVideoError(null);
+    setTranslationLang("original");
   }, [currentSong?.id]);
 
   // Load lyrics
@@ -262,11 +307,47 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             {/* Lyrics Tab */}
             {activeTab === "lyrics" && (
               <View style={styles.lyricsWrapper}>
+                {lyrics && lyrics.length > 0 && (
+                  <View style={styles.translationContainer}>
+                    {(["original", "en", "hi", "te"] as const).map((lang) => {
+                      const labelMap = {
+                        original: "Original",
+                        en: "English",
+                        hi: "Hindi",
+                        te: "Telugu",
+                      };
+                      const isActive = translationLang === lang;
+                      return (
+                        <TouchableOpacity
+                          key={lang}
+                          onPress={() => handleLangSelect(lang)}
+                          style={[styles.transButton, isActive && styles.transButtonActive]}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={[styles.transButtonText, isActive && styles.transButtonTextActive]}>
+                            {labelMap[lang]}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                )}
                 <ScrollView style={styles.lyricsScroll} contentContainerStyle={styles.lyricsScrollContent}>
                   {lyricsLoading ? (
                     <ActivityIndicator size="large" color="#1DB954" style={{ marginTop: 60 }} />
                   ) : lyrics && lyrics.length > 0 ? (
-                    <Text style={styles.lyricsText}>{lyrics}</Text>
+                    translating ? (
+                      <View style={styles.translatingContainer}>
+                        <ActivityIndicator size="small" color="#1DB954" style={{ marginBottom: 10 }} />
+                        <Text style={styles.translatingText}>Translating lyrics...</Text>
+                      </View>
+                    ) : (
+                      <Text style={styles.lyricsText}>
+                        {translationLang === "original"
+                          ? lyrics
+                          : (translatedLyrics[`${currentSong.id}_${translationLang}`] || lyrics)}
+                      </Text>
+                    )
                   ) : (
                     <View style={styles.emptyLyrics}>
                       <MaterialCommunityIcons name="microphone-off" size={48} color="rgba(255,255,255,0.2)" />
@@ -750,5 +831,42 @@ const styles = StyleSheet.create({
     color: "#000",
     fontSize: 7,
     fontWeight: "bold",
+  },
+  translationContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 8,
+    marginVertical: 12,
+    paddingHorizontal: 8,
+  },
+  transButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 15,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+  },
+  transButtonActive: {
+    backgroundColor: "#1DB954",
+    borderColor: "#1DB954",
+  },
+  transButtonText: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  transButtonTextActive: {
+    color: "#000000",
+    fontWeight: "bold",
+  },
+  translatingContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 40,
+  },
+  translatingText: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.4)",
   },
 });
