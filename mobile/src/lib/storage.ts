@@ -11,7 +11,10 @@ class MemoryStorage {
 
   async ensureInitialized(): Promise<void> {
     if (this.initialized) return;
-    await this.initPromise;
+    await Promise.race([
+      this.initPromise,
+      new Promise<void>((resolve) => setTimeout(resolve, 2000))
+    ]);
   }
 
   private async init() {

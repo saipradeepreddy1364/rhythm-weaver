@@ -1,9 +1,10 @@
-import { View, StyleSheet, SafeAreaView, StatusBar, Dimensions, ScrollView, Text, TouchableOpacity, Platform } from 'react-native'
+import { View, StyleSheet, SafeAreaView, StatusBar, Dimensions, ScrollView, Text, TouchableOpacity, Platform, useWindowDimensions } from 'react-native'
 import React, { useState, useEffect, useRef } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { PaperProvider } from "react-native-paper";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import * as SplashScreen from "expo-splash-screen";
 import TrackPlayer from "react-native-track-player";
 
 // Register playback service for background lock screen controls
@@ -24,6 +25,49 @@ import { AuthModal } from "./components/AuthModal";
 
 const Tab = createBottomTabNavigator();
 
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean, error: Error | null }> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: any) {
+    console.error("App render error:", error, errorInfo);
+    SplashScreen.hideAsync().catch(() => {});
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#121212', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+          <MaterialCommunityIcons name="alert-circle-outline" size={64} color="#E91E63" style={{ marginBottom: 16 }} />
+          <Text style={{ color: '#fff', fontSize: 18, fontWeight: 'bold', marginBottom: 8 }}>App crashed on render</Text>
+          <ScrollView style={{ maxHeight: 300, width: '100%', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: 12, marginBottom: 20 }}>
+            <Text style={{ color: '#E91E63', fontFamily: 'monospace', fontSize: 12 }}>{this.state.error?.toString()}</Text>
+            <Text style={{ color: 'rgba(255,255,255,0.6)', fontFamily: 'monospace', fontSize: 10, marginTop: 8 }}>{this.state.error?.stack}</Text>
+          </ScrollView>
+          <TouchableOpacity
+            style={{
+              backgroundColor: '#1DB954',
+              paddingVertical: 12,
+              paddingHorizontal: 24,
+              borderRadius: 25,
+            }}
+            onPress={() => this.setState({ hasError: false, error: null })}
+          >
+            <Text style={{ color: '#000', fontWeight: 'bold', fontSize: 15 }}>Retry</Text>
+          </TouchableOpacity>
+        </SafeAreaView>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function AppContent() {
   const { currentSong, showPlayer } = usePlayer();
   const { user, checkAuth } = useAuth();
@@ -31,7 +75,7 @@ function AppContent() {
 
   const [activeTab, setActiveTab] = useState<'Home' | 'Search' | 'Library'>('Home');
   const scrollViewRef = useRef<ScrollView>(null);
-  const { width: screenWidth } = Dimensions.get('window');
+  const { width: screenWidth } = useWindowDimensions();
   const navigationRef = useRef<any>(null);
 
   const handleRequireAuth = () => {
@@ -121,15 +165,17 @@ function AppContent() {
 
 export default function App() {
   return (
-    <PaperProvider>
-      <AuthProvider>
-        <PlayerProvider>
-          <LibraryProvider>
-            <AppContent />
-          </LibraryProvider>
-        </PlayerProvider>
-      </AuthProvider>
-    </PaperProvider>
+    <ErrorBoundary>
+      <PaperProvider>
+        <AuthProvider>
+          <PlayerProvider>
+            <LibraryProvider>
+              <AppContent />
+            </LibraryProvider>
+          </PlayerProvider>
+        </AuthProvider>
+      </PaperProvider>
+    </ErrorBoundary>
   );
 }
 
