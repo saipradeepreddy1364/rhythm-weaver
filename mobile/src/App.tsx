@@ -1,5 +1,5 @@
 import { View, StyleSheet, SafeAreaView, StatusBar, Dimensions, ScrollView, Text, TouchableOpacity, Platform, useWindowDimensions } from 'react-native'
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { PaperProvider } from "react-native-paper";
@@ -74,10 +74,13 @@ function AppContent() {
   const [showAuthModal, setShowAuthModal] = useState(false);
 
   const [activeTab, setActiveTab] = useState<'Home' | 'Search' | 'Library'>('Home');
-  const [parentScrollEnabled, setParentScrollEnabled] = useState(true);
   const scrollViewRef = useRef<ScrollView>(null);
   const { width: screenWidth } = useWindowDimensions();
   const navigationRef = useRef<any>(null);
+
+  const setParentScroll = useCallback((enabled: boolean) => {
+    scrollViewRef.current?.setNativeProps({ scrollEnabled: enabled });
+  }, []);
 
   const handleRequireAuth = () => {
     if (!user) setShowAuthModal(true);
@@ -103,7 +106,6 @@ function AppContent() {
                   ref={scrollViewRef}
                   horizontal
                   pagingEnabled
-                  scrollEnabled={parentScrollEnabled}
                   showsHorizontalScrollIndicator={false}
                   onMomentumScrollEnd={(e) => {
                     const index = screenWidth > 0 ? Math.round(e.nativeEvent.contentOffset.x / screenWidth) : 0;
@@ -113,7 +115,7 @@ function AppContent() {
                   style={{ flex: 1 }}
                 >
                   <View style={{ width: screenWidth, flex: 1 }}>
-                    <HomePage onRequireAuth={handleRequireAuth} setParentScrollEnabled={setParentScrollEnabled} />
+                    <HomePage onRequireAuth={handleRequireAuth} setParentScrollEnabled={setParentScroll} />
                   </View>
                   <View style={{ width: screenWidth, flex: 1 }}>
                     <SearchPage onRequireAuth={handleRequireAuth} />
