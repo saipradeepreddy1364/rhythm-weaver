@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image, ActivityIndicator, SafeAreaView, StatusBar, Platform, Modal, AppState } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image, ActivityIndicator, SafeAreaView, StatusBar, Platform, Modal, AppState, Dimensions } from 'react-native'
 import React, { useRef, useState, useEffect, useCallback } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
@@ -38,7 +38,9 @@ function AppContent() {
   const [updateDownloaded, setUpdateDownloaded] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
 
-  const navigationRef = useRef<any>(null);
+  const [activeTab, setActiveTab] = useState<'Home' | 'Search' | 'Library'>('Home');
+  const scrollViewRef = useRef<ScrollView>(null);
+  const { width: screenWidth } = Dimensions.get('window');
   const appState = useRef(AppState.currentState);
 
   // Reset navigation to Home when app is closed (backgrounded) and opened again (foregrounded)
@@ -48,13 +50,8 @@ function AppContent() {
         appState.current.match(/inactive|background/) &&
         nextAppState === "active"
       ) {
-        if (navigationRef.current && typeof navigationRef.current.navigate === "function") {
-          try {
-            navigationRef.current.navigate("Home");
-          } catch (err) {
-            console.warn("Redirect to Home failed:", err);
-          }
-        }
+        setActiveTab("Home");
+        scrollViewRef.current?.scrollTo({ x: 0, animated: false });
       }
       appState.current = nextAppState;
     });
@@ -167,60 +164,55 @@ function AppContent() {
         </TouchableOpacity>
       )}
       
-      <NavigationContainer ref={navigationRef}>
-        <Tab.Navigator
-          id="root-tabs"
-          screenOptions={() => ({
-            headerShown: false,
-            tabBarStyle: {
-              backgroundColor: "#181818",
-              borderTopColor: "rgba(255, 255, 255, 0.08)",
-              height: 60,
-              paddingBottom: 8,
-              paddingTop: 8,
-            },
-            tabBarActiveTintColor: "#1DB954",
-            tabBarInactiveTintColor: "rgba(255, 255, 255, 0.5)",
-            tabBarLabelStyle: {
-              fontSize: 11,
-              fontWeight: "600",
-            },
-            tabBarButton: ({ ref, ...props }: any) => (
-              <TouchableOpacity delayPressIn={0} {...props} />
-            ),
-          })}
+      <View style={{ flex: 1, backgroundColor: "#121212" }}>
+        <ScrollView
+          ref={scrollViewRef}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          onMomentumScrollEnd={(e) => {
+            const index = Math.round(e.nativeEvent.contentOffset.x / screenWidth);
+            const tabs: ('Home' | 'Search' | 'Library')[] = ['Home', 'Search', 'Library'];
+            setActiveTab(tabs[index]);
+          }}
+          style={{ flex: 1 }}
         >
-          <Tab.Screen
-            name="Home"
-            options={{
-              tabBarIcon: ({ color, size }) => (
-                <MaterialCommunityIcons name="home" color={color} size={size} />
-              ),
-            }}
-            component={renderHome}
-          />
-          
-          <Tab.Screen
-            name="Search"
-            options={{
-              tabBarIcon: ({ color, size }) => (
-                <MaterialCommunityIcons name="magnify" color={color} size={size} />
-              ),
-            }}
-            component={renderSearch}
-          />
+          <View style={{ width: screenWidth, flex: 1 }}>
+            <HomePage onRequireAuth={handleRequireAuth} />
+          </View>
+          <View style={{ width: screenWidth, flex: 1 }}>
+            <SearchPage onRequireAuth={handleRequireAuth} />
+          </View>
+          <View style={{ width: screenWidth, flex: 1 }}>
+            <LibraryPage onRequireAuth={handleRequireAuth} />
+          </View>
+        </ScrollView>
 
-          <Tab.Screen
-            name="Library"
-            options={{
-              tabBarIcon: ({ color, size }) => (
-                <MaterialCommunityIcons name="playlist-music" color={color} size={size} />
-              ),
-            }}
-            component={renderLibrary}
-          />
-        </Tab.Navigator>
-      </NavigationContainer>
+        {/* Bottom Tab Bar */}
+        <View style={styles.tabBarStyle}>
+          {(['Home', 'Search', 'Library'] as const).map((tab) => {
+            const isActive = activeTab === tab;
+            const iconName = tab === 'Home' ? 'home' : tab === 'Search' ? 'magnify' : 'playlist-music';
+            const color = isActive ? "#1DB954" : "rgba(255, 255, 255, 0.5)";
+            return (
+              <TouchableOpacity
+                delayPressIn={0}
+                key={tab}
+                onPress={() => {
+                  setActiveTab(tab);
+                  const index = tab === 'Home' ? 0 : tab === 'Search' ? 1 : 2;
+                  scrollViewRef.current?.scrollTo({ x: index * screenWidth, animated: true });
+                }}
+                style={styles.tabBarButton}
+                activeOpacity={0.7}
+              >
+                <MaterialCommunityIcons name={iconName} color={color} size={24} />
+                <Text style={[styles.tabBarLabel, { color }]}>{tab}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
 
       {/* Floating Mini Player (native version of MiniPlayer component) */}
       {currentSong && <MiniPlayer onRequireAuth={handleRequireAuth} />}
@@ -476,5 +468,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "bold",
     marginLeft: 6,
+  },
+  tabBarStyle: {
+    backgroundColor: "#181818",
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255, 255, 255, 0.08)",
+    height: Platform.OS === 'ios' ? 76 : 60,
+    paddingBottom: Platform.OS === 'ios' ? 20 : 8,
+    paddingTop: 8,
+    flexDirection: "row",
+    justifyContent: "space-around",
+    alignItems: "center",
+  },
+  tabBarButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    flex: 1,
+  },
+  tabBarLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    marginTop: 4,
   },
 });

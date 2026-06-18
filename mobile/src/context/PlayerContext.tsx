@@ -110,11 +110,11 @@ function resolveTrack(s: Song) {
 
 async function resolvePipedAudioUrl(videoId: string): Promise<string | null> {
   const PIPED_INSTANCES = [
+    "https://pipedapi.adminforge.de",
+    "https://pipedapi.projectsegfau.lt",
     "https://pipedapi.kavin.rocks",
-    "https://api.piped.yt",
-    "https://piped-api.codespace.cz",
-    "https://pipedapi.reallyaweso.me",
-    "https://pipedapi.owo.si",
+    "https://pipedapi-libre.kavin.rocks",
+    "https://pipedapi.leptons.xyz",
     "https://api.looleh.xyz"
   ];
   for (const instance of PIPED_INSTANCES) {

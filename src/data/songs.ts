@@ -29,9 +29,7 @@ export function mapApiSong(item: any): Song {
     return { id: "", title: "Unknown", artist: "Unknown", duration: 0, albumArt: "", audioUrl: "" };
   }
 
-  // ── Album art ──────────────────────────────────────────────────────────────
-  // Try all known image field shapes
-  const imageUrl =
+  let imageUrl =
     item.image?.[2]?.url ||
     item.image?.[2]?.link ||
     item.image?.[1]?.url ||
@@ -46,6 +44,10 @@ export function mapApiSong(item: any): Song {
     item.thumbnail ||
     item.artwork ||
     "";
+
+  if (typeof imageUrl === "string" && imageUrl.startsWith("http://")) {
+    imageUrl = imageUrl.replace("http://", "https://");
+  }
 
   // ── Audio URL ──────────────────────────────────────────────────────────────
   // Use direct JioSaavn URL if available (faster playback), else fallback to our backend stream endpoint

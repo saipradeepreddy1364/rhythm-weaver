@@ -225,18 +225,20 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           </View>
 
           {/* Tab Switcher */}
-          <View style={styles.tabBar}>
-            {(["cover", "lyrics"] as TabType[]).map((tab) => {
-              const isActive = activeTab === tab;
-              return (
-                <TouchableOpacity delayPressIn={0} key={tab} onPress={() => setActiveTab(tab)} style={[styles.tabButton, isActive && styles.activeTabButton]} activeOpacity={0.7}>
-                  <Text style={[styles.tabButtonText, isActive && styles.activeTabButtonText]}>
-                    {tab.charAt(0).toUpperCase() + tab.slice(1)}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+          {lyrics !== null && lyrics.trim().length > 0 && (
+            <View style={styles.tabBar}>
+              {(["cover", "lyrics"] as TabType[]).map((tab) => {
+                const isActive = activeTab === tab;
+                return (
+                  <TouchableOpacity delayPressIn={0} key={tab} onPress={() => setActiveTab(tab)} style={[styles.tabButton, isActive && styles.activeTabButton]} activeOpacity={0.7}>
+                    <Text style={[styles.tabButtonText, isActive && styles.activeTabButtonText]}>
+                      {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
 
           {/* Body content based on tab selection */}
           <View style={styles.mainContent}>

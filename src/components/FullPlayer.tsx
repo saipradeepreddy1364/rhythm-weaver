@@ -266,21 +266,23 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
 
           {/* Tab Switcher */}
           <View style={styles.tabBar}>
-            {(["cover", "lyrics", "video"] as TabType[]).map((tab) => {
-              const isActive = activeTab === tab;
-              return (
-                <TouchableOpacity
-                  key={tab}
-                  onPress={() => setActiveTab(tab)}
-                  style={[styles.tabButton, isActive && styles.activeTabButton]}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.tabButtonText, isActive && styles.activeTabButtonText]}>
-                    {tab.charAt(0).toUpperCase() + tab.slice(1)}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+            {(["cover", "lyrics", "video"] as TabType[])
+              .filter((tab) => tab !== "lyrics" || (lyrics !== null && lyrics.trim().length > 0))
+              .map((tab) => {
+                const isActive = activeTab === tab;
+                return (
+                  <TouchableOpacity
+                    key={tab}
+                    onPress={() => setActiveTab(tab)}
+                    style={[styles.tabButton, isActive && styles.activeTabButton]}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.tabButtonText, isActive && styles.activeTabButtonText]}>
+                      {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
           </View>
 
           {/* Body content based on tab selection */}
