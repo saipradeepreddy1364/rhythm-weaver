@@ -112,77 +112,113 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
       const hasIndic = hasIndicCharacters(lyrics);
       let resolvedText = "";
 
+      // Helper: romanize a chunk via Google Translate dt=rm
+      const romanizeChunk = async (chunk: string): Promise<string> => {
+        if (!chunk.trim()) return chunk;
+        const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&dt=rm&q=${encodeURIComponent(chunk)}`;
+        const res = await fetch(url);
+        if (!res.ok) return chunk;
+        const data = await res.json();
+        let roman = "";
+        // data[1] contains romanization segments when available
+        if (data && Array.isArray(data[1])) {
+          for (const seg of data[1]) {
+            if (seg && typeof seg[3] === "string") roman += seg[3];
+          }
+        }
+        // fallback: data[0] translated text
+        if (!roman.trim() && data && data[0]) {
+          for (const item of data[0]) {
+            if (item && typeof item[0] === "string") roman += item[0];
+          }
+        }
+        return roman.trim() || chunk;
+      };
+
       if (targetLang === "en") {
         if (hasIndic) {
-          // Telugu/Hindi script -> English script (Romanization)
-          const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&dt=rm&q=${encodeURIComponent(lyrics)}`;
-          const res = await fetch(url);
-          if (res.ok) {
-            const data = await res.json();
-            if (data && data[0]) {
-              for (const item of data[0]) {
-                if (item && item[3] && !item[0] && !item[1]) {
-                  resolvedText = item[3];
-                  break;
-                }
-              }
-            }
+          // Romanize line-by-line for reliability
+          const lines = lyrics.split("\n");
+          const romanLines: string[] = [];
+          // Process in batches of 5 lines
+          for (let i = 0; i < lines.length; i += 5) {
+            const batch = lines.slice(i, i + 5).join("\n");
+            const romanBatch = await romanizeChunk(batch);
+            romanLines.push(romanBatch);
           }
+          resolvedText = romanLines.join("\n");
         } else {
-          // Already in English script, use original
           resolvedText = lyrics;
         }
       } else if (targetLang === "te") {
         if (!hasIndic) {
-          // English script -> Telugu script
-          const url = `https://inputtools.google.com/request?text=${encodeURIComponent(lyrics)}&itc=te-t-i0-und&num=1&cp=0&cs=0&ie=utf-8&oe=utf-8&app=demopage`;
-          const res = await fetch(url);
-          if (res.ok) {
-            const data = await res.json();
-            if (data && data[0] === "SUCCESS" && data[1] && data[1][0] && data[1][0][1]) {
-              resolvedText = data[1][0][1][0] || "";
-            }
+          // Romanized -> Telugu script via Google Input Tools, line by line
+          const lines = lyrics.split("\n");
+          const teLines: string[] = [];
+          for (const line of lines) {
+            if (!line.trim()) { teLines.push(""); continue; }
+            try {
+              const url = `https://inputtools.google.com/request?text=${encodeURIComponent(line.trim())}&itc=te-t-i0-und&num=1&cp=0&cs=0&ie=utf-8&oe=utf-8&app=demopage`;
+              const res = await fetch(url);
+              if (res.ok) {
+                const data = await res.json();
+                if (data && data[0] === "SUCCESS" && data[1]?.[0]?.[1]?.[0]) {
+                  teLines.push(data[1][0][1][0]);
+                } else { teLines.push(line); }
+              } else { teLines.push(line); }
+            } catch { teLines.push(line); }
           }
+          resolvedText = teLines.join("\n");
         } else {
-          // Already in Telugu script, use original
           resolvedText = lyrics;
         }
       } else if (targetLang === "hi") {
         if (!hasIndic) {
-          // English script -> Hindi script
-          const url = `https://inputtools.google.com/request?text=${encodeURIComponent(lyrics)}&itc=hi-t-i0-und&num=1&cp=0&cs=0&ie=utf-8&oe=utf-8&app=demopage`;
-          const res = await fetch(url);
-          if (res.ok) {
-            const data = await res.json();
-            if (data && data[0] === "SUCCESS" && data[1] && data[1][0] && data[1][0][1]) {
-              resolvedText = data[1][0][1][0] || "";
-            }
+          // Romanized -> Hindi script, line by line
+          const lines = lyrics.split("\n");
+          const hiLines: string[] = [];
+          for (const line of lines) {
+            if (!line.trim()) { hiLines.push(""); continue; }
+            try {
+              const url = `https://inputtools.google.com/request?text=${encodeURIComponent(line.trim())}&itc=hi-t-i0-und&num=1&cp=0&cs=0&ie=utf-8&oe=utf-8&app=demopage`;
+              const res = await fetch(url);
+              if (res.ok) {
+                const data = await res.json();
+                if (data && data[0] === "SUCCESS" && data[1]?.[0]?.[1]?.[0]) {
+                  hiLines.push(data[1][0][1][0]);
+                } else { hiLines.push(line); }
+              } else { hiLines.push(line); }
+            } catch { hiLines.push(line); }
           }
+          resolvedText = hiLines.join("\n");
         } else {
-          // Fallback to translate Telugu to Hindi meaning
+          // Telugu/Hindi script -> Hindi script via translation
           const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=hi&dt=t&q=${encodeURIComponent(lyrics)}`;
           const res = await fetch(url);
           if (res.ok) {
             const data = await res.json();
             if (data && data[0]) {
               for (const item of data[0]) {
-                if (item && item[0]) {
-                  resolvedText += item[0];
-                }
+                if (item && item[0]) resolvedText += item[0];
               }
             }
           }
         }
       }
 
-      if (resolvedText.trim()) {
-        setTranslatedLyrics((prev) => ({
-          ...prev,
-          [cacheKey]: resolvedText,
-        }));
-      }
+      setTranslatedLyrics((prev) => ({
+        ...prev,
+        [cacheKey]: resolvedText.trim() || lyrics,
+      }));
     } catch (err) {
       console.warn("Transliteration/Translation failed:", err);
+      // On error, fall back to original lyrics
+      if (currentSong) {
+        setTranslatedLyrics((prev) => ({
+          ...prev,
+          [`${currentSong.id}_${targetLang}`]: lyrics,
+        }));
+      }
     } finally {
       setTranslating(false);
     }
@@ -281,21 +317,19 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             </TouchableOpacity>
           </View>
 
-          {/* Tab Switcher */}
-          {lyrics !== null && lyrics.trim().length > 0 && (
-            <View style={styles.tabBar}>
-              {(["cover", "lyrics"] as TabType[]).map((tab) => {
-                const isActive = activeTab === tab;
-                return (
-                  <TouchableOpacity delayPressIn={0} key={tab} onPress={() => setActiveTab(tab)} style={[styles.tabButton, isActive && styles.activeTabButton]} activeOpacity={0.7}>
-                    <Text style={[styles.tabButtonText, isActive && styles.activeTabButtonText]}>
-                      {tab.charAt(0).toUpperCase() + tab.slice(1)}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          )}
+          {/* Tab Switcher - always visible */}
+          <View style={styles.tabBar}>
+            {(["cover", "lyrics"] as TabType[]).map((tab) => {
+              const isActive = activeTab === tab;
+              return (
+                <TouchableOpacity delayPressIn={0} key={tab} onPress={() => setActiveTab(tab)} style={[styles.tabButton, isActive && styles.activeTabButton]} activeOpacity={0.7}>
+                  <Text style={[styles.tabButtonText, isActive && styles.activeTabButtonText]}>
+                    {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
 
           {/* Body content based on tab selection */}
           <View style={styles.mainContent}>
