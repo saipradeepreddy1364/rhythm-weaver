@@ -112,22 +112,19 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
       const hasIndic = hasIndicCharacters(lyrics);
       let resolvedText = "";
 
-      // Helper: romanize a chunk via Google Translate dt=rm
+      // Helper: romanize a chunk via Google Translate dt=rm ONLY (no dt=t)
+      // With dt=rm only: data[0][i][0] = phonetic romanization (e.g. "Nenu")
+      // With dt=t included: data[0][i][0] = English meaning (e.g. "I") — WRONG
       const romanizeChunk = async (chunk: string): Promise<string> => {
         if (!chunk.trim()) return chunk;
-        const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&dt=rm&q=${encodeURIComponent(chunk)}`;
+        // Use dt=rm ONLY — this gives phonetic script, not English meaning
+        const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=rm&q=${encodeURIComponent(chunk)}`;
         const res = await fetch(url);
         if (!res.ok) return chunk;
         const data = await res.json();
         let roman = "";
-        // data[1] contains romanization segments when available
-        if (data && Array.isArray(data[1])) {
-          for (const seg of data[1]) {
-            if (seg && typeof seg[3] === "string") roman += seg[3];
-          }
-        }
-        // fallback: data[0] translated text
-        if (!roman.trim() && data && data[0]) {
+        // With dt=rm only: data[0][i][0] is the romanized phonetic text
+        if (data && Array.isArray(data[0])) {
           for (const item of data[0]) {
             if (item && typeof item[0] === "string") roman += item[0];
           }
@@ -317,19 +314,22 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             </TouchableOpacity>
           </View>
 
-          {/* Tab Switcher - always visible */}
-          <View style={styles.tabBar}>
-            {(["cover", "lyrics"] as TabType[]).map((tab) => {
-              const isActive = activeTab === tab;
-              return (
-                <TouchableOpacity delayPressIn={0} key={tab} onPress={() => setActiveTab(tab)} style={[styles.tabButton, isActive && styles.activeTabButton]} activeOpacity={0.7}>
-                  <Text style={[styles.tabButtonText, isActive && styles.activeTabButtonText]}>
-                    {tab.charAt(0).toUpperCase() + tab.slice(1)}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+          {/* Tab Switcher - show Lyrics tab only when lyrics exist or still loading */}
+          {(lyricsLoading || (lyrics && lyrics.trim().length > 0)) && (
+            <View style={styles.tabBar}>
+              {(["cover", "lyrics"] as TabType[]).map((tab) => {
+                const isActive = activeTab === tab;
+                return (
+                  <TouchableOpacity delayPressIn={0} key={tab} onPress={() => setActiveTab(tab)} style={[styles.tabButton, isActive && styles.activeTabButton]} activeOpacity={0.7}>
+                    <Text style={[styles.tabButtonText, isActive && styles.activeTabButtonText]}>
+                      {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                      {tab === "lyrics" && lyricsLoading ? " ●" : ""}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
 
           {/* Body content based on tab selection */}
           <View style={styles.mainContent}>
