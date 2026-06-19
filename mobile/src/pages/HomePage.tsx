@@ -844,6 +844,14 @@ function AlbumModal({
               if (items.length === 0) break;
               const newSongs = items.map(mapApiSong).filter((s: Song) => {
                 if (!s.audioUrl || !s.id) return false;
+                // Only include songs where this artist is actually credited
+                const artistLower = (s.artist || "").toLowerCase();
+                const targetLower = name.toLowerCase();
+                const nameTokens = targetLower.split(/\s+/).filter((t: string) => t.length > 2);
+                const fullMatch = artistLower.includes(targetLower);
+                const tokenMatch = nameTokens.length >= 2 &&
+                  nameTokens.filter((t: string) => artistLower.includes(t)).length >= Math.min(2, nameTokens.length);
+                if (!fullMatch && !tokenMatch) return false;
                 const tKey = normalizeSongTitle(s.title);
                 if (seenIds.has(s.id) || seenTitles.has(tKey)) return false;
                 return true;
