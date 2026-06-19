@@ -780,7 +780,7 @@ function AlbumModal({
   const [songs, setSongs]             = useState<Song[]>(() => {
     const seen = new Set<string>();
     return album.songs.filter(s => {
-      const tKey = normalizeSongTitle(s.title) + "|" + (s.artist || "").toLowerCase().trim();
+      const tKey = normalizeSongTitle(s.title);
       if (seen.has(tKey)) return false;
       seen.add(tKey);
       return true;
@@ -792,7 +792,7 @@ function AlbumModal({
     if (album.fullyLoaded) {
       const seen = new Set<string>();
       const dedupped = album.songs.filter(s => {
-        const tKey = normalizeSongTitle(s.title) + "|" + (s.artist || "").toLowerCase().trim();
+        const tKey = normalizeSongTitle(s.title);
         if (seen.has(tKey)) return false;
         seen.add(tKey);
         return true;
@@ -823,7 +823,7 @@ function AlbumModal({
       const seenTitles = new Set<string>();
       const initialDedupped: Song[] = [];
       for (const s of album.songs) {
-        const tKey = normalizeSongTitle(s.title) + "|" + (s.artist || "").toLowerCase().trim();
+        const tKey = normalizeSongTitle(s.title);
         if (!seenTitles.has(tKey)) {
           seenTitles.add(tKey);
           if (s.id) seenIds.add(s.id);
@@ -844,13 +844,13 @@ function AlbumModal({
               if (items.length === 0) break;
               const newSongs = items.map(mapApiSong).filter((s: Song) => {
                 if (!s.audioUrl || !s.id) return false;
-                const tKey = normalizeSongTitle(s.title) + "|" + (s.artist || "").toLowerCase().trim();
+                const tKey = normalizeSongTitle(s.title);
                 if (seenIds.has(s.id) || seenTitles.has(tKey)) return false;
                 return true;
               });
               for (const s of newSongs) {
                 seenIds.add(s.id);
-                seenTitles.add(normalizeSongTitle(s.title) + "|" + (s.artist || "").toLowerCase().trim());
+                seenTitles.add(normalizeSongTitle(s.title));
                 accumulated.push(s);
               }
               if (newSongs.length > 0 && !controller.signal.aborted) setSongs([...accumulated]);
@@ -866,7 +866,7 @@ function AlbumModal({
           if (!controller.signal.aborted) {
             const seen = new Set<string>();
             const dedupped = fetched.filter(s => {
-              const tKey = normalizeSongTitle(s.title) + "|" + (s.artist || "").toLowerCase().trim();
+              const tKey = normalizeSongTitle(s.title);
               if (seen.has(tKey)) return false;
               seen.add(tKey);
               return true;
