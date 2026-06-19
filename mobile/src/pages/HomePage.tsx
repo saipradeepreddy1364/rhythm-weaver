@@ -911,7 +911,7 @@ function AlbumModal({
           <View style={modalStyles.headerMeta}>
             <Text style={modalStyles.headerTitle} numberOfLines={1}>{album.title}</Text>
             <Text style={modalStyles.headerSubtitle} numberOfLines={1}>
-              {typeLabel} · {songs.length} songs
+              {typeLabel}
             </Text>
           </View>
 
@@ -943,35 +943,17 @@ function AlbumModal({
 
         {/* Songs scroll */}
         <ScrollView style={modalStyles.songsScroll} contentContainerStyle={modalStyles.songsScrollContent}>
-          {loadingMore && songs.length === 0 ? (
-            <View style={modalStyles.centerLoading}>
-              <ActivityIndicator size="large" color="#1DB954" />
-              <Text style={modalStyles.loadingText}>
-                {albumType === "artist" ? "Loading full discography…" : "Loading songs…"}
-              </Text>
-            </View>
-          ) : (
-            <View style={{ paddingBottom: 60 }}>
-              {songs.map((song) => (
-                <SongRow
-                  key={song.id}
-                  song={song}
-                  queue={songs}
-                  onRequireAuth={onRequireAuth}
-                  hideActions={true}
-                />
-              ))}
-
-              {loadingMore && songs.length > 0 ? (
-                <View style={modalStyles.fetchingMoreRow}>
-                  <ActivityIndicator size="small" color="#1DB954" />
-                  <Text style={modalStyles.fetchingMoreText}>
-                    Fetching more songs… ({songs.length} so far)
-                  </Text>
-                </View>
-              ) : null}
-            </View>
-          )}
+          <View style={{ paddingBottom: 60 }}>
+            {songs.map((song) => (
+              <SongRow
+                key={song.id}
+                song={song}
+                queue={songs}
+                onRequireAuth={onRequireAuth}
+                hideActions={true}
+              />
+            ))}
+          </View>
         </ScrollView>
       </View>
     </View>
