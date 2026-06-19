@@ -112,25 +112,66 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
       const hasIndic = hasIndicCharacters(lyrics);
       let resolvedText = "";
 
-      // Helper: romanize a chunk via Google Translate dt=rm ONLY (no dt=t)
-      // With dt=rm only: data[0][i][0] = phonetic romanization (e.g. "Nenu")
-      // With dt=t included: data[0][i][0] = English meaning (e.g. "I") — WRONG
+      // Helper: romanize a chunk (Telugu script → English letters)
+      // Tries multiple API strategies since romanization position varies by version
       const romanizeChunk = async (chunk: string): Promise<string> => {
         if (!chunk.trim()) return chunk;
-        // Use dt=rm ONLY — this gives phonetic script, not English meaning
-        const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=rm&q=${encodeURIComponent(chunk)}`;
-        const res = await fetch(url);
-        if (!res.ok) return chunk;
-        const data = await res.json();
-        let roman = "";
-        // With dt=rm only: data[0][i][0] is the romanized phonetic text
-        if (data && Array.isArray(data[0])) {
-          for (const item of data[0]) {
-            if (item && typeof item[0] === "string") roman += item[0];
+
+        // Strategy 1: sl=te + dt=rm only → data[0][i][0] = phonetic when source is explicit
+        try {
+          const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=te&tl=en&dt=rm&q=${encodeURIComponent(chunk)}`;
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = await res.json();
+            let roman = "";
+            if (data && Array.isArray(data[0])) {
+              for (const item of data[0]) {
+                if (item && typeof item[0] === "string") roman += item[0];
+              }
+            }
+            if (roman.trim()) return roman.trim();
           }
-        }
-        return roman.trim() || chunk;
+        } catch {}
+
+        // Strategy 2: sl=te + dt=t + dt=rm → data[0][i][3] = source romanization per segment
+        try {
+          const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=te&tl=en&dt=t&dt=rm&q=${encodeURIComponent(chunk)}`;
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = await res.json();
+            // data[1] is sometimes the romanization string
+            if (data && typeof data[1] === "string" && data[1].trim()) return data[1].trim();
+            // data[0][i][3] = source romanization in each segment
+            let roman = "";
+            if (data && Array.isArray(data[0])) {
+              for (const item of data[0]) {
+                if (item && typeof item[3] === "string") roman += item[3];
+              }
+            }
+            if (roman.trim()) return roman.trim();
+          }
+        } catch {}
+
+        // Strategy 3: sl=auto + dt=t + dt=rm → same positions
+        try {
+          const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&dt=rm&q=${encodeURIComponent(chunk)}`;
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = await res.json();
+            if (data && typeof data[1] === "string" && data[1].trim()) return data[1].trim();
+            let roman = "";
+            if (data && Array.isArray(data[0])) {
+              for (const item of data[0]) {
+                if (item && typeof item[3] === "string") roman += item[3];
+              }
+            }
+            if (roman.trim()) return roman.trim();
+          }
+        } catch {}
+
+        return chunk; // All strategies failed, return original
       };
+
 
       if (targetLang === "en") {
         if (hasIndic) {
