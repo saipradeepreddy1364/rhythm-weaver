@@ -24,7 +24,20 @@ import { api } from "../services/api";
 import { localStorage } from "../lib/storage";
 
 // ─── Playback History & Offline Helpers ──────────────────────────────────────
-const RECENT_LIMIT_MS = 6 * 60 * 60 * 1000; // 6 hours
+const RECENT_LIMIT_MS = 3 * 60 * 60 * 1000; // 3 hours
+
+// Normalize song title to strip suffixes like "(From 'Movie')", "- Remix" etc. for deduplication
+function normalizeSongTitle(title: string): string {
+  return (title || "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s*\(from\s+['"]?[^)]+['"]?\)/gi, "")
+    .replace(/\s*\[from\s+[^\]]+\]/gi, "")
+    .replace(/\s*-\s*(remix|reprise|version|extended|male version|female version|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit)\b.*/gi, "")
+    .replace(/\s*\((remix|reprise|version|extended|male version|female version|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit)[^)]*\)/gi, "")
+    .replace(/\s*(feat\.?|ft\.?|featuring)\s+.*/gi, "")
+    .trim();
+}
 
 function getPlaybackHistory(): any[] {
   try {
@@ -66,7 +79,7 @@ function filterQueueByHistory(song: Song, songQueue: Song[]): Song[] {
   activeHistory.forEach((h) => {
     recentIds.add(h.id);
     if (h.title) {
-      const key = h.title.toLowerCase().trim() + "|" + (h.artist || "").toLowerCase().trim();
+      const key = normalizeSongTitle(h.title) + "|" + (h.artist || "").toLowerCase().trim();
       recentKeys.add(key);
     }
   });
@@ -75,7 +88,7 @@ function filterQueueByHistory(song: Song, songQueue: Song[]): Song[] {
     if (s.id === song.id) return true;
     if (recentIds.has(s.id)) return false;
     if (s.title) {
-      const key = s.title.toLowerCase().trim() + "|" + (s.artist || "").toLowerCase().trim();
+      const key = normalizeSongTitle(s.title) + "|" + (s.artist || "").toLowerCase().trim();
       if (recentKeys.has(key)) return false;
     }
     return true;
@@ -401,7 +414,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const seenKeys = new Set<string>();
 
     const existingIds = new Set(queueRef.current.map((s) => s.id));
-    const existingKeys = new Set(queueRef.current.map((s) => (s.title || "").toLowerCase().trim() + "|" + (s.artist || "").toLowerCase().trim()));
+    const existingKeys = new Set(queueRef.current.map((s) => normalizeSongTitle(s.title) + "|" + (s.artist || "").toLowerCase().trim()));
 
     const history = getPlaybackHistory();
     const now = Date.now();
@@ -412,18 +425,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     activeHistory.forEach((h) => {
       recentIds.add(h.id);
       if (h.title) {
-        recentKeys.add(h.title.toLowerCase().trim() + "|" + (h.artist || "").toLowerCase().trim());
+        recentKeys.add(normalizeSongTitle(h.title) + "|" + (h.artist || "").toLowerCase().trim());
       }
     });
 
     const addSongs = (list: Song[], bypassLangFilter = false) => {
       list.forEach((s) => {
         if (!s || !s.id) return;
-        // Filter out songs that do not match the target language if a target language exists (unless bypassed)
         if (!bypassLangFilter && seedLang && s.language && s.language.toLowerCase().trim() !== seedLang) {
           return;
         }
-        const key = (s.title || "").toLowerCase().trim() + "|" + (s.artist || "").toLowerCase().trim();
+        const key = normalizeSongTitle(s.title) + "|" + (s.artist || "").toLowerCase().trim();
         if (
           !seenIds.has(s.id) &&
           !seenKeys.has(key) &&
@@ -856,14 +868,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         q = filterQueueByHistory(song, q);
       }
 
-      // Deduplicate the queue by title + artist to prevent duplicates playing in sequence
+      // Deduplicate the queue by normalized title + artist to prevent duplicates playing in sequence
       const seenKeys = new Set<string>();
       q = q.filter((s) => {
         if (s.id === song.id) {
-          seenKeys.add((s.title || "").toLowerCase().trim() + "|" + (s.artist || "").toLowerCase().trim());
+          seenKeys.add(normalizeSongTitle(s.title) + "|" + (s.artist || "").toLowerCase().trim());
           return true;
         }
-        const key = (s.title || "").toLowerCase().trim() + "|" + (s.artist || "").toLowerCase().trim();
+        const key = normalizeSongTitle(s.title) + "|" + (s.artist || "").toLowerCase().trim();
         if (seenKeys.has(key)) return false;
         seenKeys.add(key);
         return true;
