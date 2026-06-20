@@ -28,15 +28,30 @@ const RECENT_LIMIT_MS = 3 * 60 * 60 * 1000; // 3 hours
 
 // Normalize song title to strip suffixes like "(From 'Movie')", "- Remix" etc. for deduplication
 function normalizeSongTitle(title: string): string {
-  return (title || "")
-    .toLowerCase()
-    .trim()
-    .replace(/\s*\(from\s+['"]?[^)]+['"]?\)/gi, "")
-    .replace(/\s*\[from\s+[^\]]+\]/gi, "")
-    .replace(/\s*-\s*(remix|reprise|version|extended|male version|female version|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit)\b.*/gi, "")
-    .replace(/\s*\((remix|reprise|version|extended|male version|female version|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit)[^)]*\)/gi, "")
-    .replace(/\s*(feat\.?|ft\.?|featuring)\s+.*/gi, "")
-    .trim();
+  let s = (title || "").toLowerCase().trim();
+  // Remove common trailing junk in parentheses/brackets recursively
+  while (true) {
+    const prev = s;
+    s = s
+      .replace(/\s*\((from|original|soundtrack|ost|single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|feat|ft|featuring|mix|lyrical|video)[^)]*\)/gi, "")
+      .replace(/\s*\[(from|original|soundtrack|ost|single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|feat|ft|featuring|mix|lyrical|video)[^\]]*\]/gi, "")
+      .trim();
+    if (s === prev) break;
+  }
+  
+  // Remove trailing single / remix / reprise etc. with dash
+  s = s.replace(/\s*-\s*(single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|mix|lyrical|video)\b.*/gi, "");
+  
+  // Strip featuring/feat at the end
+  s = s.replace(/\s*(feat\.?|ft\.?|featuring)\s+.*/gi, "");
+  
+  // Strip any trailing parentheses/brackets at the end of the string entirely
+  s = s.replace(/\s*\([^)]*\)$/gi, "");
+  s = s.replace(/\s*\[[^\]]*\]$/gi, "");
+  
+  // Clean up punctuation and spacing
+  s = s.replace(/[^a-z0-9\s]/gi, "").replace(/\s+/g, " ").trim();
+  return s;
 }
 
 function getPlaybackHistory(): any[] {
@@ -79,7 +94,7 @@ function filterQueueByHistory(song: Song, songQueue: Song[]): Song[] {
   activeHistory.forEach((h) => {
     recentIds.add(h.id);
     if (h.title) {
-      const key = normalizeSongTitle(h.title) + "|" + (h.artist || "").toLowerCase().trim();
+      const key = normalizeSongTitle(h.title);
       recentKeys.add(key);
     }
   });
@@ -88,7 +103,7 @@ function filterQueueByHistory(song: Song, songQueue: Song[]): Song[] {
     if (s.id === song.id) return true;
     if (recentIds.has(s.id)) return false;
     if (s.title) {
-      const key = normalizeSongTitle(s.title) + "|" + (s.artist || "").toLowerCase().trim();
+      const key = normalizeSongTitle(s.title);
       if (recentKeys.has(key)) return false;
     }
     return true;
@@ -339,6 +354,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const repeatRef = useRef<"off" | "one" | "all">("off");
   const radioFetchingRef = useRef(false);
   const activeRecommendationFetchRef = useRef<string | null>(null);
+  const activeFetchPromiseRef = useRef<Promise<Song[]> | null>(null);
+  const fallbackRetryRef = useRef<Record<string, boolean>>({});
 
   useEffect(() => { queueRef.current = queue; }, [queue]);
   useEffect(() => { queueIndexRef.current = queueIndex; }, [queueIndex]);
@@ -414,7 +431,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const seenKeys = new Set<string>();
 
     const existingIds = new Set(queueRef.current.map((s) => s.id));
-    const existingKeys = new Set(queueRef.current.map((s) => normalizeSongTitle(s.title) + "|" + (s.artist || "").toLowerCase().trim()));
+    const existingKeys = new Set(queueRef.current.map((s) => normalizeSongTitle(s.title)));
 
     const history = getPlaybackHistory();
     const now = Date.now();
@@ -425,7 +442,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     activeHistory.forEach((h) => {
       recentIds.add(h.id);
       if (h.title) {
-        recentKeys.add(normalizeSongTitle(h.title) + "|" + (h.artist || "").toLowerCase().trim());
+        recentKeys.add(normalizeSongTitle(h.title));
       }
     });
 
@@ -435,7 +452,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         if (!bypassLangFilter && seedLang && s.language && s.language.toLowerCase().trim() !== seedLang) {
           return;
         }
-        const key = normalizeSongTitle(s.title) + "|" + (s.artist || "").toLowerCase().trim();
+        const key = normalizeSongTitle(s.title);
         if (
           !seenIds.has(s.id) &&
           !seenKeys.has(key) &&
@@ -621,6 +638,84 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     return recommendations.slice(0, 20);
   }, []);
 
+  const fetchAndAppendRecommendations = useCallback(async (seed: Song): Promise<Song[]> => {
+    if (activeRecommendationFetchRef.current === seed.id && activeFetchPromiseRef.current) {
+      console.log(`[PlayerContext] Reusing active fetch promise for seed: ${seed.id}`);
+      return activeFetchPromiseRef.current;
+    }
+
+    console.log(`[PlayerContext] Initiating recommendation fetch for seed: ${seed.id}`);
+    activeRecommendationFetchRef.current = seed.id;
+    radioFetchingRef.current = true;
+    setIsRadioMode(true);
+
+    const promise = fetchRadioSongs(seed).then(async (recommendations) => {
+      if (activeRecommendationFetchRef.current !== seed.id) {
+        console.log("[PlayerContext] Active recommendation seed changed, discarding fetched recommendations.");
+        return [];
+      }
+
+      if (recommendations.length > 0) {
+        const existingIds = new Set(queueRef.current.map((s) => s.id));
+        const existingKeys = new Set(queueRef.current.map((s) => (s.title || "").toLowerCase().trim() + "|" + (s.artist || "").toLowerCase().trim()));
+        
+        const uniqueRecs = recommendations.filter((r) => {
+          const key = (r.title || "").toLowerCase().trim() + "|" + (r.artist || "").toLowerCase().trim();
+          return !existingIds.has(r.id) && !existingKeys.has(key);
+        });
+
+        if (uniqueRecs.length > 0) {
+          console.log(`[PlayerContext] Appending ${uniqueRecs.length} recommendations to the queue.`);
+          const oldLength = queueRef.current.length;
+          const updatedQueue = [...queueRef.current, ...uniqueRecs];
+          setQueue(updatedQueue);
+          
+          try {
+            const tracksToAdd = uniqueRecs.map((s) => resolveTrack(s));
+            await TrackPlayer.add(tracksToAdd);
+            
+            const playbackState = await TrackPlayer.getPlaybackState();
+            const isPlayerStopped = playbackState.state === State.Stopped || 
+                                    playbackState.state === State.None || 
+                                    playbackState.state === State.Ended;
+            
+            const activeIndex = await TrackPlayer.getActiveTrackIndex();
+            const isAtEnd = activeIndex === undefined || activeIndex === null || activeIndex >= oldLength - 1;
+
+            if (isPlayerStopped && isAtEnd) {
+              console.log(`[PlayerContext] Player is stopped/at end. Skipping to index ${oldLength} and playing.`);
+              try {
+                await TrackPlayer.skip(oldLength);
+                await TrackPlayer.play();
+              } catch (skipErr) {
+                console.warn("[PlayerContext] Skip failed, resetting track player with entire updated queue.");
+                await TrackPlayer.reset();
+                const allTracks = updatedQueue.map((s) => resolveTrack(s));
+                await TrackPlayer.add(allTracks);
+                await TrackPlayer.skip(oldLength);
+                await TrackPlayer.play();
+              }
+            }
+          } catch (err) {
+            console.warn("[PlayerContext] Failed to add recommendations to TrackPlayer:", err);
+          }
+        }
+      }
+      return recommendations;
+    }).catch((err) => {
+      console.warn("[PlayerContext] Error fetching/appending recommendations:", err);
+      return [];
+    }).finally(() => {
+      if (activeRecommendationFetchRef.current === seed.id) {
+        activeFetchPromiseRef.current = null;
+        radioFetchingRef.current = false;
+      }
+    });
+
+    activeFetchPromiseRef.current = promise;
+    return promise;
+  }, [fetchRadioSongs]);
+
   const nextSongInternal = useCallback(async () => {
     const q = queueRef.current;
     const idx = queueIndexRef.current;
@@ -653,38 +748,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         } catch {}
       } else if (repeatRef.current === "off") {
         const seed = q[idx];
-        if (!radioFetchingRef.current && seed) {
-          radioFetchingRef.current = true;
-          setIsRadioMode(true);
-          const radioSongs = await fetchRadioSongs(seed);
-          radioFetchingRef.current = false;
-
-          if (radioSongs.length === 0) {
-            setIsRadioMode(false);
-            await TrackPlayer.pause();
-            return;
-          }
-
-          const newQ = [...queueRef.current, ...radioSongs];
-          setQueue(newQ);
-
-          // Add new tracks to TrackPlayer
-          const tracksToAdd = radioSongs.map((s) => resolveTrack(s));
-          try {
-            await TrackPlayer.add(tracksToAdd);
-            await TrackPlayer.skip(queueRef.current.length);
-            await TrackPlayer.play();
-          } catch (err) {
-            console.warn("[PlayerContext] Failed to add radio songs:", err);
-          }
-        } else {
-          try {
-            await TrackPlayer.pause();
-          } catch {}
+        if (seed) {
+          await fetchAndAppendRecommendations(seed);
         }
       }
     }
-  }, [fetchRadioSongs]);
+  }, [fetchAndAppendRecommendations]);
 
   // TrackPlayer Setup on mount
   useEffect(() => {
@@ -731,30 +800,59 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
                 const activeIndex = await TrackPlayer.getActiveTrackIndex();
                 if (activeIndex !== undefined && activeIndex !== null) {
                   const track = await TrackPlayer.getTrack(activeIndex);
-                  if (track && track.url && track.url.startsWith("youtube://")) {
-                    const videoId = track.url.replace("youtube://", "");
-                    console.log(`[PlayerContext] Playback error on YouTube track. Resolving video ID: ${videoId}`);
-                    const directUrl = await resolvePipedAudioUrl(videoId);
-                    if (directUrl) {
-                      track.url = directUrl;
-                      await TrackPlayer.remove(activeIndex);
-                      await TrackPlayer.add(track, activeIndex);
-                      await TrackPlayer.skip(activeIndex);
-                      await TrackPlayer.play();
-                      return;
+                  if (track && track.url) {
+                    const retryKey = `${track.id}-${activeIndex}`;
+                    if (fallbackRetryRef.current[retryKey]) {
+                      console.warn(`[PlayerContext] Already attempted fallback for track ${track.id} at index ${activeIndex}. Skipping.`);
+                    } else {
+                      fallbackRetryRef.current[retryKey] = true;
+
+                      if (track.url.startsWith("youtube://")) {
+                        const videoId = track.url.replace("youtube://", "");
+                        console.log(`[PlayerContext] Playback error on YouTube track. Resolving video ID: ${videoId}`);
+                        const directUrl = await resolvePipedAudioUrl(videoId);
+                        if (directUrl) {
+                          track.url = directUrl;
+                          await TrackPlayer.remove(activeIndex);
+                          await TrackPlayer.add(track, activeIndex);
+                          await TrackPlayer.skip(activeIndex);
+                          await TrackPlayer.play();
+                          return;
+                        }
+                      } else if (track.url.includes("saavncdn.com") || track.url.includes("oasth.me")) {
+                        console.log(`[PlayerContext] Playback error on direct JioSaavn CDN track. Falling back to proxy.`);
+                        track.url = `https://musicbackend-xg4u.onrender.com/api/songs/${track.id}/stream`;
+                        await TrackPlayer.remove(activeIndex);
+                        await TrackPlayer.add(track, activeIndex);
+                        await TrackPlayer.skip(activeIndex);
+                        await TrackPlayer.play();
+                        return;
+                      } else if (track.url.includes("musicbackend-xg4u.onrender.com")) {
+                        console.log(`[PlayerContext] Playback error on backend stream proxy URL. Attempting to resolve direct JioSaavn CDN URL for track: ${track.id}`);
+                        try {
+                          const details = await api.getSongById(track.id);
+                          const dataList = details?.data;
+                          if (Array.isArray(dataList) && dataList.length > 0) {
+                            const mapped = mapApiSong(dataList[0]);
+                            if (mapped && mapped.audioUrl && !mapped.audioUrl.includes("musicbackend-xg4u.onrender.com") && !mapped.audioUrl.includes("oasth.me")) {
+                              console.log(`[PlayerContext] Successfully resolved direct CDN URL for proxy fallback: ${mapped.audioUrl.substring(0, 50)}...`);
+                              track.url = mapped.audioUrl;
+                              await TrackPlayer.remove(activeIndex);
+                              await TrackPlayer.add(track, activeIndex);
+                              await TrackPlayer.skip(activeIndex);
+                              await TrackPlayer.play();
+                              return;
+                            }
+                          }
+                        } catch (resolveErr) {
+                          console.warn("[PlayerContext] Failed to resolve direct CDN URL from JioSaavn API:", resolveErr);
+                        }
+                      }
                     }
-                  } else if (track && track.url && (track.url.includes("saavncdn.com") || track.url.includes("oasth.me"))) {
-                    console.log(`[PlayerContext] Playback error on direct JioSaavn CDN track. Falling back to proxy.`);
-                    track.url = `https://musicbackend-xg4u.onrender.com/api/songs/${track.id}/stream`;
-                    await TrackPlayer.remove(activeIndex);
-                    await TrackPlayer.add(track, activeIndex);
-                    await TrackPlayer.skip(activeIndex);
-                    await TrackPlayer.play();
-                    return;
                   }
                 }
               } catch (e) {
-                console.warn("[PlayerContext] Error resolving YouTube URL after playback error:", e);
+                console.warn("[PlayerContext] Error resolving fallback after playback error:", e);
               }
               await nextSongInternal();
             }
@@ -780,6 +878,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   // Sync active track changes back to currentSong and queueIndex
   useEffect(() => {
     if (activeTrack) {
+      // Clear retries for other tracks to save memory
+      fallbackRetryRef.current = { [activeTrack.id]: fallbackRetryRef.current[activeTrack.id] || false };
+
       const matched = queueRef.current.find(s => s.id === activeTrack.id);
       if (matched) {
         setCurrentSong(matched);
@@ -810,40 +911,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
           // Proactive preloading: if we are within 3 songs of the end of the queue, prefetch recommendations
           const q = queueRef.current;
-          if (q.length >= 1 && idx >= q.length - 3 && !radioFetchingRef.current) {
+          if (q.length >= 1 && idx >= q.length - 3) {
             const seed = q[idx];
             if (seed && activeRecommendationFetchRef.current !== seed.id) {
-              activeRecommendationFetchRef.current = seed.id;
               console.log(`[PlayerContext] Proactive preloading recommendations near queue end (index ${idx} of ${q.length})`);
-              
-              fetchRadioSongs(seed).then(async (recommendations) => {
-                // Verify that the song hasn't changed while we were fetching
-                if (activeRecommendationFetchRef.current !== seed.id) return;
-                
-                if (recommendations.length > 0) {
-                  const existingIds = new Set(queueRef.current.map((s) => s.id));
-                  const existingKeys = new Set(queueRef.current.map((s) => (s.title || "").toLowerCase().trim() + "|" + (s.artist || "").toLowerCase().trim()));
-                  
-                  const uniqueRecs = recommendations.filter((r) => {
-                    const key = (r.title || "").toLowerCase().trim() + "|" + (r.artist || "").toLowerCase().trim();
-                    return !existingIds.has(r.id) && !existingKeys.has(key);
-                  });
-
-                  if (uniqueRecs.length > 0) {
-                    console.log(`[PlayerContext] Proactively appended ${uniqueRecs.length} recommendations to prevent playback gap.`);
-                    const updatedQueue = [...queueRef.current, ...uniqueRecs];
-                    setQueue(updatedQueue);
-                    
-                    try {
-                      const tracksToAdd = uniqueRecs.map((s) => resolveTrack(s));
-                      await TrackPlayer.add(tracksToAdd);
-                    } catch (err) {
-                      console.warn("[PlayerContext] Failed to add proactive recommendations to TrackPlayer:", err);
-                    }
-                  }
-                }
-              }).catch((err) => {
-                console.warn("[PlayerContext] Proactive recommendation fetch failed:", err);
+              fetchAndAppendRecommendations(seed).catch((err) => {
+                console.warn("[PlayerContext] Proactive preloading failed:", err);
               });
             }
           }
@@ -851,7 +924,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       } catch {}
     };
     syncIndex();
-  }, [activeTrack, fetchRadioSongs]);
+  }, [activeTrack, fetchAndAppendRecommendations]);
 
 
 
@@ -868,14 +941,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         q = filterQueueByHistory(song, q);
       }
 
-      // Deduplicate the queue by normalized title + artist to prevent duplicates playing in sequence
+      // Deduplicate the queue by normalized title to prevent duplicates playing in sequence
       const seenKeys = new Set<string>();
       q = q.filter((s) => {
         if (s.id === song.id) {
-          seenKeys.add(normalizeSongTitle(s.title) + "|" + (s.artist || "").toLowerCase().trim());
+          seenKeys.add(normalizeSongTitle(s.title));
           return true;
         }
-        const key = normalizeSongTitle(s.title) + "|" + (s.artist || "").toLowerCase().trim();
+        const key = normalizeSongTitle(s.title);
         if (seenKeys.has(key)) return false;
         seenKeys.add(key);
         return true;
@@ -916,46 +989,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
       // Proactively load recommendations in the background if queue is short (e.g., single song or short search plays)
       if (q.length < 5) {
-        const currentSongId = song.id;
-        activeRecommendationFetchRef.current = currentSongId;
-        
-        // Asynchronously fetch recommendations
-        fetchRadioSongs(song).then(async (recommendations) => {
-          // Verify that the song hasn't changed while we were fetching
-          if (activeRecommendationFetchRef.current !== currentSongId) {
-            console.log("[PlayerContext] Background recommendations aborted: active song changed.");
-            return;
-          }
-
-          if (recommendations.length > 0) {
-            // Filter out songs that might have been added to the queue in the meantime
-            const existingIds = new Set(queueRef.current.map((s) => s.id));
-            const existingKeys = new Set(queueRef.current.map((s) => (s.title || "").toLowerCase().trim() + "|" + (s.artist || "").toLowerCase().trim()));
-            
-            const uniqueRecs = recommendations.filter((r) => {
-              const key = (r.title || "").toLowerCase().trim() + "|" + (r.artist || "").toLowerCase().trim();
-              return !existingIds.has(r.id) && !existingKeys.has(key);
-            });
-
-            if (uniqueRecs.length > 0) {
-              console.log(`[PlayerContext] Appending ${uniqueRecs.length} background recommendations to the queue.`);
-              const updatedQueue = [...queueRef.current, ...uniqueRecs];
-              setQueue(updatedQueue);
-
-              try {
-                const tracksToAdd = uniqueRecs.map((s) => resolveTrack(s));
-                await TrackPlayer.add(tracksToAdd);
-              } catch (err) {
-                console.warn("[PlayerContext] Failed to add background recommendations to TrackPlayer:", err);
-              }
-            }
-          }
-        }).catch((err) => {
-          console.warn("[PlayerContext] Error fetching background recommendations:", err);
+        fetchAndAppendRecommendations(song).catch((err) => {
+          console.warn("[PlayerContext] Background recommendations failed in playSong:", err);
         });
       }
     },
-    [fetchRadioSongs]
+    [fetchAndAppendRecommendations]
   );
 
   const togglePlay = useCallback(async () => {
