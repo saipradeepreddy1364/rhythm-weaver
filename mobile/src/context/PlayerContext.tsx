@@ -357,6 +357,28 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const activeFetchPromiseRef = useRef<Promise<Song[]> | null>(null);
   const fallbackRetryRef = useRef<Record<string, boolean>>({});
   const isSettingUpQueueRef = useRef(false);
+  const isNavigatingHistoryRef = useRef(false);
+
+  const loadHistoryFromStorage = useCallback((): { stack: Song[]; index: number } => {
+    try {
+      const rawStack = localStorage.getItem("rw_history_stack");
+      const rawIndex = localStorage.getItem("rw_history_index");
+      const stack = rawStack ? JSON.parse(rawStack) : [];
+      const index = rawIndex ? parseInt(rawIndex, 10) : -1;
+      return { stack, index };
+    } catch {
+      return { stack: [], index: -1 };
+    }
+  }, []);
+
+  const saveHistoryToStorage = useCallback((stack: Song[], index: number) => {
+    try {
+      localStorage.setItem("rw_history_stack", JSON.stringify(stack));
+      localStorage.setItem("rw_history_index", String(index));
+    } catch (err) {
+      console.warn("[PlayerContext] Failed to save history to storage:", err);
+    }
+  }, []);
 
   useEffect(() => { queueRef.current = queue; }, [queue]);
   useEffect(() => { queueIndexRef.current = queueIndex; }, [queueIndex]);
@@ -726,19 +748,32 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       fallbackRetryRef.current = { [activeTrack.id]: fallbackRetryRef.current[activeTrack.id] || false };
 
       const matched = queueRef.current.find(s => s.id === activeTrack.id);
-      if (matched) {
-        setCurrentSong(matched);
-        logPlayback(matched);
-      } else {
-        const newTrack = {
-          id: activeTrack.id,
-          title: activeTrack.title || "",
-          artist: activeTrack.artist || "",
-          audioUrl: activeTrack.url,
-          albumArt: activeTrack.artwork,
-        } as any;
-        setCurrentSong(newTrack);
-        logPlayback(newTrack);
+      const songToLog = matched || ({
+        id: activeTrack.id,
+        title: activeTrack.title || "",
+        artist: activeTrack.artist || "",
+        audioUrl: activeTrack.url,
+        albumArt: activeTrack.artwork,
+      } as any);
+
+      setCurrentSong(songToLog);
+      logPlayback(songToLog);
+
+      // Sync with back/forward history stack
+      if (songToLog && songToLog.id) {
+        if (!isNavigatingHistoryRef.current) {
+          const { stack, index } = loadHistoryFromStorage();
+          if (index < 0 || stack[index]?.id !== songToLog.id) {
+            const newStack = stack.slice(0, index + 1);
+            newStack.push(songToLog);
+            const trimmedStack = newStack.slice(-100); // Keep last 100 entries max
+            const newIndex = trimmedStack.length - 1;
+            saveHistoryToStorage(trimmedStack, newIndex);
+            console.log(`[PlayerContext] History stack updated: appended ${songToLog.title}. Index is now ${newIndex}`);
+          }
+        }
+        // Reset navigation flag
+        isNavigatingHistoryRef.current = false;
       }
     } else {
       if (queueRef.current.length === 0) {
@@ -752,27 +787,27 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         console.log("[PlayerContext] Sync index ignored during queue setup.");
         return;
       }
-      try {
-        const idx = await TrackPlayer.getActiveTrackIndex();
-        if (idx !== undefined && idx !== null) {
-          setQueueIndex(idx);
+      if (activeTrack) {
+        const matchedIdx = queueRef.current.findIndex(s => s.id === activeTrack.id);
+        if (matchedIdx !== -1) {
+          setQueueIndex(matchedIdx);
 
           // Proactive preloading: if we are within 3 songs of the end of the queue, prefetch recommendations
           const q = queueRef.current;
-          if (q.length >= 1 && idx >= q.length - 3) {
-            const seed = q[idx];
+          if (q.length >= 1 && matchedIdx >= q.length - 3) {
+            const seed = q[matchedIdx];
             if (seed && activeRecommendationFetchRef.current !== seed.id) {
-              console.log(`[PlayerContext] Proactive preloading recommendations near queue end (index ${idx} of ${q.length})`);
+              console.log(`[PlayerContext] Proactive preloading recommendations near queue end (index ${matchedIdx} of ${q.length})`);
               fetchAndAppendRecommendations(seed).catch((err) => {
                 console.warn("[PlayerContext] Proactive preloading failed:", err);
               });
             }
           }
         }
-      } catch {}
+      }
     };
     syncIndex();
-  }, [activeTrack, fetchAndAppendRecommendations]);
+  }, [activeTrack, fetchAndAppendRecommendations, loadHistoryFromStorage, saveHistoryToStorage]);
 
 
 
@@ -889,6 +924,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    // 1. Check if we can go forward in history stack
+    const { stack, index } = loadHistoryFromStorage();
+    if (index >= 0 && index < stack.length - 1) {
+      const nextIndex = index + 1;
+      const targetSong = stack[nextIndex];
+      isNavigatingHistoryRef.current = true;
+      saveHistoryToStorage(stack, nextIndex);
+      console.log(`[PlayerContext] History stack next: Playing ${targetSong.title} at index ${nextIndex}`);
+      await playSong(targetSong, q);
+      return;
+    }
+
+    // 2. Default queue skip to next song
     if (idx < q.length - 1) {
       await skipToReactIndex(idx + 1);
     } else {
@@ -901,7 +949,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         }
       }
     }
-  }, [skipToReactIndex, fetchAndAppendRecommendations]);
+  }, [skipToReactIndex, fetchAndAppendRecommendations, loadHistoryFromStorage, saveHistoryToStorage, playSong]);
 
   const togglePlay = useCallback(async () => {
     try {
@@ -926,6 +974,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    // 1. Check if we can go back in history stack
+    const { stack, index } = loadHistoryFromStorage();
+    if (index > 0) {
+      const prevIndex = index - 1;
+      const targetSong = stack[prevIndex];
+      isNavigatingHistoryRef.current = true;
+      saveHistoryToStorage(stack, prevIndex);
+      console.log(`[PlayerContext] History stack previous: Playing ${targetSong.title} at index ${prevIndex}`);
+      await playSong(targetSong, q);
+      return;
+    }
+
+    // 2. Default queue skip to previous song
     if (idx > 0) {
       await skipToReactIndex(idx - 1);
     } else {
@@ -937,7 +998,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         } catch {}
       }
     }
-  }, [progress, skipToReactIndex]);
+  }, [progress, skipToReactIndex, loadHistoryFromStorage, saveHistoryToStorage, playSong]);
 
   // TrackPlayer Setup on mount
   useEffect(() => {
