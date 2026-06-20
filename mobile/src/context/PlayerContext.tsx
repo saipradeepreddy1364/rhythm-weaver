@@ -717,6 +717,165 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     return promise;
   }, [fetchRadioSongs]);
 
+
+
+  // Sync active track changes back to currentSong and queueIndex
+  useEffect(() => {
+    if (activeTrack) {
+      // Clear retries for other tracks to save memory
+      fallbackRetryRef.current = { [activeTrack.id]: fallbackRetryRef.current[activeTrack.id] || false };
+
+      const matched = queueRef.current.find(s => s.id === activeTrack.id);
+      if (matched) {
+        setCurrentSong(matched);
+        logPlayback(matched);
+      } else {
+        const newTrack = {
+          id: activeTrack.id,
+          title: activeTrack.title || "",
+          artist: activeTrack.artist || "",
+          audioUrl: activeTrack.url,
+          albumArt: activeTrack.artwork,
+        } as any;
+        setCurrentSong(newTrack);
+        logPlayback(newTrack);
+      }
+    } else {
+      if (queueRef.current.length === 0) {
+        setCurrentSong(null);
+      }
+    }
+
+    // Sync queueIndex
+    const syncIndex = async () => {
+      if (isSettingUpQueueRef.current) {
+        console.log("[PlayerContext] Sync index ignored during queue setup.");
+        return;
+      }
+      try {
+        const idx = await TrackPlayer.getActiveTrackIndex();
+        if (idx !== undefined && idx !== null) {
+          setQueueIndex(idx);
+
+          // Proactive preloading: if we are within 3 songs of the end of the queue, prefetch recommendations
+          const q = queueRef.current;
+          if (q.length >= 1 && idx >= q.length - 3) {
+            const seed = q[idx];
+            if (seed && activeRecommendationFetchRef.current !== seed.id) {
+              console.log(`[PlayerContext] Proactive preloading recommendations near queue end (index ${idx} of ${q.length})`);
+              fetchAndAppendRecommendations(seed).catch((err) => {
+                console.warn("[PlayerContext] Proactive preloading failed:", err);
+              });
+            }
+          }
+        }
+      } catch {}
+    };
+    syncIndex();
+  }, [activeTrack, fetchAndAppendRecommendations]);
+
+
+
+  const playSong = useCallback(
+    async (song: Song, songQueue?: Song[]) => {
+      setIsRadioMode(false);
+      radioFetchingRef.current = false;
+
+      let q = songQueue || [song];
+
+      // Filter out songs played in the last 6 hours (except selected song itself)
+      // Only filter by history if the user is playing a single song without an explicit group/queue
+      if (!songQueue || songQueue.length <= 1) {
+        q = filterQueueByHistory(song, q);
+      }
+
+      // Deduplicate the queue by normalized title to prevent duplicates playing in sequence
+      const seenKeys = new Set<string>();
+      q = q.filter((s) => {
+        if (s.id === song.id) {
+          seenKeys.add(normalizeSongTitle(s.title));
+          return true;
+        }
+        const key = normalizeSongTitle(s.title);
+        if (seenKeys.has(key)) return false;
+        seenKeys.add(key);
+        return true;
+      });
+
+      // Ensure the selected song is present in the queue
+      if (!q.some((s) => s.id === song.id)) {
+        q = [song, ...q];
+      }
+
+      const idx = q.findIndex((s) => s.id === song.id);
+      const safeIdx = idx >= 0 ? idx : 0;
+
+      setQueue(q);
+      setQueueIndex(safeIdx);
+      setCurrentSong(song);
+
+      isSettingUpQueueRef.current = true;
+      try {
+        await TrackPlayer.reset();
+        
+        // Resolve the direct URL of the selected song
+        const resolvedSongTrack = resolveTrack(song);
+        const directUrl = await getDirectAudioUrl(resolvedSongTrack.url);
+        resolvedSongTrack.url = directUrl;
+        
+        // Slice the queue starting from safeIdx onwards
+        const slicedQueue = q.slice(safeIdx);
+        const tracks = slicedQueue.map((s) => resolveTrack(s));
+        if (tracks.length > 0) {
+          tracks[0].url = directUrl;
+        }
+        
+        await TrackPlayer.add(tracks);
+        await TrackPlayer.play();
+      } catch (err) {
+        console.warn("[PlayerContext] TrackPlayer play failed:", err);
+      } finally {
+        isSettingUpQueueRef.current = false;
+        // Trigger a final index sync to ensure queueIndex matches the correct index
+        if (activeTrack) {
+          const matchedIdx = queueRef.current.findIndex(s => s.id === activeTrack.id);
+          if (matchedIdx !== -1) {
+            setQueueIndex(matchedIdx);
+          }
+        }
+      }
+
+      // Proactively load recommendations in the background if queue is short (e.g., single song or short search plays)
+      if (q.length < 5) {
+        fetchAndAppendRecommendations(song).catch((err) => {
+          console.warn("[PlayerContext] Background recommendations failed in playSong:", err);
+        });
+      }
+    },
+    [fetchAndAppendRecommendations, activeTrack]
+  );
+
+  const skipToReactIndex = useCallback(async (targetIdx: number) => {
+    const q = queueRef.current;
+    if (targetIdx < 0 || targetIdx >= q.length) return;
+    const targetSong = q[targetIdx];
+    try {
+      const nativeQueue = await TrackPlayer.getQueue();
+      const nativeIdx = nativeQueue.findIndex(t => t.id === targetSong.id);
+      if (nativeIdx !== -1) {
+        console.log(`[PlayerContext] Skipping to song natively at index ${nativeIdx}`);
+        await TrackPlayer.skip(nativeIdx);
+        await TrackPlayer.play();
+      } else {
+        console.log(`[PlayerContext] Song not in native queue. Rebuilding queue starting from target index ${targetIdx}`);
+        await playSong(targetSong, q);
+      }
+    } catch (err) {
+      console.warn("[PlayerContext] skipToReactIndex failed, rebuilding queue:", err);
+      await playSong(targetSong, q);
+    }
+  }, [playSong]);
+
   const nextSongInternal = useCallback(async () => {
     const q = queueRef.current;
     const idx = queueIndexRef.current;
@@ -731,22 +890,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
 
     if (idx < q.length - 1) {
-      try {
-        await TrackPlayer.skip(idx + 1);
-        await TrackPlayer.play();
-      } catch (err) {
-        console.warn("[PlayerContext] skip(next) failed, trying skipToNext:", err);
-        try {
-          await TrackPlayer.skipToNext();
-          await TrackPlayer.play();
-        } catch {}
-      }
+      await skipToReactIndex(idx + 1);
     } else {
       if (repeatRef.current === "all") {
-        try {
-          await TrackPlayer.skip(0);
-          await TrackPlayer.play();
-        } catch {}
+        await skipToReactIndex(0);
       } else if (repeatRef.current === "off") {
         const seed = q[idx];
         if (seed) {
@@ -754,7 +901,43 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         }
       }
     }
-  }, [fetchAndAppendRecommendations]);
+  }, [skipToReactIndex, fetchAndAppendRecommendations]);
+
+  const togglePlay = useCallback(async () => {
+    try {
+      const stateObj = await TrackPlayer.getPlaybackState();
+      if (stateObj.state === State.Playing) {
+        await TrackPlayer.pause();
+      } else {
+        await TrackPlayer.play();
+      }
+    } catch {}
+  }, []);
+
+  const prevSong = useCallback(async () => {
+    const q = queueRef.current;
+    const idx = queueIndexRef.current;
+    if (q.length === 0) return;
+
+    if (progress > 3) {
+      try {
+        await TrackPlayer.seekTo(0);
+      } catch {}
+      return;
+    }
+
+    if (idx > 0) {
+      await skipToReactIndex(idx - 1);
+    } else {
+      if (repeatRef.current === "all") {
+        await skipToReactIndex(q.length - 1);
+      } else {
+        try {
+          await TrackPlayer.seekTo(0);
+        } catch {}
+      }
+    }
+  }, [progress, skipToReactIndex]);
 
   // TrackPlayer Setup on mount
   useEffect(() => {
@@ -875,200 +1058,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
     };
   }, [nextSongInternal]);
-
-  // Sync active track changes back to currentSong and queueIndex
-  useEffect(() => {
-    if (activeTrack) {
-      // Clear retries for other tracks to save memory
-      fallbackRetryRef.current = { [activeTrack.id]: fallbackRetryRef.current[activeTrack.id] || false };
-
-      const matched = queueRef.current.find(s => s.id === activeTrack.id);
-      if (matched) {
-        setCurrentSong(matched);
-        logPlayback(matched);
-      } else {
-        const newTrack = {
-          id: activeTrack.id,
-          title: activeTrack.title || "",
-          artist: activeTrack.artist || "",
-          audioUrl: activeTrack.url,
-          albumArt: activeTrack.artwork,
-        } as any;
-        setCurrentSong(newTrack);
-        logPlayback(newTrack);
-      }
-    } else {
-      if (queueRef.current.length === 0) {
-        setCurrentSong(null);
-      }
-    }
-
-    // Sync queueIndex
-    const syncIndex = async () => {
-      if (isSettingUpQueueRef.current) {
-        console.log("[PlayerContext] Sync index ignored during queue setup.");
-        return;
-      }
-      try {
-        const idx = await TrackPlayer.getActiveTrackIndex();
-        if (idx !== undefined && idx !== null) {
-          setQueueIndex(idx);
-
-          // Proactive preloading: if we are within 3 songs of the end of the queue, prefetch recommendations
-          const q = queueRef.current;
-          if (q.length >= 1 && idx >= q.length - 3) {
-            const seed = q[idx];
-            if (seed && activeRecommendationFetchRef.current !== seed.id) {
-              console.log(`[PlayerContext] Proactive preloading recommendations near queue end (index ${idx} of ${q.length})`);
-              fetchAndAppendRecommendations(seed).catch((err) => {
-                console.warn("[PlayerContext] Proactive preloading failed:", err);
-              });
-            }
-          }
-        }
-      } catch {}
-    };
-    syncIndex();
-  }, [activeTrack, fetchAndAppendRecommendations]);
-
-
-
-  const playSong = useCallback(
-    async (song: Song, songQueue?: Song[]) => {
-      setIsRadioMode(false);
-      radioFetchingRef.current = false;
-
-      let q = songQueue || [song];
-
-      // Filter out songs played in the last 6 hours (except selected song itself)
-      // Only filter by history if the user is playing a single song without an explicit group/queue
-      if (!songQueue || songQueue.length <= 1) {
-        q = filterQueueByHistory(song, q);
-      }
-
-      // Deduplicate the queue by normalized title to prevent duplicates playing in sequence
-      const seenKeys = new Set<string>();
-      q = q.filter((s) => {
-        if (s.id === song.id) {
-          seenKeys.add(normalizeSongTitle(s.title));
-          return true;
-        }
-        const key = normalizeSongTitle(s.title);
-        if (seenKeys.has(key)) return false;
-        seenKeys.add(key);
-        return true;
-      });
-
-      // Ensure the selected song is present in the queue
-      if (!q.some((s) => s.id === song.id)) {
-        q = [song, ...q];
-      }
-
-      const idx = q.findIndex((s) => s.id === song.id);
-      const safeIdx = idx >= 0 ? idx : 0;
-
-      setQueue(q);
-      setQueueIndex(safeIdx);
-      setCurrentSong(song);
-
-      isSettingUpQueueRef.current = true;
-      try {
-        await TrackPlayer.reset();
-        
-        // Resolve the direct URL of the selected song
-        const resolvedSongTrack = resolveTrack(song);
-        const directUrl = await getDirectAudioUrl(resolvedSongTrack.url);
-        resolvedSongTrack.url = directUrl;
-        
-        // Map the entire queue to tracks synchronously to avoid index desynchronization
-        const tracks = q.map((s) => resolveTrack(s));
-        if (safeIdx >= 0 && safeIdx < tracks.length) {
-          tracks[safeIdx].url = directUrl;
-        }
-        
-        // Add only the selected song first to prevent initial loading of any other song
-        await TrackPlayer.add(tracks[safeIdx]);
-        await TrackPlayer.play();
-
-        // Add the rest of the queue around the playing song
-        if (safeIdx < tracks.length - 1) {
-          const tracksAfter = tracks.slice(safeIdx + 1);
-          await TrackPlayer.add(tracksAfter);
-        }
-        if (safeIdx > 0) {
-          const tracksBefore = tracks.slice(0, safeIdx);
-          await TrackPlayer.add(tracksBefore, 0);
-        }
-      } catch (err) {
-        console.warn("[PlayerContext] TrackPlayer play failed:", err);
-      } finally {
-        isSettingUpQueueRef.current = false;
-        // Trigger a final index sync to ensure queueIndex matches the correct shifted index
-        try {
-          const finalIdx = await TrackPlayer.getActiveTrackIndex();
-          if (finalIdx !== undefined && finalIdx !== null) {
-            setQueueIndex(finalIdx);
-          }
-        } catch {}
-      }
-
-      // Proactively load recommendations in the background if queue is short (e.g., single song or short search plays)
-      if (q.length < 5) {
-        fetchAndAppendRecommendations(song).catch((err) => {
-          console.warn("[PlayerContext] Background recommendations failed in playSong:", err);
-        });
-      }
-    },
-    [fetchAndAppendRecommendations]
-  );
-
-  const togglePlay = useCallback(async () => {
-    try {
-      const stateObj = await TrackPlayer.getPlaybackState();
-      if (stateObj.state === State.Playing) {
-        await TrackPlayer.pause();
-      } else {
-        await TrackPlayer.play();
-      }
-    } catch {}
-  }, []);
-
-  const prevSong = useCallback(async () => {
-    const q = queueRef.current;
-    const idx = queueIndexRef.current;
-    if (q.length === 0) return;
-
-    if (progress > 3) {
-      try {
-        await TrackPlayer.seekTo(0);
-      } catch {}
-      return;
-    }
-
-    if (idx > 0) {
-      try {
-        await TrackPlayer.skip(idx - 1);
-        await TrackPlayer.play();
-      } catch (err) {
-        console.warn("[PlayerContext] skip(prev) failed, trying skipToPrevious:", err);
-        try {
-          await TrackPlayer.skipToPrevious();
-          await TrackPlayer.play();
-        } catch {}
-      }
-    } else {
-      if (repeatRef.current === "all") {
-        try {
-          await TrackPlayer.skip(q.length - 1);
-          await TrackPlayer.play();
-        } catch {}
-      } else {
-        try {
-          await TrackPlayer.seekTo(0);
-        } catch {}
-      }
-    }
-  }, [progress]);
 
   const setProgress = useCallback((value: number) => {
     TrackPlayer.seekTo(value).catch(() => {});
