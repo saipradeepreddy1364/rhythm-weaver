@@ -356,6 +356,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const activeRecommendationFetchRef = useRef<string | null>(null);
   const activeFetchPromiseRef = useRef<Promise<Song[]> | null>(null);
   const fallbackRetryRef = useRef<Record<string, boolean>>({});
+  const isSettingUpQueueRef = useRef(false);
 
   useEffect(() => { queueRef.current = queue; }, [queue]);
   useEffect(() => { queueIndexRef.current = queueIndex; }, [queueIndex]);
@@ -904,6 +905,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
     // Sync queueIndex
     const syncIndex = async () => {
+      if (isSettingUpQueueRef.current) {
+        console.log("[PlayerContext] Sync index ignored during queue setup.");
+        return;
+      }
       try {
         const idx = await TrackPlayer.getActiveTrackIndex();
         if (idx !== undefined && idx !== null) {
@@ -966,6 +971,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setQueueIndex(safeIdx);
       setCurrentSong(song);
 
+      isSettingUpQueueRef.current = true;
       try {
         await TrackPlayer.reset();
         
@@ -980,11 +986,30 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           tracks[safeIdx].url = directUrl;
         }
         
-        await TrackPlayer.add(tracks);
-        await TrackPlayer.skip(safeIdx);
+        // Add only the selected song first to prevent initial loading of any other song
+        await TrackPlayer.add(tracks[safeIdx]);
         await TrackPlayer.play();
+
+        // Add the rest of the queue around the playing song
+        if (safeIdx < tracks.length - 1) {
+          const tracksAfter = tracks.slice(safeIdx + 1);
+          await TrackPlayer.add(tracksAfter);
+        }
+        if (safeIdx > 0) {
+          const tracksBefore = tracks.slice(0, safeIdx);
+          await TrackPlayer.add(tracksBefore, 0);
+        }
       } catch (err) {
         console.warn("[PlayerContext] TrackPlayer play failed:", err);
+      } finally {
+        isSettingUpQueueRef.current = false;
+        // Trigger a final index sync to ensure queueIndex matches the correct shifted index
+        try {
+          const finalIdx = await TrackPlayer.getActiveTrackIndex();
+          if (finalIdx !== undefined && finalIdx !== null) {
+            setQueueIndex(finalIdx);
+          }
+        } catch {}
       }
 
       // Proactively load recommendations in the background if queue is short (e.g., single song or short search plays)
