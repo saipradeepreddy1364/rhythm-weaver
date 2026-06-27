@@ -606,7 +606,7 @@ function AlbumModal({
           <View style={modalStyles.headerMeta}>
             <Text style={modalStyles.headerTitle} numberOfLines={1}>{album.title}</Text>
             <Text style={modalStyles.headerSubtitle} numberOfLines={1}>
-              {loading ? "Loading songs…" : `Album · ${songs.length} songs`}
+              Album
             </Text>
           </View>
 
@@ -626,22 +626,43 @@ function AlbumModal({
 
         {/* Songs list */}
         <ScrollView style={modalStyles.songsScroll} contentContainerStyle={modalStyles.songsScrollContent}>
-          {loading ? (
-            <View style={modalStyles.centerLoading}>
-              <ActivityIndicator size="large" color="#1DB954" />
-              <Text style={modalStyles.loadingText}>Loading album songs…</Text>
-            </View>
-          ) : (
-            <View style={{ paddingBottom: 60 }}>
-              {songs.map((song) => (
-                <SongRow key={song.id} song={song} queue={songs} onRequireAuth={onRequireAuth} />
-              ))}
-            </View>
-          )}
+          <View style={{ paddingBottom: 60 }}>
+            {songs.map((song) => (
+              <SongRow key={song.id} song={song} queue={songs} onRequireAuth={onRequireAuth} />
+            ))}
+          </View>
         </ScrollView>
       </View>
     </View>
   );
+}
+
+// Normalize song title to remove movie/album/version suffixes before dedup
+function normalizeSongTitle(title: string): string {
+  let s = (title || "").toLowerCase().trim();
+  // Remove common trailing junk in parentheses/brackets recursively
+  while (true) {
+    const prev = s;
+    s = s
+      .replace(/\s*\((from|original|soundtrack|ost|single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|feat|ft|featuring|mix|lyrical|video)[^)]*\)/gi, "")
+      .replace(/\s*\[(from|original|soundtrack|ost|single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|feat|ft|featuring|mix|lyrical|video)[^\]]*\]/gi, "")
+      .trim();
+    if (s === prev) break;
+  }
+  
+  // Remove trailing single / remix / reprise etc. with dash
+  s = s.replace(/\s*-\s*(single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|mix|lyrical|video)\b.*/gi, "");
+  
+  // Strip featuring/feat at the end
+  s = s.replace(/\s*(feat\.?|ft\.?|featuring)\s+.*/gi, "");
+  
+  // Strip any trailing parentheses/brackets at the end of the string entirely
+  s = s.replace(/\s*\([^)]*\)$/gi, "");
+  s = s.replace(/\s*\[[^\]]*\]$/gi, "");
+  
+  // Clean up punctuation and spacing
+  s = s.replace(/[^a-z0-9\s]/gi, "").replace(/\s+/g, " ").trim();
+  return s;
 }
 
 async function fetchAllPages(query: string, maxPages = 60, seen?: Set<string>): Promise<Song[]> {
@@ -656,8 +677,11 @@ async function fetchAllPages(query: string, maxPages = 60, seen?: Set<string>): 
       const songs = items.map(mapApiSong).map(cleanSong).filter((s) => Boolean(s.audioUrl));
       let added = 0;
       for (const s of songs) {
-        if (s.id && !localSeen.has(s.id)) {
+        if (!s.id) continue;
+        const titleKey = normalizeSongTitle(s.title);
+        if (!localSeen.has(s.id) && !localSeen.has(titleKey)) {
           localSeen.add(s.id);
+          localSeen.add(titleKey);
           all.push(s);
           added++;
         }
@@ -774,7 +798,7 @@ function ArtistModal({
           <View style={modalStyles.headerMeta}>
             <Text style={modalStyles.headerTitle} numberOfLines={1}>{artist.name}</Text>
             <Text style={modalStyles.headerSubtitle} numberOfLines={1}>
-              Artist · {songs.length} songs
+              Artist
             </Text>
           </View>
 
@@ -794,18 +818,11 @@ function ArtistModal({
 
         {/* Songs list */}
         <ScrollView style={modalStyles.songsScroll} contentContainerStyle={modalStyles.songsScrollContent}>
-          {loading && songs.length === artist.songs.length ? (
-            <View style={modalStyles.centerLoading}>
-              <ActivityIndicator size="large" color="#1DB954" />
-              <Text style={modalStyles.loadingText}>Loading discography…</Text>
-            </View>
-          ) : (
-            <View style={{ paddingBottom: 60 }}>
-              {songs.map((song) => (
-                <SongRow key={song.id} song={song} queue={songs} onRequireAuth={onRequireAuth} />
-              ))}
-            </View>
-          )}
+          <View style={{ paddingBottom: 60 }}>
+            {songs.map((song) => (
+              <SongRow key={song.id} song={song} queue={songs} onRequireAuth={onRequireAuth} />
+            ))}
+          </View>
         </ScrollView>
       </View>
     </View>

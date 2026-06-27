@@ -521,27 +521,37 @@ async function fetchLanguageSongs(queries: string[], targetPerQuery = 50): Promi
 
 // Normalize song title to remove movie/album/version suffixes before dedup
 function normalizeSongTitle(title: string): string {
-  return (title || "")
-    .toLowerCase()
-    .trim()
-    // Remove " (From 'Movie Name')" and similar
-    .replace(/\s*\(from\s+['"]?[^)]+['"]?\)/gi, "")
-    // Remove " [From Movie Name]" bracket variants
-    .replace(/\s*\[from\s+[^\]]+\]/gi, "")
-    // Remove " - Remix", " - Reprise", " - Version", " - Extended", " - Male Version" etc.
-    .replace(/\s*-\s*(remix|reprise|version|extended|male version|female version|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit)\b.*/gi, "")
-    // Remove " (Remix)", " (Version)", " (Remastered)" etc. in parens
-    .replace(/\s*\((remix|reprise|version|extended|male version|female version|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit)[^)]*\)/gi, "")
-    // Remove featuring/feat
-    .replace(/\s*(feat\.?|ft\.?|featuring)\s+.*/gi, "")
-    .trim();
+  let s = (title || "").toLowerCase().trim();
+  // Remove common trailing junk in parentheses/brackets recursively
+  while (true) {
+    const prev = s;
+    s = s
+      .replace(/\s*\((from|original|soundtrack|ost|single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|feat|ft|featuring|mix|lyrical|video)[^)]*\)/gi, "")
+      .replace(/\s*\[(from|original|soundtrack|ost|single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|feat|ft|featuring|mix|lyrical|video)[^\]]*\]/gi, "")
+      .trim();
+    if (s === prev) break;
+  }
+  
+  // Remove trailing single / remix / reprise etc. with dash
+  s = s.replace(/\s*-\s*(single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|mix|lyrical|video)\b.*/gi, "");
+  
+  // Strip featuring/feat at the end
+  s = s.replace(/\s*(feat\.?|ft\.?|featuring)\s+.*/gi, "");
+  
+  // Strip any trailing parentheses/brackets at the end of the string entirely
+  s = s.replace(/\s*\([^)]*\)$/gi, "");
+  s = s.replace(/\s*\[[^\]]*\]$/gi, "");
+  
+  // Clean up punctuation and spacing
+  s = s.replace(/[^a-z0-9\s]/gi, "").replace(/\s+/g, " ").trim();
+  return s;
 }
 
 function dedup(songs: Song[], seen: Set<string>): Song[] {
   const out: Song[] = [];
   for (const s of songs) {
     if (!s.id) continue;
-    const titleKey = normalizeSongTitle(s.title) + "|" + (s.artist || "").toLowerCase().trim();
+    const titleKey = normalizeSongTitle(s.title);
     if (!seen.has(s.id) && !seen.has(titleKey)) {
       seen.add(s.id);
       seen.add(titleKey);
@@ -564,7 +574,7 @@ async function fetchAllPages(query: string, maxPages = 60, seen?: Set<string>): 
       let added = 0;
       for (const s of songs) {
         if (!s.id) continue;
-        const titleKey = normalizeSongTitle(s.title) + "|" + (s.artist || "").toLowerCase().trim();
+        const titleKey = normalizeSongTitle(s.title);
         if (!localSeen.has(s.id) && !localSeen.has(titleKey)) {
           localSeen.add(s.id);
           localSeen.add(titleKey);
@@ -590,7 +600,16 @@ async function fetchAllArtistSongs(artistName: string): Promise<Song[]> {
   for (const q of queries) {
     try {
       const songs = await fetchAllPages(q, 8, seen);
-      all.push(...songs);
+      // Filter out cover / tribute / karaoke / lofi / remix versions
+      const originalSongs = songs.filter((s) => {
+        if (!s.title || !s.artist) return false;
+        const titleLower = s.title.toLowerCase();
+        const artistLower = s.artist.toLowerCase();
+        const isNonOriginal = /\b(cover|tribute|mashup|remake|recreated|lofi|slowed|reverb|karaoke|instrumental|acoustic|unplugged)\b/i.test(titleLower) ||
+                              /\b(cover|tribute|tributes|karaoke|remake|instrumental)\b/i.test(artistLower);
+        return !isNonOriginal;
+      });
+      all.push(...originalSongs);
     } catch { /* continue */ }
   }
   return all;
@@ -673,7 +692,14 @@ async function loadArtistAlbums(
   const discoveryResults = await Promise.allSettled(
     queries.map((q) =>
       api.searchSongs(q, 1, 20).then((res) =>
-        extractResults(res).map(mapApiSong).map(cleanSong).filter((s) => Boolean(s.audioUrl))
+        extractResults(res).map(mapApiSong).map(cleanSong).filter((s) => {
+          if (!s.audioUrl || !s.title || !s.artist) return false;
+          const titleLower = s.title.toLowerCase();
+          const artistLower = s.artist.toLowerCase();
+          const isNonOriginal = /\b(cover|tribute|mashup|remake|recreated|lofi|slowed|reverb|karaoke|instrumental|acoustic|unplugged)\b/i.test(titleLower) ||
+                                /\b(cover|tribute|tributes|karaoke|remake|instrumental)\b/i.test(artistLower);
+          return !isNonOriginal;
+        })
       )
     )
   );
@@ -689,7 +715,7 @@ async function loadArtistAlbums(
       const entry = artistMap.get(name)!;
       if (!entry.coverArt && song.albumArt) entry.coverArt = song.albumArt;
       if (song.id) {
-        const titleKey = (song.title || "").toLowerCase().trim() + "|" + (song.artist || "").toLowerCase().trim();
+        const titleKey = normalizeSongTitle(song.title);
         if (!songSeen.has(song.id) && !songSeen.has(titleKey)) {
           songSeen.add(song.id);
           songSeen.add(titleKey);
@@ -852,6 +878,13 @@ function AlbumModal({
                 const tokenMatch = nameTokens.length >= 2 &&
                   nameTokens.filter((t: string) => artistLower.includes(t)).length >= Math.min(2, nameTokens.length);
                 if (!fullMatch && !tokenMatch) return false;
+
+                // Exclude cover / tribute / karaoke / lofi / remix versions
+                const titleLower = (s.title || "").toLowerCase();
+                const isNonOriginal = /\b(cover|tribute|mashup|remake|recreated|lofi|slowed|reverb|karaoke|instrumental|acoustic|unplugged)\b/i.test(titleLower) ||
+                                      /\b(cover|tribute|tributes|karaoke|remake|instrumental)\b/i.test(artistLower);
+                if (isNonOriginal) return false;
+
                 const tKey = normalizeSongTitle(s.title);
                 if (seenIds.has(s.id) || seenTitles.has(tKey)) return false;
                 return true;
@@ -1020,7 +1053,7 @@ function LanguageCategoryModal({
           <View style={modalStyles.headerMeta}>
             <Text style={modalStyles.headerTitle}>{label} Music</Text>
             <Text style={modalStyles.headerSubtitle}>
-              {loading ? "Loading…" : `${allSongs.length}+ songs`}
+              {label} Playlist
             </Text>
           </View>
 
@@ -1040,12 +1073,11 @@ function LanguageCategoryModal({
         >
           {tabs.map((tab) => {
             const isActive = activeTab === tab;
-            const count = tab === "All" ? allSongs.length : (subSongs[tab]?.length || 0);
 
             return (
               <TouchableOpacity delayPressIn={0} key={tab} onPress={() => setActiveTab(tab)} style={[styles.langTab, isActive && styles.activeLangTab]} activeOpacity={0.7}>
                 <Text style={[styles.langTabText, isActive && styles.activeLangTabText]}>
-                  {tab} {count > 0 ? `(${count})` : ""}
+                  {tab}
                 </Text>
               </TouchableOpacity>
             );
@@ -1147,30 +1179,11 @@ function AlbumRow({
                     </TouchableOpacity>
                   ) : null}
 
-                  {showCount && album.songs.length > 0 ? (
-                    <View style={styles.countBadge}>
-                      <Text style={styles.countBadgeText}>
-                        {album.fullyLoaded ? album.songs.length : `${album.songs.length}+`}
-                      </Text>
-                    </View>
-                  ) : null}
-
-                  {roundCovers && !album.fullyLoaded ? (
-                    <View style={styles.loadingSpinnerBadge}>
-                      <ActivityIndicator size="small" color="#fff" />
-                    </View>
-                  ) : null}
                 </TouchableOpacity>
 
                 <Text style={styles.albumTitleText} numberOfLines={1}>
                   {album.title}
                 </Text>
-
-                {showCount && !roundCovers ? (
-                  <Text style={styles.albumSubtitleText} numberOfLines={1}>
-                    {album.fullyLoaded ? `${album.songs.length} songs` : `${album.songs.length}+ songs`}
-                  </Text>
-                ) : null}
               </View>
             );
           })}
@@ -1321,7 +1334,12 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
   const quickPickSongs = (() => {
     const pool = sections.flatMap((s) => s.songs);
     if (pool.length === 0) return [];
-    return seededShuffle(pool, minuteTick).slice(0, 12);
+    const filteredPool = pool.filter((song) => {
+      if (!song.language) return false;
+      const lang = song.language.toLowerCase().trim();
+      return lang === "telugu" || lang === "hindi";
+    });
+    return seededShuffle(filteredPool, minuteTick).slice(0, 12);
   })();
 
 

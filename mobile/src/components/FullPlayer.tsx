@@ -98,11 +98,11 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   const [queuedFlash, setQueuedFlash] = useState(false);
   const [progressBarWidth, setProgressBarWidth] = useState(0);
 
-  const [translationLang, setTranslationLang] = useState<"original" | "hi" | "te" | "en">("original");
+  const [translationLang, setTranslationLang] = useState<"original" | "en">("original");
   const [translatedLyrics, setTranslatedLyrics] = useState<Record<string, string>>({});
   const [translating, setTranslating] = useState(false);
 
-  const translateLyrics = async (targetLang: "hi" | "te" | "en") => {
+  const translateLyrics = async (targetLang: "en") => {
     if (!lyrics || !currentSong) return;
     const cacheKey = `${currentSong.id}_${targetLang}`;
     if (translatedLyrics[cacheKey]) return;
@@ -112,136 +112,47 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
       const hasIndic = hasIndicCharacters(lyrics);
       let resolvedText = "";
 
-      // Helper: romanize a chunk (Telugu script → English letters)
-      // Tries multiple API strategies since romanization position varies by version
       const romanizeChunk = async (chunk: string): Promise<string> => {
         if (!chunk.trim()) return chunk;
 
-        // Strategy 1: sl=te + dt=rm only → data[0][i][0] = phonetic when source is explicit
         try {
-          const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=te&tl=en&dt=rm&q=${encodeURIComponent(chunk)}`;
+          const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=rm&q=${encodeURIComponent(chunk)}`;
           const res = await fetch(url);
           if (res.ok) {
             const data = await res.json();
             let roman = "";
             if (data && Array.isArray(data[0])) {
               for (const item of data[0]) {
-                if (item && typeof item[0] === "string") roman += item[0];
+                if (item) {
+                  if (typeof item[3] === "string" && item[3].trim()) {
+                    roman += item[3];
+                  } else if (typeof item[0] === "string" && item[0].trim()) {
+                    roman += item[0];
+                  }
+                }
               }
             }
             if (roman.trim()) return roman.trim();
           }
-        } catch {}
+        } catch (err) {
+          console.warn("Romanization API failed:", err);
+        }
 
-        // Strategy 2: sl=te + dt=t + dt=rm → data[0][i][3] = source romanization per segment
-        try {
-          const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=te&tl=en&dt=t&dt=rm&q=${encodeURIComponent(chunk)}`;
-          const res = await fetch(url);
-          if (res.ok) {
-            const data = await res.json();
-            // data[1] is sometimes the romanization string
-            if (data && typeof data[1] === "string" && data[1].trim()) return data[1].trim();
-            // data[0][i][3] = source romanization in each segment
-            let roman = "";
-            if (data && Array.isArray(data[0])) {
-              for (const item of data[0]) {
-                if (item && typeof item[3] === "string") roman += item[3];
-              }
-            }
-            if (roman.trim()) return roman.trim();
-          }
-        } catch {}
-
-        // Strategy 3: sl=auto + dt=t + dt=rm → same positions
-        try {
-          const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&dt=rm&q=${encodeURIComponent(chunk)}`;
-          const res = await fetch(url);
-          if (res.ok) {
-            const data = await res.json();
-            if (data && typeof data[1] === "string" && data[1].trim()) return data[1].trim();
-            let roman = "";
-            if (data && Array.isArray(data[0])) {
-              for (const item of data[0]) {
-                if (item && typeof item[3] === "string") roman += item[3];
-              }
-            }
-            if (roman.trim()) return roman.trim();
-          }
-        } catch {}
-
-        return chunk; // All strategies failed, return original
+        return chunk;
       };
 
-
-      if (targetLang === "en") {
-        if (hasIndic) {
-          // Romanize line-by-line for reliability
-          const lines = lyrics.split("\n");
-          const romanLines: string[] = [];
-          // Process in batches of 5 lines
-          for (let i = 0; i < lines.length; i += 5) {
-            const batch = lines.slice(i, i + 5).join("\n");
-            const romanBatch = await romanizeChunk(batch);
-            romanLines.push(romanBatch);
-          }
-          resolvedText = romanLines.join("\n");
-        } else {
-          resolvedText = lyrics;
+      if (hasIndic) {
+        // Process in batches of 15 lines to avoid URL size limit
+        const lines = lyrics.split("\n");
+        const romanLines: string[] = [];
+        for (let i = 0; i < lines.length; i += 15) {
+          const batch = lines.slice(i, i + 15).join("\n");
+          const romanBatch = await romanizeChunk(batch);
+          romanLines.push(romanBatch);
         }
-      } else if (targetLang === "te") {
-        if (!hasIndic) {
-          // Romanized -> Telugu script via Google Input Tools, line by line
-          const lines = lyrics.split("\n");
-          const teLines: string[] = [];
-          for (const line of lines) {
-            if (!line.trim()) { teLines.push(""); continue; }
-            try {
-              const url = `https://inputtools.google.com/request?text=${encodeURIComponent(line.trim())}&itc=te-t-i0-und&num=1&cp=0&cs=0&ie=utf-8&oe=utf-8&app=demopage`;
-              const res = await fetch(url);
-              if (res.ok) {
-                const data = await res.json();
-                if (data && data[0] === "SUCCESS" && data[1]?.[0]?.[1]?.[0]) {
-                  teLines.push(data[1][0][1][0]);
-                } else { teLines.push(line); }
-              } else { teLines.push(line); }
-            } catch { teLines.push(line); }
-          }
-          resolvedText = teLines.join("\n");
-        } else {
-          resolvedText = lyrics;
-        }
-      } else if (targetLang === "hi") {
-        if (!hasIndic) {
-          // Romanized -> Hindi script, line by line
-          const lines = lyrics.split("\n");
-          const hiLines: string[] = [];
-          for (const line of lines) {
-            if (!line.trim()) { hiLines.push(""); continue; }
-            try {
-              const url = `https://inputtools.google.com/request?text=${encodeURIComponent(line.trim())}&itc=hi-t-i0-und&num=1&cp=0&cs=0&ie=utf-8&oe=utf-8&app=demopage`;
-              const res = await fetch(url);
-              if (res.ok) {
-                const data = await res.json();
-                if (data && data[0] === "SUCCESS" && data[1]?.[0]?.[1]?.[0]) {
-                  hiLines.push(data[1][0][1][0]);
-                } else { hiLines.push(line); }
-              } else { hiLines.push(line); }
-            } catch { hiLines.push(line); }
-          }
-          resolvedText = hiLines.join("\n");
-        } else {
-          // Telugu/Hindi script -> Hindi script via translation
-          const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=hi&dt=t&q=${encodeURIComponent(lyrics)}`;
-          const res = await fetch(url);
-          if (res.ok) {
-            const data = await res.json();
-            if (data && data[0]) {
-              for (const item of data[0]) {
-                if (item && item[0]) resolvedText += item[0];
-              }
-            }
-          }
-        }
+        resolvedText = romanLines.join("\n");
+      } else {
+        resolvedText = lyrics;
       }
 
       setTranslatedLyrics((prev) => ({
@@ -249,8 +160,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         [cacheKey]: resolvedText.trim() || lyrics,
       }));
     } catch (err) {
-      console.warn("Transliteration/Translation failed:", err);
-      // On error, fall back to original lyrics
+      console.warn("Transliteration failed:", err);
       if (currentSong) {
         setTranslatedLyrics((prev) => ({
           ...prev,
@@ -262,7 +172,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
     }
   };
 
-  const handleLangSelect = (lang: "original" | "hi" | "te" | "en") => {
+  const handleLangSelect = (lang: "original" | "en") => {
     setTranslationLang(lang);
     if (lang !== "original") {
       translateLyrics(lang);
@@ -355,8 +265,8 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             </TouchableOpacity>
           </View>
 
-          {/* Tab Switcher - show Lyrics tab only when lyrics exist or still loading */}
-          {(lyricsLoading || (lyrics && lyrics.trim().length > 0)) && (
+          {/* Tab Switcher - show Lyrics tab only when lyrics are loaded and exist */}
+          {(!lyricsLoading && lyrics && lyrics.trim().length > 0) && (
             <View style={styles.tabBar}>
               {(["cover", "lyrics"] as TabType[]).map((tab) => {
                 const isActive = activeTab === tab;
@@ -398,12 +308,10 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
               <View style={styles.lyricsWrapper}>
                 {lyrics && lyrics.length > 0 && (
                   <View style={styles.translationContainer}>
-                    {(["original", "en", "hi", "te"] as const).map((lang) => {
+                    {(["original", "en"] as const).map((lang) => {
                       const labelMap = {
                         original: "Original",
                         en: "English Script",
-                        hi: "Hindi Script",
-                        te: "Telugu Script",
                       };
                       const isActive = translationLang === lang;
                       return (

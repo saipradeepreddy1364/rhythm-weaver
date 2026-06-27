@@ -277,13 +277,8 @@ const LANGUAGE_QUERY_POOLS: Record<string, string[]> = {
 };
 
 const SIMILAR_LANGUAGES: Record<string, string[]> = {
-  telugu: ["tamil", "kannada", "malayalam", "hindi"],
-  tamil: ["telugu", "kannada", "malayalam", "hindi"],
-  kannada: ["telugu", "tamil", "malayalam", "hindi"],
-  malayalam: ["telugu", "tamil", "kannada", "hindi"],
-  hindi: ["punjabi", "bhojpuri", "haryanvi", "english"],
-  punjabi: ["hindi", "haryanvi", "english"],
-  english: ["hindi", "punjabi"],
+  telugu: ["hindi"],
+  hindi: ["telugu"],
 };
 
 function decodeHtml(str: string): string {
@@ -331,6 +326,61 @@ async function searchPiped(query: string): Promise<Song[]> {
     }
   }
   return [];
+}
+
+function calculateSongScore(song: Song, seed: Song): number {
+  let score = 0;
+  
+  // 1. Language matching (Critical)
+  const seedLang = seed.language ? seed.language.toLowerCase().trim() : "";
+  const songLang = song.language ? song.language.toLowerCase().trim() : "";
+  if (seedLang && songLang) {
+    if (songLang === seedLang) {
+      score += 150; // High boost for exact language match
+    } else {
+      score -= 100; // Strong penalty for mismatching language
+    }
+  }
+
+  // 2. Year matching
+  if (seed.year && song.year) {
+    const yearDiff = Math.abs(seed.year - song.year);
+    if (yearDiff === 0) {
+      score += 60; // Perfect match
+    } else if (yearDiff <= 2) {
+      score += 45; // Within 2 years
+    } else if (yearDiff <= 5) {
+      score += 30; // Within 5 years
+    } else if (yearDiff <= 10) {
+      score += 15; // Within same decade
+    } else {
+      score -= Math.min(25, yearDiff * 1.5); // Penalty scales with difference
+    }
+  }
+
+  // 3. Genre/Type matching
+  const seedGenre = seed.genre ? seed.genre.toLowerCase().trim() : "";
+  const songGenre = song.genre ? song.genre.toLowerCase().trim() : "";
+  if (seedGenre && songGenre && songGenre === seedGenre) {
+    score += 40; // Genre match boost
+  }
+
+  // 4. Artist matching (type of song / singer style)
+  const seedArtists = seed.artist ? seed.artist.toLowerCase().split(",").map(a => a.trim()) : [];
+  const songArtists = song.artist ? song.artist.toLowerCase().split(",").map(a => a.trim()) : [];
+  const commonArtists = seedArtists.filter(a => songArtists.includes(a));
+  if (commonArtists.length > 0) {
+    score += 30 * commonArtists.length;
+  }
+
+  // 5. Album/Movie matching
+  const seedMovie = seed.movie || seed.album || "";
+  const songMovie = song.movie || song.album || "";
+  if (seedMovie && songMovie && seedMovie.toLowerCase().trim() === songMovie.toLowerCase().trim()) {
+    score += 50;
+  }
+
+  return score;
 }
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
@@ -414,10 +464,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   // Radio suggestions fetching (Language & Category Recommendations Engine)
   const fetchRadioSongs = useCallback(async (seed: Song): Promise<Song[]> => {
     let seedLang = seed.language ? seed.language.toLowerCase().trim() : "";
+    if (seedLang !== "telugu" && seedLang !== "hindi") {
+      seedLang = "";
+    }
 
     // 1. If language is not set, look at other songs in the queue to infer it, or fetch it from JioSaavn API
     if (!seedLang) {
-      const songsWithLang = queueRef.current.filter((s) => s.language);
+      const songsWithLang = queueRef.current.filter((s) => {
+        if (!s.language) return false;
+        const l = s.language.toLowerCase().trim();
+        return l === "telugu" || l === "hindi";
+      });
       if (songsWithLang.length > 0) {
         const langCounts: Record<string, number> = {};
         songsWithLang.forEach((s) => {
@@ -440,13 +497,20 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         if (Array.isArray(dataList) && dataList.length > 0) {
           const matched = dataList[0];
           if (matched && matched.language) {
-            seedLang = String(matched.language).toLowerCase().trim();
-            console.log(`[PlayerContext] Resolved language from API details: ${seedLang}`);
+            const resolved = String(matched.language).toLowerCase().trim();
+            if (resolved === "telugu" || resolved === "hindi") {
+              seedLang = resolved;
+              console.log(`[PlayerContext] Resolved language from API details: ${seedLang}`);
+            }
           }
         }
       } catch (err) {
         console.warn("[PlayerContext] Failed to fetch song details for language detection:", err);
       }
+    }
+
+    if (seedLang !== "telugu" && seedLang !== "hindi") {
+      seedLang = "telugu"; // Default fallback
     }
 
     const recommendations: Song[] = [];
@@ -472,6 +536,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const addSongs = (list: Song[], bypassLangFilter = false) => {
       list.forEach((s) => {
         if (!s || !s.id) return;
+        
+        // Strict global requirement: only Telugu and Hindi songs allowed in continuous play/radio suggestions
+        if (s.language) {
+          const l = s.language.toLowerCase().trim();
+          if (l !== "telugu" && l !== "hindi") {
+            return;
+          }
+        }
+
         if (!bypassLangFilter && seedLang && s.language && s.language.toLowerCase().trim() !== seedLang) {
           return;
         }
@@ -658,7 +731,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    return recommendations.slice(0, 20);
+    // Sort recommendations based on similarity score with the seed song
+    const scoredRecs = recommendations.map((song) => ({
+      song,
+      score: calculateSongScore(song, seed),
+    }));
+    scoredRecs.sort((a, b) => b.score - a.score);
+    const sortedRecommendations = scoredRecs.map((sr) => sr.song);
+
+    return sortedRecommendations.slice(0, 20);
   }, []);
 
   const fetchAndAppendRecommendations = useCallback(async (seed: Song): Promise<Song[]> => {

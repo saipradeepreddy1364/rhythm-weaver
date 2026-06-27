@@ -20,7 +20,7 @@ export function LikeButton({
   const { isLiked, toggleLike } = useLibrary();
   const [animating, setAnimating] = useState(false);
 
-  const liked = isLiked(song.id);
+  const liked = isLiked(song);
 
   const sizeMap = {
     sm: 16,

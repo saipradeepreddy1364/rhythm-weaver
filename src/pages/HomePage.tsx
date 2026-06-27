@@ -1299,7 +1299,12 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
   const quickPickSongs = (() => {
     const pool = sections.flatMap((s) => s.songs);
     if (pool.length === 0) return [];
-    return seededShuffle(pool, minuteTick).slice(0, 12);
+    const filteredPool = pool.filter((song) => {
+      if (!song.language) return false;
+      const lang = song.language.toLowerCase().trim();
+      return lang === "telugu" || lang === "hindi";
+    });
+    return seededShuffle(filteredPool, minuteTick).slice(0, 12);
   })();
 
   return (

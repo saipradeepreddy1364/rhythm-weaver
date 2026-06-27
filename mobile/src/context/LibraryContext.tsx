@@ -64,6 +64,24 @@ interface LibraryContextType {
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
+function normalizeSongTitle(title: string): string {
+  let s = (title || "").toLowerCase().trim();
+  while (true) {
+    const prev = s;
+    s = s
+      .replace(/\s*\((from|original|soundtrack|ost|single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|feat|ft|featuring|mix|lyrical|video)[^)]*\)/gi, "")
+      .replace(/\s*\[(from|original|soundtrack|ost|single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|feat|ft|featuring|mix|lyrical|video)[^\]]*\]/gi, "")
+      .trim();
+    if (s === prev) break;
+  }
+  s = s.replace(/\s*-\s*(single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|mix|lyrical|video)\b.*/gi, "");
+  s = s.replace(/\s*(feat\.?|ft\.?|featuring)\s+.*/gi, "");
+  s = s.replace(/\s*\([^)]*\)$/gi, "");
+  s = s.replace(/\s*\[[^\]]*\]$/gi, "");
+  s = s.replace(/[^a-z0-9\s]/gi, "").replace(/\s+/g, " ").trim();
+  return s;
+}
+
 function dbRowToSong(row: any): Song {
   // If the database uses JSONB column schema, extract from song_data
   if (row.song_data) {
@@ -421,10 +439,11 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const isLiked = useCallback(
     (song: Song) => {
       if (!song) return false;
-      const songKey = (song.title || "").toLowerCase().trim() + "|" + (song.artist || "").toLowerCase().trim();
+      const queryNorm = normalizeSongTitle(song.title);
       return likedSongs.some((s) => {
-        const sKey = (s.title || "").toLowerCase().trim() + "|" + (s.artist || "").toLowerCase().trim();
-        return sKey === songKey || s.id === song.id;
+        if (s.id === song.id) return true;
+        const sNorm = normalizeSongTitle(s.title);
+        return sNorm && queryNorm && sNorm === queryNorm;
       });
     },
     [likedSongs]
@@ -433,17 +452,20 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const toggleLike = useCallback(
     async (song: Song) => {
       if (!song) return;
-      const songKey = (song.title || "").toLowerCase().trim() + "|" + (song.artist || "").toLowerCase().trim();
-      const liked = likedSongs.some((s) => {
-        const sKey = (s.title || "").toLowerCase().trim() + "|" + (s.artist || "").toLowerCase().trim();
-        return sKey === songKey || s.id === song.id;
+      const queryNorm = normalizeSongTitle(song.title);
+      const matched = likedSongs.filter((s) => {
+        if (s.id === song.id) return true;
+        const sNorm = normalizeSongTitle(s.title);
+        return sNorm && queryNorm && sNorm === queryNorm;
       });
+      const liked = matched.length > 0;
       if (!user) {
         let nextLiked: Song[];
         if (liked) {
           nextLiked = likedSongs.filter((s) => {
-            const sKey = (s.title || "").toLowerCase().trim() + "|" + (s.artist || "").toLowerCase().trim();
-            return sKey !== songKey && s.id !== song.id;
+            if (s.id === song.id) return false;
+            const sNorm = normalizeSongTitle(s.title);
+            return !(sNorm && queryNorm && sNorm === queryNorm);
           });
         } else {
           nextLiked = [song, ...likedSongs];
@@ -458,16 +480,12 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       }
       try {
         if (liked) {
-          // Find all matching liked songs to delete them from database
-          const matchedSongs = likedSongs.filter((s) => {
-            const sKey = (s.title || "").toLowerCase().trim() + "|" + (s.artist || "").toLowerCase().trim();
-            return sKey === songKey || s.id === song.id;
-          });
           setLikedSongs((prev) => prev.filter((s) => {
-            const sKey = (s.title || "").toLowerCase().trim() + "|" + (s.artist || "").toLowerCase().trim();
-            return sKey !== songKey && s.id !== song.id;
+            if (s.id === song.id) return false;
+            const sNorm = normalizeSongTitle(s.title);
+            return !(sNorm && queryNorm && sNorm === queryNorm);
           }));
-          for (const ms of matchedSongs) {
+          for (const ms of matched) {
             await supabase
               .from("liked_songs")
               .delete()
