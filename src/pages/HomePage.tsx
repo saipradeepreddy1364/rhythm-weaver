@@ -392,10 +392,17 @@ function startBackgroundPreload() {
               artist: decodeHtml((s as Song & { artist?: string }).artist || ""),
               album:  decodeHtml((s as Song & { album?: string }).album   || ""),
               movie:  decodeHtml((s as Song & { movie?: string }).movie   || ""),
-            } as Song)).filter((s: Song) => Boolean(s.audioUrl));
+            } as Song)).filter((s: Song) => Boolean(s.audioUrl) && !isDevotionalSong(s));
             let added = 0;
             for (const s of songs) {
-              if (s.id && !seen.has(s.id)) { seen.add(s.id); all.push(s); added++; }
+              if (!s.id) continue;
+              const norm = normalizeSongTitle(s.title);
+              if (!seen.has(s.id) && (!norm || !seen.has(norm))) {
+                seen.add(s.id);
+                if (norm) seen.add(norm);
+                all.push(s);
+                added++;
+              }
             }
             if (items.length < 50 || added === 0) break;
           } catch { break; }
@@ -489,6 +496,38 @@ function cleanSong(song: Song): Song {
   };
 }
 
+function normalizeSongTitle(title: string): string {
+  let s = (title || "").toLowerCase().trim();
+  while (true) {
+    const prev = s;
+    s = s
+      .replace(/\s*\((from|original|soundtrack|ost|single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|feat|ft|featuring|mix|lyrical|video)[^)]*\)/gi, "")
+      .replace(/\s*\[(from|original|soundtrack|ost|single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|feat|ft|featuring|mix|lyrical|video)[^\]]*\]/gi, "")
+      .trim();
+    if (s === prev) break;
+  }
+  s = s.replace(/\s*-\s*(single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|mix|lyrical|video)\b.*/gi, "");
+  s = s.replace(/\s*(feat\.?|ft\.?|featuring)\s+.*/gi, "");
+  s = s.replace(/\s*\([^)]*\)$/gi, "");
+  s = s.replace(/\s*\[[^\]]*\]$/gi, "");
+  s = s.replace(/[^a-z0-9\s]/gi, "").replace(/\s+/g, " ").trim();
+  return s;
+}
+
+function isDevotionalSong(song: Song): boolean {
+  const title = (song.title || "").toLowerCase();
+  const album = (song.album || song.movie || "").toLowerCase();
+  
+  const keywords = [
+    "bhajan", "aarti", "chalisa", "devotional", "bhakti", "mantra", 
+    "stotram", "dhun", "stotra", "shlok", "shloka", "kirtan", 
+    "hanuman chalisa", "shri ram", "krishna bhajan", "ganesha bhajan",
+    "shiv bhajan", "sai baba", "spiritual", "durga chalisa"
+  ];
+  
+  return keywords.some(kw => title.includes(kw) || album.includes(kw));
+}
+
 async function fetchSection(query: string, limit = 50): Promise<Song[]> {
   try {
     const res = await api.searchSongs(query, 1, limit);
@@ -496,7 +535,7 @@ async function fetchSection(query: string, limit = 50): Promise<Song[]> {
     return raw
       .map(mapApiSong)
       .map(cleanSong)
-      .filter((s) => Boolean(s.audioUrl));
+      .filter((s) => Boolean(s.audioUrl) && !isDevotionalSong(s));
   } catch {
     return [];
   }
@@ -509,8 +548,11 @@ async function fetchLanguageSongs(queries: string[], targetPerQuery = 50): Promi
   for (const r of results) {
     if (r.status !== "fulfilled") continue;
     for (const s of r.value) {
-      if (s.id && !seen.has(s.id)) {
+      if (!s.id) continue;
+      const norm = normalizeSongTitle(s.title);
+      if (!seen.has(s.id) && (!norm || !seen.has(norm))) {
         seen.add(s.id);
+        if (norm) seen.add(norm);
         all.push(s);
       }
     }
@@ -521,8 +563,11 @@ async function fetchLanguageSongs(queries: string[], targetPerQuery = 50): Promi
 function dedup(songs: Song[], seen: Set<string>): Song[] {
   const out: Song[] = [];
   for (const s of songs) {
-    if (s.id && !seen.has(s.id)) {
+    if (!s || !s.id) continue;
+    const norm = normalizeSongTitle(s.title);
+    if (!seen.has(s.id) && (!norm || !seen.has(norm))) {
       seen.add(s.id);
+      if (norm) seen.add(norm);
       out.push(s);
     }
   }
@@ -538,11 +583,14 @@ async function fetchAllPages(query: string, maxPages = 60, seen?: Set<string>): 
       const res   = await api.searchSongs(query, page, 50);
       const items = extractResults(res);
       if (items.length === 0) break;
-      const songs = items.map(mapApiSong).map(cleanSong).filter((s) => Boolean(s.audioUrl));
+      const songs = items.map(mapApiSong).map(cleanSong).filter((s) => Boolean(s.audioUrl) && !isDevotionalSong(s));
       let added = 0;
       for (const s of songs) {
-        if (s.id && !localSeen.has(s.id)) {
+        if (!s.id) continue;
+        const norm = normalizeSongTitle(s.title);
+        if (!localSeen.has(s.id) && (!norm || !localSeen.has(norm))) {
           localSeen.add(s.id);
+          if (norm) localSeen.add(norm);
           all.push(s);
           added++;
         }
@@ -1510,7 +1558,11 @@ class HomePagePrefetcher {
 
     if (!sectionsOk) {
       const seen = new Set<string>();
-      this._sections.forEach(s => s.songs.forEach(song => song.id && seen.add(song.id)));
+      this._sections.forEach(s => s.songs.forEach(song => {
+        if (song.id) seen.add(song.id);
+        const norm = normalizeSongTitle(song.title);
+        if (norm) seen.add(norm);
+      }));
 
       const allResults = await Promise.all(
         SECTION_DEFS.map(({ pool, seed }) => fetchSection(pickQuery(pool, seed), 20))
