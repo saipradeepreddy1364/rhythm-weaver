@@ -31,7 +31,7 @@ interface LibraryContextType {
   recentlyPlayed: Song[];
   playlists: Playlist[];
   toggleLike: (song: Song) => Promise<void>;
-  isLiked: (songId: string) => boolean;
+  isLiked: (song: Song) => boolean;
   addToRecentlyPlayed: (song: Song) => void;
   createNewPlaylist: (name: string) => Promise<Playlist | null>;
   removePlaylist: (playlistId: string) => Promise<void>;
@@ -44,6 +44,24 @@ interface LibraryContextType {
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
+
+function normalizeSongTitle(title: string): string {
+  let s = (title || "").toLowerCase().trim();
+  while (true) {
+    const prev = s;
+    s = s
+      .replace(/\s*\((from|original|soundtrack|ost|single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|feat|ft|featuring|mix|lyrical|video)[^)]*\)/gi, "")
+      .replace(/\s*\[(from|original|soundtrack|ost|single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|feat|ft|featuring|mix|lyrical|video)[^\]]*\]/gi, "")
+      .trim();
+    if (s === prev) break;
+  }
+  s = s.replace(/\s*-\s*(single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|mix|lyrical|video)\b.*/gi, "");
+  s = s.replace(/\s*(feat\.?|ft\.?|featuring)\s+.*/gi, "");
+  s = s.replace(/\s*\([^)]*\)$/gi, "");
+  s = s.replace(/\s*\[[^\]]*\]$/gi, "");
+  s = s.replace(/[^a-z0-9\s]/gi, "").replace(/\s+/g, " ").trim();
+  return s;
+}
 
 function dbRowToSong(row: any): Song {
   return {
@@ -198,22 +216,46 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   // ── Like / Unlike ─────────────────────────────────────────────────────────────
 
   const isLiked = useCallback(
-    (songId: string) => likedSongs.some((s) => s.id === songId),
+    (song: Song) => {
+      if (!song) return false;
+      const queryNorm = normalizeSongTitle(song.title);
+      return likedSongs.some((s) => {
+        if (s.id === song.id) return true;
+        const sNorm = normalizeSongTitle(s.title);
+        return sNorm && queryNorm && sNorm === queryNorm;
+      });
+    },
     [likedSongs]
   );
 
   const toggleLike = useCallback(
     async (song: Song) => {
-      if (!user) return;
-      const liked = likedSongs.some((s) => s.id === song.id);
+      if (!user || !song) return;
+      
+      const queryNorm = normalizeSongTitle(song.title);
+      const matched = likedSongs.filter((s) => {
+        if (s.id === song.id) return true;
+        const sNorm = normalizeSongTitle(s.title);
+        return sNorm && queryNorm && sNorm === queryNorm;
+      });
+      
+      const liked = matched.length > 0;
+      
       try {
         if (liked) {
-          setLikedSongs((prev) => prev.filter((s) => s.id !== song.id));
-          await supabase
-            .from("liked_songs")
-            .delete()
-            .eq("user_id", user.id)
-            .eq("song_id", song.id);
+          setLikedSongs((prev) => prev.filter((s) => {
+            if (s.id === song.id) return false;
+            const sNorm = normalizeSongTitle(s.title);
+            return !(sNorm && queryNorm && sNorm === queryNorm);
+          }));
+          
+          for (const ms of matched) {
+            await supabase
+              .from("liked_songs")
+              .delete()
+              .eq("user_id", user.id)
+              .eq("song_id", ms.id);
+          }
         } else {
           setLikedSongs((prev) => [song, ...prev]);
           const audioUrl = song.audioUrl || `https://musicbackend-xg4u.onrender.com/api/songs/${song.id}/stream`;
