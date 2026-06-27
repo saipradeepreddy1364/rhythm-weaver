@@ -825,8 +825,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     return promise;
   }, [fetchRadioSongs]);
 
-
-
   // Sync active track changes back to currentSong and queueIndex
   useEffect(() => {
     if (activeTrack) {
@@ -894,8 +892,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     };
     syncIndex();
   }, [activeTrack, fetchAndAppendRecommendations, loadHistoryFromStorage, saveHistoryToStorage]);
-
-
 
   const playSong = useCallback(
     async (song: Song, songQueue?: Song[]) => {

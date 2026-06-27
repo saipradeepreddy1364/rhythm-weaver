@@ -64,8 +64,21 @@ interface LibraryContextType {
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
-function normalizeSongTitle(title: string): string {
+export function normalizeSongTitle(title: string, movie?: string, album?: string): string {
   let s = (title || "").toLowerCase().trim();
+
+  const cleanAndReplace = (name?: string) => {
+    if (!name) return;
+    const n = name.toLowerCase().trim();
+    if (n.length > 2) {
+      const escaped = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      s = s.replace(new RegExp(`\\s*[-|–|—|:]?\\s*\\b${escaped}\\b`, "gi"), "");
+    }
+  };
+  
+  cleanAndReplace(movie);
+  cleanAndReplace(album);
+
   while (true) {
     const prev = s;
     s = s
@@ -83,14 +96,6 @@ function normalizeSongTitle(title: string): string {
 }
 
 function dbRowToSong(row: any): Song {
-  // If the database uses JSONB column schema, extract from song_data
-  if (row.song_data) {
-    const song = typeof row.song_data === "string" ? JSON.parse(row.song_data) : row.song_data;
-    return {
-      ...song,
-      id: row.song_id || song.id || row.id,
-    };
-  }
   return {
     id:       row.song_id || row.id,
     title:    row.song_title || row.title || "",
@@ -108,32 +113,25 @@ function dbRowToSong(row: any): Song {
 const LibraryContext = createContext<LibraryContextType | undefined>(undefined);
 
 export function LibraryProvider({ children }: { children: ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user } = useAuth();
 
-  const [likedAlbums, setLikedAlbums]         = useState<AlbumData[]>([]);
   const [likedSongs, setLikedSongs]           = useState<Song[]>([]);
   const [recentlyPlayed, setRecentlyPlayed]   = useState<Song[]>([]);
   const [storedPlaylists, setStoredPlaylists] = useState<StoredPlaylist[]>([]);
   const [downloadedSongs, setDownloadedSongs] = useState<Song[]>([]);
   const [downloadingIds, setDownloadingIds]   = useState<string[]>([]);
+  const [likedAlbums, setLikedAlbums]         = useState<AlbumData[]>([]);
 
   // Load downloads from localStorage on mount
   useEffect(() => {
-    let active = true;
-    localStorage.ensureInitialized().then(() => {
-      if (!active) return;
-      try {
-        const raw = localStorage.getItem("rw_downloads");
-        if (raw) {
-          setDownloadedSongs(JSON.parse(raw));
-        }
-      } catch (err) {
-        console.warn("Failed to load downloaded songs:", err);
+    try {
+      const raw = localStorage.getItem("rw_downloads");
+      if (raw) {
+        setDownloadedSongs(JSON.parse(raw));
       }
-    });
-    return () => {
-      active = false;
-    };
+    } catch (err) {
+      console.warn("Failed to load downloaded songs:", err);
+    }
   }, []);
 
   const isDownloaded = useCallback(
@@ -147,10 +145,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       setDownloadingIds((prev) => [...prev, song.id]);
 
       try {
-        let audioUrl = song.audioUrl;
-        if (!audioUrl || audioUrl.includes("saavncdn.com") || audioUrl.includes("oasth.me")) {
-          audioUrl = `https://musicbackend-xg4u.onrender.com/api/songs/${song.id}/stream`;
-        }
+        const audioUrl = song.audioUrl || `https://musicbackend-xg4u.onrender.com/api/songs/${song.id}/stream`;
         const audioLocalUri = FileSystem.documentDirectory + song.id + ".mp3";
 
         // Download audio file
@@ -344,41 +339,20 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     }
   }, [user]);
 
-  // Trigger loads when user changes or when authentication check completes
+  // Trigger loads when user changes
   useEffect(() => {
-    if (loading) return; // Wait until authentication check is complete to avoid race conditions
-
-    let active = true;
-    localStorage.ensureInitialized().then(() => {
-      if (!active) return;
+    if (user) {
+      loadLikedSongs();
+      loadRecentlyPlayed();
+      loadPlaylists();
       loadLikedAlbums();
-      if (user) {
-        loadLikedSongs();
-        loadRecentlyPlayed();
-        loadPlaylists();
-      } else {
-        // Load local guest data from localStorage
-        try {
-          const localLiked = localStorage.getItem("rw_guest_liked");
-          setLikedSongs(localLiked ? JSON.parse(localLiked) : []);
-
-          const localRecent = localStorage.getItem("rw_guest_recent");
-          setRecentlyPlayed(localRecent ? JSON.parse(localRecent) : []);
-
-          const localPlaylists = localStorage.getItem("rw_guest_playlists");
-          setStoredPlaylists(localPlaylists ? JSON.parse(localPlaylists) : []);
-        } catch (err) {
-          console.warn("Failed to load local guest library data:", err);
-          setLikedSongs([]);
-          setRecentlyPlayed([]);
-          setStoredPlaylists([]);
-        }
-      }
-    });
-    return () => {
-      active = false;
-    };
-  }, [user, loading, loadLikedSongs, loadRecentlyPlayed, loadPlaylists, loadLikedAlbums]);
+    } else {
+      setLikedSongs([]);
+      setRecentlyPlayed([]);
+      setStoredPlaylists([]);
+      setLikedAlbums([]);
+    }
+  }, [user, loadLikedSongs, loadRecentlyPlayed, loadPlaylists, loadLikedAlbums]);
 
   // ── Derived playlists ─────────────────────────────────────────────────────────
 
@@ -393,22 +367,14 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     // Update local state instantly
     setRecentlyPlayed((prev) => {
       const filtered = prev.filter((s) => s.id !== song.id);
-      const next = [song, ...filtered].slice(0, 50);
-      if (!user) {
-        try {
-          localStorage.setItem("rw_guest_recent", JSON.stringify(next));
-        } catch (err) {
-          console.warn("Failed to save guest recent songs:", err);
-        }
-      }
-      return next;
+      return [song, ...filtered].slice(0, 50);
     });
 
     if (!user) return;
 
     try {
       const audioUrl = song.audioUrl || `https://musicbackend-xg4u.onrender.com/api/songs/${song.id}/stream`;
-      const { error } = await supabase.from("recently_played").upsert({
+      await supabase.from("recently_played").upsert({
         user_id: user.id,
         song_id: song.id,
         song_title: song.title,
@@ -419,16 +385,6 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         song_duration: song.duration || 0,
         played_at: new Date().toISOString(),
       }, { onConflict: "user_id,song_id" });
-
-      if (error) {
-        // Fallback to JSONB schema upsert
-        await supabase.from("recently_played").upsert({
-          user_id: user.id,
-          song_id: song.id,
-          song_data: song,
-          played_at: new Date().toISOString(),
-        }, { onConflict: "user_id,song_id" });
-      }
     } catch (err) {
       console.error("Failed to save recently played track:", err);
     }
@@ -439,10 +395,10 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const isLiked = useCallback(
     (song: Song) => {
       if (!song) return false;
-      const queryNorm = normalizeSongTitle(song.title);
+      const queryNorm = normalizeSongTitle(song.title, song.movie || song.album);
       return likedSongs.some((s) => {
         if (s.id === song.id) return true;
-        const sNorm = normalizeSongTitle(s.title);
+        const sNorm = normalizeSongTitle(s.title, s.movie || s.album);
         return sNorm && queryNorm && sNorm === queryNorm;
       });
     },
@@ -452,10 +408,10 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const toggleLike = useCallback(
     async (song: Song) => {
       if (!song) return;
-      const queryNorm = normalizeSongTitle(song.title);
+      const queryNorm = normalizeSongTitle(song.title, song.movie || song.album);
       const matched = likedSongs.filter((s) => {
         if (s.id === song.id) return true;
-        const sNorm = normalizeSongTitle(s.title);
+        const sNorm = normalizeSongTitle(s.title, s.movie || s.album);
         return sNorm && queryNorm && sNorm === queryNorm;
       });
       const liked = matched.length > 0;
@@ -464,7 +420,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         if (liked) {
           nextLiked = likedSongs.filter((s) => {
             if (s.id === song.id) return false;
-            const sNorm = normalizeSongTitle(s.title);
+            const sNorm = normalizeSongTitle(s.title, s.movie || s.album);
             return !(sNorm && queryNorm && sNorm === queryNorm);
           });
         } else {
@@ -482,7 +438,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         if (liked) {
           setLikedSongs((prev) => prev.filter((s) => {
             if (s.id === song.id) return false;
-            const sNorm = normalizeSongTitle(s.title);
+            const sNorm = normalizeSongTitle(s.title, s.movie || s.album);
             return !(sNorm && queryNorm && sNorm === queryNorm);
           }));
           for (const ms of matched) {
@@ -495,7 +451,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         } else {
           setLikedSongs((prev) => [song, ...prev]);
           const audioUrl = song.audioUrl || `https://musicbackend-xg4u.onrender.com/api/songs/${song.id}/stream`;
-          const { error } = await supabase.from("liked_songs").insert({
+          await supabase.from("liked_songs").insert({
             user_id: user.id,
             song_id: song.id,
             song_title: song.title,
@@ -505,15 +461,6 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
             song_audio_url: audioUrl,
             song_duration: song.duration || 0,
           });
-
-          if (error) {
-            // Fallback to JSONB schema insert
-            await supabase.from("liked_songs").insert({
-              user_id: user.id,
-              song_id: song.id,
-              song_data: song,
-            });
-          }
         }
       } catch (err) {
         console.error("Failed to toggle like song:", err);
@@ -522,30 +469,11 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     [likedSongs, user]
   );
 
-  // ── Playlist CRUD (Supabase database backed & Guest Local storage fallback) ──
+  // ── Playlist CRUD (Supabase database backed) ─────────────────────────────────
 
   const createNewPlaylist = useCallback(
     async (name: string): Promise<Playlist | null> => {
-      if (!user) {
-        const newP: StoredPlaylist = {
-          id: "guest_" + Date.now(),
-          name,
-          created_at: new Date().toISOString(),
-          cover_art: undefined,
-          song_count: 0,
-          songs: [],
-        };
-        setStoredPlaylists((prev) => {
-          const next = [newP, ...prev];
-          try {
-            localStorage.setItem("rw_guest_playlists", JSON.stringify(next));
-          } catch (err) {
-            console.warn("Failed to save guest playlists:", err);
-          }
-          return next;
-        });
-        return newP;
-      }
+      if (!user) return null;
       try {
         const { data, error } = await supabase
           .from("playlists")
@@ -578,16 +506,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const removePlaylist = useCallback(
     async (playlistId: string) => {
-      if (!user) {
-        setStoredPlaylists((prev) => {
-          const next = prev.filter((p) => p.id !== playlistId);
-          try {
-            localStorage.setItem("rw_guest_playlists", JSON.stringify(next));
-          } catch {}
-          return next;
-        });
-        return;
-      }
+      if (!user) return;
       try {
         setStoredPlaylists((prev) => prev.filter((p) => p.id !== playlistId));
         await supabase.from("playlists").delete().eq("id", playlistId);
@@ -600,16 +519,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const updatePlaylistName = useCallback(
     async (playlistId: string, newName: string) => {
-      if (!user) {
-        setStoredPlaylists((prev) => {
-          const next = prev.map((p) => (p.id === playlistId ? { ...p, name: newName } : p));
-          try {
-            localStorage.setItem("rw_guest_playlists", JSON.stringify(next));
-          } catch {}
-          return next;
-        });
-        return;
-      }
+      if (!user) return;
       try {
         setStoredPlaylists((prev) =>
           prev.map((p) => (p.id === playlistId ? { ...p, name: newName } : p))
@@ -624,24 +534,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const addToPlaylist = useCallback(
     async (playlistId: string, song: Song) => {
-      if (!user) {
-        setStoredPlaylists((prev) => {
-          const next = prev.map((p) => {
-            if (p.id !== playlistId) return p;
-            if (p.songs.some((s) => s.id === song.id)) return p;
-            return {
-              ...p,
-              song_count: (p.song_count ?? 0) + 1,
-              songs: [...p.songs, song],
-            };
-          });
-          try {
-            localStorage.setItem("rw_guest_playlists", JSON.stringify(next));
-          } catch {}
-          return next;
-        });
-        return;
-      }
+      if (!user) return;
       try {
         // Update local state song count
         setStoredPlaylists((prev) =>
@@ -657,7 +550,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         );
 
         const audioUrl = song.audioUrl || `https://musicbackend-xg4u.onrender.com/api/songs/${song.id}/stream`;
-        const { error } = await supabase.from("playlist_songs").insert({
+        await supabase.from("playlist_songs").insert({
           playlist_id: playlistId,
           song_id: song.id,
           song_title: song.title,
@@ -666,18 +559,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
           song_album_art: song.albumArt || "",
           song_audio_url: audioUrl,
           song_duration: song.duration || 0,
-          user_id: user.id,
         });
-
-        if (error) {
-          // Fallback to JSONB schema insert
-          await supabase.from("playlist_songs").insert({
-            playlist_id: playlistId,
-            user_id: user.id,
-            song_id: song.id,
-            song_data: song,
-          });
-        }
       } catch (err) {
         console.error("Failed to add song to playlist:", err);
       }
@@ -687,23 +569,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const removeFromPlaylist = useCallback(
     async (playlistId: string, songId: string) => {
-      if (!user) {
-        setStoredPlaylists((prev) => {
-          const next = prev.map((p) => {
-            if (p.id !== playlistId) return p;
-            return {
-              ...p,
-              song_count: Math.max(0, (p.song_count ?? 1) - 1),
-              songs: p.songs.filter((s) => s.id !== songId),
-            };
-          });
-          try {
-            localStorage.setItem("rw_guest_playlists", JSON.stringify(next));
-          } catch {}
-          return next;
-        });
-        return;
-      }
+      if (!user) return;
       try {
         setStoredPlaylists((prev) =>
           prev.map((p) => {
@@ -730,10 +596,6 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const getPlaylist = useCallback(
     async (playlistId: string): Promise<Song[]> => {
-      if (playlistId.startsWith("guest_")) {
-        const p = storedPlaylists.find((p) => p.id === playlistId);
-        return p ? p.songs : [];
-      }
       try {
         const { data } = await supabase
           .from("playlist_songs")
@@ -754,10 +616,8 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       }
       return [];
     },
-    [storedPlaylists]
+    []
   );
-
-
 
   const isAlbumLiked = useCallback(
     (album: AlbumData) => {
@@ -812,7 +672,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
             .eq("album_title", album.title);
           
           if (error) {
-            console.warn("[Library] DB delete failed (expected if table not created yet):", error.message);
+            console.warn("[Library] DB delete failed:", error.message);
           }
         } else {
           const { error } = await supabase.from("liked_albums").insert({
@@ -824,7 +684,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
           });
 
           if (error) {
-            console.warn("[Library] DB insert failed (expected if table not created yet):", error.message);
+            console.warn("[Library] DB insert failed:", error.message);
           }
         }
       } catch (err) {

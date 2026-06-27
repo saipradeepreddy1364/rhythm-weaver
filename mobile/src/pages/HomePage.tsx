@@ -4,9 +4,10 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Song, mapApiSong } from "../data/songs";
 import { api, extractResults } from "../services/api";
 import { useAuth } from "../context/AuthContext";
-import { useLibrary, Playlist } from "../context/LibraryContext";
+import { useLibrary, Playlist, normalizeSongTitle } from "../context/LibraryContext";
 import { usePlayer } from "../context/PlayerContext";
 import { SongRow } from "../components/SongRow";
+import { AuthModal } from "../components/AuthModal";
 import { useNavigation } from "@react-navigation/native";
 import { MiniPlayer } from "../components/MiniPlayer";
 import { localStorage, sessionStorage } from "../lib/storage";
@@ -472,6 +473,22 @@ function decodeHtml(str: string): string {
     .replace(/&#x2F;/g, "/");
 }
 
+function isDevotionalSong(song: Song): boolean {
+  const title = (song.title || "").toLowerCase();
+  const album = (song.album || song.movie || "").toLowerCase();
+  
+  const keywords = [
+    "bhajan", "aarti", "chalisa", "devotional", "bhakti", "mantra", 
+    "stotram", "dhun", "stotra", "shlok", "shloka", "kirtan", 
+    "hanuman chalisa", "shri ram", "krishna bhajan", "ganesha bhajan",
+    "shiv bhajan", "sai baba", "spiritual", "durga chalisa"
+  ];
+  
+  return keywords.some(kw => title.includes(kw) || album.includes(kw));
+}
+
+
+
 function getArtistName(song: Song): string {
   const raw   = song as RawSong;
   const field =
@@ -497,48 +514,6 @@ function cleanSong(song: Song): Song {
   };
 }
 
-function isDevotionalSong(song: Song): boolean {
-  const title = (song.title || "").toLowerCase();
-  const album = (song.album || song.movie || "").toLowerCase();
-  
-  const keywords = [
-    "bhajan", "aarti", "chalisa", "devotional", "bhakti", "mantra", 
-    "stotram", "dhun", "stotra", "shlok", "shloka", "kirtan", 
-    "hanuman chalisa", "shri ram", "krishna bhajan", "ganesha bhajan",
-    "shiv bhajan", "sai baba", "spiritual", "durga chalisa"
-  ];
-  
-  return keywords.some(kw => title.includes(kw) || album.includes(kw));
-}
-
-// Normalize song title to remove movie/album/version suffixes before dedup
-function normalizeSongTitle(title: string): string {
-  let s = (title || "").toLowerCase().trim();
-  // Remove common trailing junk in parentheses/brackets recursively
-  while (true) {
-    const prev = s;
-    s = s
-      .replace(/\s*\((from|original|soundtrack|ost|single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|feat|ft|featuring|mix|lyrical|video)[^)]*\)/gi, "")
-      .replace(/\s*\[(from|original|soundtrack|ost|single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|feat|ft|featuring|mix|lyrical|video)[^\]]*\]/gi, "")
-      .trim();
-    if (s === prev) break;
-  }
-  
-  // Remove trailing single / remix / reprise etc. with dash
-  s = s.replace(/\s*-\s*(single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|mix|lyrical|video)\b.*/gi, "");
-  
-  // Strip featuring/feat at the end
-  s = s.replace(/\s*(feat\.?|ft\.?|featuring)\s+.*/gi, "");
-  
-  // Strip any trailing parentheses/brackets at the end of the string entirely
-  s = s.replace(/\s*\([^)]*\)$/gi, "");
-  s = s.replace(/\s*\[[^\]]*\]$/gi, "");
-  
-  // Clean up punctuation and spacing
-  s = s.replace(/[^a-z0-9\s]/gi, "").replace(/\s+/g, " ").trim();
-  return s;
-}
-
 async function fetchSection(query: string, limit = 50): Promise<Song[]> {
   try {
     const res = await api.searchSongs(query, 1, limit);
@@ -560,7 +535,7 @@ async function fetchLanguageSongs(queries: string[], targetPerQuery = 50): Promi
     if (r.status !== "fulfilled") continue;
     for (const s of r.value) {
       if (!s.id) continue;
-      const norm = normalizeSongTitle(s.title);
+      const norm = normalizeSongTitle(s.title, s.movie || s.album);
       if (!seen.has(s.id) && (!norm || !seen.has(norm))) {
         seen.add(s.id);
         if (norm) seen.add(norm);
@@ -575,7 +550,7 @@ function dedup(songs: Song[], seen: Set<string>): Song[] {
   const out: Song[] = [];
   for (const s of songs) {
     if (!s || !s.id) continue;
-    const titleKey = normalizeSongTitle(s.title);
+    const titleKey = normalizeSongTitle(s.title, s.movie || s.album);
     if (!seen.has(s.id) && !seen.has(titleKey)) {
       seen.add(s.id);
       seen.add(titleKey);
@@ -598,10 +573,10 @@ async function fetchAllPages(query: string, maxPages = 60, seen?: Set<string>): 
       let added = 0;
       for (const s of songs) {
         if (!s.id) continue;
-        const titleKey = normalizeSongTitle(s.title);
-        if (!localSeen.has(s.id) && !localSeen.has(titleKey)) {
+        const norm = normalizeSongTitle(s.title, s.movie || s.album);
+        if (!localSeen.has(s.id) && (!norm || !localSeen.has(norm))) {
           localSeen.add(s.id);
-          localSeen.add(titleKey);
+          if (norm) localSeen.add(norm);
           all.push(s);
           added++;
         }
@@ -624,16 +599,7 @@ async function fetchAllArtistSongs(artistName: string): Promise<Song[]> {
   for (const q of queries) {
     try {
       const songs = await fetchAllPages(q, 8, seen);
-      // Filter out cover / tribute / karaoke / lofi / remix versions
-      const originalSongs = songs.filter((s) => {
-        if (!s.title || !s.artist) return false;
-        const titleLower = s.title.toLowerCase();
-        const artistLower = s.artist.toLowerCase();
-        const isNonOriginal = /\b(cover|tribute|mashup|remake|recreated|lofi|slowed|reverb|karaoke|instrumental|acoustic|unplugged)\b/i.test(titleLower) ||
-                              /\b(cover|tribute|tributes|karaoke|remake|instrumental)\b/i.test(artistLower);
-        return !isNonOriginal;
-      });
-      all.push(...originalSongs);
+      all.push(...songs);
     } catch { /* continue */ }
   }
   return all;
@@ -656,7 +622,7 @@ async function fetchCurrentYearFilmAlbums(unmountedRef: React.RefObject<boolean>
   const results = await Promise.allSettled(
     queries.map((q) =>
       api.searchSongs(q, 1, 20).then((res) =>
-        extractResults(res).map(mapApiSong).map(cleanSong).filter((s) => Boolean(s.audioUrl))
+        extractResults(res).map(mapApiSong).map(cleanSong).filter((s) => Boolean(s.audioUrl) && !isDevotionalSong(s))
       )
     )
   );
@@ -674,13 +640,9 @@ async function fetchCurrentYearFilmAlbums(unmountedRef: React.RefObject<boolean>
       if (!albumMap.has(key)) albumMap.set(key, { songs: [], coverArt: "" });
       const entry = albumMap.get(key)!;
       if (!entry.coverArt && song.albumArt) entry.coverArt = song.albumArt;
-      if (song.id) {
-        const titleKey = (song.title || "").toLowerCase().trim() + "|" + (song.artist || "").toLowerCase().trim();
-        if (!seen.has(song.id) && !seen.has(titleKey)) {
-          seen.add(song.id);
-          seen.add(titleKey);
-          entry.songs.push(song);
-        }
+      if (song.id && !seen.has(song.id)) {
+        seen.add(song.id);
+        entry.songs.push(song);
       }
     }
   }
@@ -716,14 +678,7 @@ async function loadArtistAlbums(
   const discoveryResults = await Promise.allSettled(
     queries.map((q) =>
       api.searchSongs(q, 1, 20).then((res) =>
-        extractResults(res).map(mapApiSong).map(cleanSong).filter((s) => {
-          if (!s.audioUrl || !s.title || !s.artist) return false;
-          const titleLower = s.title.toLowerCase();
-          const artistLower = s.artist.toLowerCase();
-          const isNonOriginal = /\b(cover|tribute|mashup|remake|recreated|lofi|slowed|reverb|karaoke|instrumental|acoustic|unplugged)\b/i.test(titleLower) ||
-                                /\b(cover|tribute|tributes|karaoke|remake|instrumental)\b/i.test(artistLower);
-          return !isNonOriginal;
-        })
+        extractResults(res).map(mapApiSong).map(cleanSong).filter((s) => Boolean(s.audioUrl) && !isDevotionalSong(s))
       )
     )
   );
@@ -738,14 +693,7 @@ async function loadArtistAlbums(
       if (!artistMap.has(name)) artistMap.set(name, { songs: [], coverArt: "" });
       const entry = artistMap.get(name)!;
       if (!entry.coverArt && song.albumArt) entry.coverArt = song.albumArt;
-      if (song.id) {
-        const titleKey = normalizeSongTitle(song.title);
-        if (!songSeen.has(song.id) && !songSeen.has(titleKey)) {
-          songSeen.add(song.id);
-          songSeen.add(titleKey);
-          entry.songs.push(song);
-        }
-      }
+      if (song.id && !songSeen.has(song.id)) { songSeen.add(song.id); entry.songs.push(song); }
     }
   }
 
@@ -830,7 +778,7 @@ function AlbumModal({
   const [songs, setSongs]             = useState<Song[]>(() => {
     const seen = new Set<string>();
     return album.songs.filter(s => {
-      const tKey = normalizeSongTitle(s.title);
+      const tKey = normalizeSongTitle(s.title, s.movie || s.album);
       if (seen.has(tKey)) return false;
       seen.add(tKey);
       return true;
@@ -842,7 +790,7 @@ function AlbumModal({
     if (album.fullyLoaded) {
       const seen = new Set<string>();
       const dedupped = album.songs.filter(s => {
-        const tKey = normalizeSongTitle(s.title);
+        const tKey = normalizeSongTitle(s.title, s.movie || s.album);
         if (seen.has(tKey)) return false;
         seen.add(tKey);
         return true;
@@ -873,7 +821,7 @@ function AlbumModal({
       const seenTitles = new Set<string>();
       const initialDedupped: Song[] = [];
       for (const s of album.songs) {
-        const tKey = normalizeSongTitle(s.title);
+        const tKey = normalizeSongTitle(s.title, s.movie || s.album);
         if (!seenTitles.has(tKey)) {
           seenTitles.add(tKey);
           if (s.id) seenIds.add(s.id);
@@ -893,29 +841,14 @@ function AlbumModal({
               const items = extractResults(res);
               if (items.length === 0) break;
               const newSongs = items.map(mapApiSong).filter((s: Song) => {
-                if (!s.audioUrl || !s.id) return false;
-                // Only include songs where this artist is actually credited
-                const artistLower = (s.artist || "").toLowerCase();
-                const targetLower = name.toLowerCase();
-                const nameTokens = targetLower.split(/\s+/).filter((t: string) => t.length > 2);
-                const fullMatch = artistLower.includes(targetLower);
-                const tokenMatch = nameTokens.length >= 2 &&
-                  nameTokens.filter((t: string) => artistLower.includes(t)).length >= Math.min(2, nameTokens.length);
-                if (!fullMatch && !tokenMatch) return false;
-
-                // Exclude cover / tribute / karaoke / lofi / remix versions
-                const titleLower = (s.title || "").toLowerCase();
-                const isNonOriginal = /\b(cover|tribute|mashup|remake|recreated|lofi|slowed|reverb|karaoke|instrumental|acoustic|unplugged)\b/i.test(titleLower) ||
-                                      /\b(cover|tribute|tributes|karaoke|remake|instrumental)\b/i.test(artistLower);
-                if (isNonOriginal) return false;
-
-                const tKey = normalizeSongTitle(s.title);
+                if (!s.audioUrl || !s.id || isDevotionalSong(s)) return false;
+                const tKey = normalizeSongTitle(s.title, s.movie || s.album);
                 if (seenIds.has(s.id) || seenTitles.has(tKey)) return false;
                 return true;
               });
               for (const s of newSongs) {
                 seenIds.add(s.id);
-                seenTitles.add(normalizeSongTitle(s.title));
+                seenTitles.add(normalizeSongTitle(s.title, s.movie || s.album));
                 accumulated.push(s);
               }
               if (newSongs.length > 0 && !controller.signal.aborted) setSongs([...accumulated]);
@@ -931,7 +864,7 @@ function AlbumModal({
           if (!controller.signal.aborted) {
             const seen = new Set<string>();
             const dedupped = fetched.filter(s => {
-              const tKey = normalizeSongTitle(s.title);
+              const tKey = normalizeSongTitle(s.title, s.movie || s.album);
               if (seen.has(tKey)) return false;
               seen.add(tKey);
               return true;
@@ -969,18 +902,18 @@ function AlbumModal({
       <View style={modalStyles.content}>
         {/* Header */}
         <View style={modalStyles.header}>
-          <TouchableOpacity delayPressIn={0} onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
+          <TouchableOpacity onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
             <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
           </TouchableOpacity>
 
           <View style={modalStyles.headerMeta}>
             <Text style={modalStyles.headerTitle} numberOfLines={1}>{album.title}</Text>
             <Text style={modalStyles.headerSubtitle} numberOfLines={1}>
-              {typeLabel}
+              {typeLabel} · {songs.length} songs
             </Text>
           </View>
 
-          <TouchableOpacity delayPressIn={0} onPress={handleLikePress} style={[modalStyles.backBtn, { marginRight: 12 }]} activeOpacity={0.7}>
+          <TouchableOpacity onPress={handleLikePress} style={[modalStyles.backBtn, { marginRight: 12 }]} activeOpacity={0.7}>
             <MaterialCommunityIcons
               name={isLiked ? "heart" : "heart-outline"}
               size={20}
@@ -989,7 +922,11 @@ function AlbumModal({
           </TouchableOpacity>
 
           {songs.length > 0 ? (
-            <TouchableOpacity delayPressIn={0} onPress={() => playSong(songs[0], songs)} style={modalStyles.playBtn} activeOpacity={0.8}>
+            <TouchableOpacity
+              onPress={() => playSong(songs[0], songs)}
+              style={modalStyles.playBtn}
+              activeOpacity={0.8}
+            >
               <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
             </TouchableOpacity>
           ) : null}
@@ -1008,17 +945,34 @@ function AlbumModal({
 
         {/* Songs scroll */}
         <ScrollView style={modalStyles.songsScroll} contentContainerStyle={modalStyles.songsScrollContent}>
-          <View style={{ paddingBottom: 60 }}>
-            {songs.map((song) => (
-              <SongRow
-                key={song.id}
-                song={song}
-                queue={songs}
-                onRequireAuth={onRequireAuth}
-                hideActions={true}
-              />
-            ))}
-          </View>
+          {loadingMore && songs.length === 0 ? (
+            <View style={modalStyles.centerLoading}>
+              <ActivityIndicator size="large" color="#1DB954" />
+              <Text style={modalStyles.loadingText}>
+                {albumType === "artist" ? "Loading full discography…" : "Loading songs…"}
+              </Text>
+            </View>
+          ) : (
+            <View style={{ paddingBottom: 60 }}>
+              {songs.map((song) => (
+                <SongRow
+                  key={song.id}
+                  song={song}
+                  queue={songs}
+                  onRequireAuth={onRequireAuth}
+                />
+              ))}
+
+              {loadingMore && songs.length > 0 ? (
+                <View style={modalStyles.fetchingMoreRow}>
+                  <ActivityIndicator size="small" color="#1DB954" />
+                  <Text style={modalStyles.fetchingMoreText}>
+                    Fetching more songs… ({songs.length} so far)
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          )}
         </ScrollView>
       </View>
     </View>
@@ -1070,19 +1024,23 @@ function LanguageCategoryModal({
       <View style={modalStyles.content}>
         {/* Header */}
         <View style={modalStyles.header}>
-          <TouchableOpacity delayPressIn={0} onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
+          <TouchableOpacity onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
             <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
           </TouchableOpacity>
 
           <View style={modalStyles.headerMeta}>
             <Text style={modalStyles.headerTitle}>{label} Music</Text>
             <Text style={modalStyles.headerSubtitle}>
-              {label} Playlist
+              {loading ? "Loading…" : `${allSongs.length}+ songs`}
             </Text>
           </View>
 
           {displaySongs.length > 0 ? (
-            <TouchableOpacity delayPressIn={0} onPress={() => playSong(displaySongs[0], displaySongs)} style={modalStyles.playBtn} activeOpacity={0.8}>
+            <TouchableOpacity
+              onPress={() => playSong(displaySongs[0], displaySongs)}
+              style={modalStyles.playBtn}
+              activeOpacity={0.8}
+            >
               <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
             </TouchableOpacity>
           ) : null}
@@ -1097,11 +1055,17 @@ function LanguageCategoryModal({
         >
           {tabs.map((tab) => {
             const isActive = activeTab === tab;
+            const count = tab === "All" ? allSongs.length : (subSongs[tab]?.length || 0);
 
             return (
-              <TouchableOpacity delayPressIn={0} key={tab} onPress={() => setActiveTab(tab)} style={[styles.langTab, isActive && styles.activeLangTab]} activeOpacity={0.7}>
+              <TouchableOpacity
+                key={tab}
+                onPress={() => setActiveTab(tab)}
+                style={[styles.langTab, isActive && styles.activeLangTab]}
+                activeOpacity={0.7}
+              >
                 <Text style={[styles.langTabText, isActive && styles.activeLangTabText]}>
-                  {tab}
+                  {tab} {count > 0 ? `(${count})` : ""}
                 </Text>
               </TouchableOpacity>
             );
@@ -1128,7 +1092,6 @@ function LanguageCategoryModal({
                   song={song}
                   queue={displaySongs}
                   onRequireAuth={onRequireAuth}
-                  hideActions={true}
                 />
               ))}
             </View>
@@ -1157,18 +1120,19 @@ function AlbumRow({
   roundCovers?: boolean;
   setParentScrollEnabled?: (enabled: boolean) => void;
 }) {
-  const scrollHandlers = setParentScrollEnabled ? {
-    onTouchStart: () => setParentScrollEnabled(false),
-    onTouchEnd: () => setParentScrollEnabled(true),
-    onTouchCancel: () => setParentScrollEnabled(true),
-  } : {};
-
   return (
     <View style={styles.albumRowContainer}>
       <Text style={styles.sectionHeader}>{title}</Text>
 
       {loading ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalScrollPadding} {...scrollHandlers}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.horizontalScrollPadding}
+          onTouchStart={() => setParentScrollEnabled?.(false)}
+          onTouchEnd={() => setParentScrollEnabled?.(true)}
+          onMomentumScrollEnd={() => setParentScrollEnabled?.(true)}
+        >
           {Array.from({ length: 6 }).map((_, i) => (
             <View key={i} style={styles.albumLoaderItem}>
               <View
@@ -1182,13 +1146,27 @@ function AlbumRow({
           ))}
         </ScrollView>
       ) : albums.length > 0 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalScrollPadding} {...scrollHandlers}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.horizontalScrollPadding}
+          onTouchStart={() => setParentScrollEnabled?.(false)}
+          onTouchEnd={() => setParentScrollEnabled?.(true)}
+          onMomentumScrollEnd={() => setParentScrollEnabled?.(true)}
+        >
           {albums.map((album) => {
             const { playSong } = usePlayer();
 
             return (
               <View key={album.title} style={styles.albumItem}>
-                <TouchableOpacity delayPressIn={0} onPress={() => onOpen(album)} style={[ styles.albumArtBtn, roundCovers && { borderRadius: 60 } ]} activeOpacity={0.8}>
+                <TouchableOpacity
+                  onPress={() => onOpen(album)}
+                  style={[
+                    styles.albumArtBtn,
+                    roundCovers && { borderRadius: 60 }
+                  ]}
+                  activeOpacity={0.8}
+                >
                   {album.coverArt ? (
                     <Image source={{ uri: album.coverArt }} style={styles.albumCoverImage} />
                   ) : (
@@ -1198,16 +1176,39 @@ function AlbumRow({
                   )}
 
                   {!roundCovers && album.songs.length > 0 ? (
-                    <TouchableOpacity delayPressIn={0} onPress={() => playSong(album.songs[0], album.songs)} style={styles.playOverlayBtn} activeOpacity={0.8}>
+                    <TouchableOpacity
+                      onPress={() => playSong(album.songs[0], album.songs)}
+                      style={styles.playOverlayBtn}
+                      activeOpacity={0.8}
+                    >
                       <MaterialCommunityIcons name="play" size={16} color="#000" style={{ marginLeft: 1 }} />
                     </TouchableOpacity>
                   ) : null}
 
+                  {showCount && album.songs.length > 0 ? (
+                    <View style={styles.countBadge}>
+                      <Text style={styles.countBadgeText}>
+                        {album.fullyLoaded ? album.songs.length : `${album.songs.length}+`}
+                      </Text>
+                    </View>
+                  ) : null}
+
+                  {roundCovers && !album.fullyLoaded ? (
+                    <View style={styles.loadingSpinnerBadge}>
+                      <ActivityIndicator size="small" color="#fff" />
+                    </View>
+                  ) : null}
                 </TouchableOpacity>
 
                 <Text style={styles.albumTitleText} numberOfLines={1}>
                   {album.title}
                 </Text>
+
+                {showCount && !roundCovers ? (
+                  <Text style={styles.albumSubtitleText} numberOfLines={1}>
+                    {album.fullyLoaded ? `${album.songs.length} songs` : `${album.songs.length}+ songs`}
+                  </Text>
+                ) : null}
               </View>
             );
           })}
@@ -1236,11 +1237,15 @@ function CollapsibleSection({
       <Text style={styles.sectionHeader}>{title}</Text>
       <View style={styles.songsListContainer}>
         {visible.map((song) => (
-          <SongRow key={song.id} song={song} queue={songs} onRequireAuth={onRequireAuth} hideActions={true} />
+          <SongRow key={song.id} song={song} queue={songs} onRequireAuth={onRequireAuth} />
         ))}
       </View>
       {songs.length > PREVIEW ? (
-        <TouchableOpacity delayPressIn={0} onPress={() => setExpanded(!expanded)} style={styles.expandBtn} activeOpacity={0.7}>
+        <TouchableOpacity
+          onPress={() => setExpanded(!expanded)}
+          style={styles.expandBtn}
+          activeOpacity={0.7}
+        >
           <MaterialCommunityIcons
             name={expanded ? "chevron-up" : "chevron-down"}
             size={16}
@@ -1270,7 +1275,11 @@ function SimpleSection({ title, children }: { title: string; children: React.Rea
 function QuickPick({ song, queue }: { song: Song; queue: Song[] }) {
   const { playSong } = usePlayer();
   return (
-    <TouchableOpacity delayPressIn={0} onPress={() => playSong(song, queue)} style={styles.quickPickCard} activeOpacity={0.8}>
+    <TouchableOpacity
+      onPress={() => playSong(song, queue)}
+      style={styles.quickPickCard}
+      activeOpacity={0.8}
+    >
       {song.albumArt ? (
         <Image source={{ uri: song.albumArt }} style={styles.quickPickArt} />
       ) : (
@@ -1293,7 +1302,29 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showUserMenu, setShowUserMenu]   = useState(false);
   const navigation: any                   = useNavigation();
-  const isOffline = false;
+  const [isOffline, setIsOffline]         = useState(false);
+
+  // Check connectivity periodically
+  useEffect(() => {
+    const checkConnectivity = async () => {
+      try {
+        const res = await Promise.race([
+          fetch("https://clients3.google.com/generate_204"),
+          new Promise<null>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 4000))
+        ]);
+        if (res && res.status === 204) {
+          setIsOffline(false);
+        } else {
+          setIsOffline(true);
+        }
+      } catch {
+        setIsOffline(true);
+      }
+    };
+    checkConnectivity();
+    const intervalId = setInterval(checkConnectivity, 5000);
+    return () => clearInterval(intervalId);
+  }, []);
 
   const [sections,     setSections]     = useState<SectionData[]>(() => homePagePrefetcher.sections);
   const [filmAlbums,   setFilmAlbums]   = useState<AlbumData[]>  (() => homePagePrefetcher.filmAlbums);
@@ -1366,7 +1397,24 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
     return seededShuffle(filteredPool, minuteTick).slice(0, 12);
   })();
 
-
+  if (isOffline) {
+    return (
+      <View style={[styles.container, modalStyles.offlineContainer]}>
+        <MaterialCommunityIcons name="cloud-off-outline" size={64} color="#1DB954" style={{ marginBottom: 16 }} />
+        <Text style={modalStyles.offlineTitle}>You are offline</Text>
+        <Text style={modalStyles.offlineDescription}>
+          Connect to the internet to stream songs, or listen to your downloaded music offline.
+        </Text>
+        <TouchableOpacity
+          style={modalStyles.offlineBtn}
+          onPress={() => navigation.navigate("Library" as any)}
+          activeOpacity={0.8}
+        >
+          <Text style={modalStyles.offlineBtnText}>Go to Downloads</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -1380,16 +1428,34 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
             <Text style={styles.headerLogoText}>Medley</Text>
           </View>
 
-          {(global as any).triggerOTAUpdateModal && (
-            <TouchableOpacity 
-              delayPressIn={0} 
-              onPress={() => (global as any).triggerOTAUpdateModal()} 
-              style={styles.devHeaderBtn}
+          <View style={styles.headerRight}>
+            <TouchableOpacity
+              onPress={() => user ? setShowUserMenu(!showUserMenu) : setShowAuthModal(true)}
+              style={[styles.userMenuBtn, user && styles.activeUserMenuBtn]}
               activeOpacity={0.7}
             >
-              <MaterialCommunityIcons name="cloud-refresh" size={20} color="#1DB954" />
+              {user ? (
+                <Text style={styles.userInitial}>
+                  {(user.username?.charAt(0) || user.email?.charAt(0) || "U").toUpperCase()}
+                </Text>
+              ) : (
+                <MaterialCommunityIcons name="account" size={18} color="#fff" />
+              )}
             </TouchableOpacity>
-          )}
+
+            {showUserMenu && user ? (
+              <View style={styles.userDropdown}>
+                <View style={styles.dropdownInfo}>
+                  <Text style={styles.dropdownName} numberOfLines={1}>{user.username}</Text>
+                  <Text style={styles.dropdownEmail} numberOfLines={1}>{user.email}</Text>
+                </View>
+                <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn} activeOpacity={0.7}>
+                  <MaterialCommunityIcons name="logout" size={14} color="#fff" style={{ marginRight: 6 }} />
+                  <Text style={styles.logoutText}>Sign Out</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+          </View>
         </View>
 
         {/* Quick Picks */}
@@ -1446,7 +1512,6 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
                 song={song}
                 queue={recentlyPlayed}
                 onRequireAuth={handleRequireAuth}
-                hideActions={true}
               />
             ))}
           </SimpleSection>
@@ -1490,6 +1555,7 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
       ) : null}
 
       {/* Authentication Dialog */}
+      <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} />
     </View>
   );
 }
@@ -1549,88 +1615,64 @@ class HomePagePrefetcher {
                        && albCached.data.artist.every(a => a.fullyLoaded);
 
     if (sectionsOk && albumsOk) {
-      this._ready = true;
-      this._notify();
       setTimeout(() => { this._running = false; this.start(); }, CACHE_TTL_MS);
       return;
     }
 
-    const promises: Promise<any>[] = [];
-
     if (!sectionsOk) {
-      promises.push((async () => {
-        const seen = new Set<string>();
-        this._sections.forEach(s => s.songs.forEach(song => {
-          if (song.id) {
-            seen.add(song.id);
-            const titleKey = normalizeSongTitle(song.title);
-            if (titleKey) seen.add(titleKey);
-          }
-        }));
+      const seen = new Set<string>();
+      this._sections.forEach(s => s.songs.forEach(song => {
+        if (song.id) seen.add(song.id);
+        const norm = normalizeSongTitle(song.title, song.movie || song.album);
+        if (norm) seen.add(norm);
+      }));
 
-        const allResults = await Promise.all(
-          SECTION_DEFS.map(({ pool, seed }) => fetchSection(pickQuery(pool, seed), 20))
-        );
+      const allResults = await Promise.all(
+        SECTION_DEFS.map(({ pool, seed }) => fetchSection(pickQuery(pool, seed), 20))
+      );
 
-        let updated: SectionData[] = [...this._sections];
-        allResults.forEach((songs, idx) => {
-          const { title } = SECTION_DEFS[idx];
-          const unique    = dedup(songs, seen);
-          if (unique.length === 0) return;
-          updated = [...updated.filter(s => s.title !== title), { title, songs: unique }];
-        });
-        updated.sort((a, b) =>
-          SECTION_DEFS.findIndex(d => d.title === a.title) -
-          SECTION_DEFS.findIndex(d => d.title === b.title)
-        );
-        this._sections = updated;
-        cacheSet(this.secKey, updated);
-        this._notify();
-      })());
+      let updated: SectionData[] = [...this._sections];
+      allResults.forEach((songs, idx) => {
+        const { title } = SECTION_DEFS[idx];
+        const unique    = dedup(songs, seen);
+        if (unique.length === 0) return;
+        updated = [...updated.filter(s => s.title !== title), { title, songs: unique }];
+      });
+      updated.sort((a, b) =>
+        SECTION_DEFS.findIndex(d => d.title === a.title) -
+        SECTION_DEFS.findIndex(d => d.title === b.title)
+      );
+      this._sections = updated;
+      this._ready    = true;
+      cacheSet(this.secKey, updated);
+      this._notify();
     }
 
-    let fetchFilmPromise: Promise<AlbumData[]> = Promise.resolve(this._filmAlbums);
     if (!albCached || this._filmAlbums.length === 0) {
-      fetchFilmPromise = (async () => {
-        const dummyRef = { current: false };
-        const film     = await fetchCurrentYearFilmAlbums(dummyRef);
-        this._filmAlbums = film;
-        this._notify();
-        return film;
-      })();
-      promises.push(fetchFilmPromise);
+      const dummyRef = { current: false };
+      const film     = await fetchCurrentYearFilmAlbums(dummyRef);
+      this._filmAlbums = film;
+      cacheSet(this.albKey, { film, artist: this._artistAlbums });
+      this._notify();
     }
 
     if (!albumsOk) {
-      promises.push((async () => {
-        const dummyRef = { current: false };
-        const filmSnap = await fetchFilmPromise;
+      const dummyRef = { current: false };
+      const filmSnap = this._filmAlbums;
 
-        await loadArtistAlbums(dummyRef, (updated) => {
-          const prev = this._artistAlbums;
-          const idx  = prev.findIndex(a => a.title === updated.title);
-          const next = idx >= 0
-            ? [...prev.slice(0, idx), updated, ...prev.slice(idx + 1)]
-            : [...prev, updated];
-          this._artistAlbums = next;
-          if (next.length > 0 && next.every(a => a.fullyLoaded)) {
-            cacheSet(this.albKey, { film: filmSnap, artist: next });
-          }
-          this._notify();
-        });
-      })());
+      await loadArtistAlbums(dummyRef, (updated) => {
+        const prev = this._artistAlbums;
+        const idx  = prev.findIndex(a => a.title === updated.title);
+        const next = idx >= 0
+          ? [...prev.slice(0, idx), updated, ...prev.slice(idx + 1)]
+          : [...prev, updated];
+        this._artistAlbums = next;
+        if (next.length > 0 && next.every(a => a.fullyLoaded)) {
+          cacheSet(this.albKey, { film: filmSnap, artist: next });
+        }
+        this._notify();
+      });
     }
-
-    if (promises.length > 0) {
-      try {
-        await Promise.all(promises);
-      } catch (err) {
-        console.warn("HomePagePrefetcher parallel prefetch error:", err);
-      }
-    }
-
-    this._ready = true;
-    this._notify();
 
     setTimeout(() => { this._running = false; this.start(); }, CACHE_TTL_MS);
   }
@@ -1682,11 +1724,6 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     backgroundColor: "#121212",
     zIndex: 10,
-  },
-  devHeaderBtn: {
-    padding: 6,
-    borderRadius: 20,
-    backgroundColor: "rgba(29, 185, 84, 0.1)",
   },
   headerLeft: {
     flexDirection: "row",

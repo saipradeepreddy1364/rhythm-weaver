@@ -57,8 +57,21 @@ interface LibraryContextType {
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
-function normalizeSongTitle(title: string): string {
+export function normalizeSongTitle(title: string, movie?: string, album?: string): string {
   let s = (title || "").toLowerCase().trim();
+
+  const cleanAndReplace = (name?: string) => {
+    if (!name) return;
+    const n = name.toLowerCase().trim();
+    if (n.length > 2) {
+      const escaped = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      s = s.replace(new RegExp(`\\s*[-|–|—|:]?\\s*\\b${escaped}\\b`, "gi"), "");
+    }
+  };
+  
+  cleanAndReplace(movie);
+  cleanAndReplace(album);
+
   while (true) {
     const prev = s;
     s = s
@@ -76,14 +89,6 @@ function normalizeSongTitle(title: string): string {
 }
 
 function dbRowToSong(row: any): Song {
-  // If the database uses JSONB column schema, extract from song_data
-  if (row.song_data) {
-    const song = typeof row.song_data === "string" ? JSON.parse(row.song_data) : row.song_data;
-    return {
-      ...song,
-      id: row.song_id || song.id || row.id,
-    };
-  }
   return {
     id:       row.song_id || row.id,
     title:    row.song_title || row.title || "",
@@ -103,10 +108,10 @@ const LibraryContext = createContext<LibraryContextType | undefined>(undefined);
 export function LibraryProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
 
-  const [likedAlbums, setLikedAlbums]         = useState<AlbumData[]>([]);
   const [likedSongs, setLikedSongs]           = useState<Song[]>([]);
   const [recentlyPlayed, setRecentlyPlayed]   = useState<Song[]>([]);
   const [storedPlaylists, setStoredPlaylists] = useState<StoredPlaylist[]>([]);
+  const [likedAlbums, setLikedAlbums]         = useState<AlbumData[]>([]);
 
   // ── Load liked albums ────────────────────────────────────────────────────────
 
@@ -246,15 +251,16 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   // Trigger loads when user changes
   useEffect(() => {
-    loadLikedAlbums();
     if (user) {
       loadLikedSongs();
       loadRecentlyPlayed();
       loadPlaylists();
+      loadLikedAlbums();
     } else {
       setLikedSongs([]);
       setRecentlyPlayed([]);
       setStoredPlaylists([]);
+      setLikedAlbums([]);
     }
   }, [user, loadLikedSongs, loadRecentlyPlayed, loadPlaylists, loadLikedAlbums]);
 
@@ -278,7 +284,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
     try {
       const audioUrl = song.audioUrl || `https://musicbackend-xg4u.onrender.com/api/songs/${song.id}/stream`;
-      const { error } = await supabase.from("recently_played").upsert({
+      await supabase.from("recently_played").upsert({
         user_id: user.id,
         song_id: song.id,
         song_title: song.title,
@@ -289,16 +295,6 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         song_duration: song.duration || 0,
         played_at: new Date().toISOString(),
       }, { onConflict: "user_id,song_id" });
-
-      if (error) {
-        // Fallback to JSONB schema upsert
-        await supabase.from("recently_played").upsert({
-          user_id: user.id,
-          song_id: song.id,
-          song_data: song,
-          played_at: new Date().toISOString(),
-        }, { onConflict: "user_id,song_id" });
-      }
     } catch (err) {
       console.error("Failed to save recently played track:", err);
     }
@@ -309,10 +305,10 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const isLiked = useCallback(
     (song: Song) => {
       if (!song) return false;
-      const queryNorm = normalizeSongTitle(song.title);
+      const queryNorm = normalizeSongTitle(song.title, song.movie || song.album);
       return likedSongs.some((s) => {
         if (s.id === song.id) return true;
-        const sNorm = normalizeSongTitle(s.title);
+        const sNorm = normalizeSongTitle(s.title, s.movie || s.album);
         return sNorm && queryNorm && sNorm === queryNorm;
       });
     },
@@ -323,10 +319,10 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     async (song: Song) => {
       if (!user || !song) return;
       
-      const queryNorm = normalizeSongTitle(song.title);
+      const queryNorm = normalizeSongTitle(song.title, song.movie || song.album);
       const matched = likedSongs.filter((s) => {
         if (s.id === song.id) return true;
-        const sNorm = normalizeSongTitle(s.title);
+        const sNorm = normalizeSongTitle(s.title, s.movie || s.album);
         return sNorm && queryNorm && sNorm === queryNorm;
       });
       
@@ -336,7 +332,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         if (liked) {
           setLikedSongs((prev) => prev.filter((s) => {
             if (s.id === song.id) return false;
-            const sNorm = normalizeSongTitle(s.title);
+            const sNorm = normalizeSongTitle(s.title, s.movie || s.album);
             return !(sNorm && queryNorm && sNorm === queryNorm);
           }));
           
@@ -350,7 +346,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         } else {
           setLikedSongs((prev) => [song, ...prev]);
           const audioUrl = song.audioUrl || `https://musicbackend-xg4u.onrender.com/api/songs/${song.id}/stream`;
-          const { error } = await supabase.from("liked_songs").insert({
+          await supabase.from("liked_songs").insert({
             user_id: user.id,
             song_id: song.id,
             song_title: song.title,
@@ -360,15 +356,6 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
             song_audio_url: audioUrl,
             song_duration: song.duration || 0,
           });
-
-          if (error) {
-            // Fallback to JSONB schema insert
-            await supabase.from("liked_songs").insert({
-              user_id: user.id,
-              song_id: song.id,
-              song_data: song,
-            });
-          }
         }
       } catch (err) {
         console.error("Failed to toggle like song:", err);
@@ -458,7 +445,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         );
 
         const audioUrl = song.audioUrl || `https://musicbackend-xg4u.onrender.com/api/songs/${song.id}/stream`;
-        const { error } = await supabase.from("playlist_songs").insert({
+        await supabase.from("playlist_songs").insert({
           playlist_id: playlistId,
           song_id: song.id,
           song_title: song.title,
@@ -467,18 +454,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
           song_album_art: song.albumArt || "",
           song_audio_url: audioUrl,
           song_duration: song.duration || 0,
-          user_id: user.id,
         });
-
-        if (error) {
-          // Fallback to JSONB schema insert
-          await supabase.from("playlist_songs").insert({
-            playlist_id: playlistId,
-            user_id: user.id,
-            song_id: song.id,
-            song_data: song,
-          });
-        }
       } catch (err) {
         console.error("Failed to add song to playlist:", err);
       }
@@ -538,8 +514,6 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     []
   );
 
-
-
   const isAlbumLiked = useCallback(
     (album: AlbumData) => {
       if (!album) return false;
@@ -593,7 +567,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
             .eq("album_title", album.title);
           
           if (error) {
-            console.warn("[Library] DB delete failed (expected if table not created yet):", error.message);
+            console.warn("[Library] DB delete failed:", error.message);
           }
         } else {
           const { error } = await supabase.from("liked_albums").insert({
@@ -605,7 +579,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
           });
 
           if (error) {
-            console.warn("[Library] DB insert failed (expected if table not created yet):", error.message);
+            console.warn("[Library] DB insert failed:", error.message);
           }
         }
       } catch (err) {
