@@ -6,7 +6,7 @@ import { api, extractResults } from "../services/api";
 import { SongRow } from "../components/SongRow";
 import { usePlayer } from "../context/PlayerContext";
 import { useAuth } from "../context/AuthContext";
-import { useLibrary } from "../context/LibraryContext";
+import { useLibrary, normalizeSongTitle } from "../context/LibraryContext";
 import { AuthModal } from "../components/AuthModal";
 import { MiniPlayer } from "../components/MiniPlayer";
 import { localStorage, sessionStorage } from "../lib/storage";
@@ -392,10 +392,17 @@ function startBackgroundPreload() {
               artist: decodeHtml((s as Song & { artist?: string }).artist || ""),
               album:  decodeHtml((s as Song & { album?: string }).album   || ""),
               movie:  decodeHtml((s as Song & { movie?: string }).movie   || ""),
-            } as Song)).filter((s: Song) => Boolean(s.audioUrl));
+            } as Song)).filter((s: Song) => Boolean(s.audioUrl) && !isDevotionalSong(s));
             let added = 0;
             for (const s of songs) {
-              if (s.id && !seen.has(s.id)) { seen.add(s.id); all.push(s); added++; }
+              if (!s.id) continue;
+              const norm = normalizeSongTitle(s.title);
+              if (!seen.has(s.id) && (!norm || !seen.has(norm))) {
+                seen.add(s.id);
+                if (norm) seen.add(norm);
+                all.push(s);
+                added++;
+              }
             }
             if (items.length < 50 || added === 0) break;
           } catch { break; }
@@ -489,6 +496,22 @@ function cleanSong(song: Song): Song {
   };
 }
 
+
+
+function isDevotionalSong(song: Song): boolean {
+  const title = (song.title || "").toLowerCase();
+  const album = (song.album || song.movie || "").toLowerCase();
+  
+  const keywords = [
+    "bhajan", "aarti", "chalisa", "devotional", "bhakti", "mantra", 
+    "stotram", "dhun", "stotra", "shlok", "shloka", "kirtan", 
+    "hanuman chalisa", "shri ram", "krishna bhajan", "ganesha bhajan",
+    "shiv bhajan", "sai baba", "spiritual", "durga chalisa"
+  ];
+  
+  return keywords.some(kw => title.includes(kw) || album.includes(kw));
+}
+
 async function fetchSection(query: string, limit = 50): Promise<Song[]> {
   try {
     const res = await api.searchSongs(query, 1, limit);
@@ -496,7 +519,7 @@ async function fetchSection(query: string, limit = 50): Promise<Song[]> {
     return raw
       .map(mapApiSong)
       .map(cleanSong)
-      .filter((s) => Boolean(s.audioUrl));
+      .filter((s) => Boolean(s.audioUrl) && !isDevotionalSong(s));
   } catch {
     return [];
   }
@@ -509,8 +532,11 @@ async function fetchLanguageSongs(queries: string[], targetPerQuery = 50): Promi
   for (const r of results) {
     if (r.status !== "fulfilled") continue;
     for (const s of r.value) {
-      if (s.id && !seen.has(s.id)) {
+      if (!s.id) continue;
+      const norm = normalizeSongTitle(s.title, s.movie || s.album);
+      if (!seen.has(s.id) && (!norm || !seen.has(norm))) {
         seen.add(s.id);
+        if (norm) seen.add(norm);
         all.push(s);
       }
     }
@@ -521,8 +547,11 @@ async function fetchLanguageSongs(queries: string[], targetPerQuery = 50): Promi
 function dedup(songs: Song[], seen: Set<string>): Song[] {
   const out: Song[] = [];
   for (const s of songs) {
-    if (s.id && !seen.has(s.id)) {
+    if (!s || !s.id) continue;
+    const norm = normalizeSongTitle(s.title, s.movie || s.album);
+    if (!seen.has(s.id) && (!norm || !seen.has(norm))) {
       seen.add(s.id);
+      if (norm) seen.add(norm);
       out.push(s);
     }
   }
@@ -538,11 +567,14 @@ async function fetchAllPages(query: string, maxPages = 60, seen?: Set<string>): 
       const res   = await api.searchSongs(query, page, 50);
       const items = extractResults(res);
       if (items.length === 0) break;
-      const songs = items.map(mapApiSong).map(cleanSong).filter((s) => Boolean(s.audioUrl));
+      const songs = items.map(mapApiSong).map(cleanSong).filter((s) => Boolean(s.audioUrl) && !isDevotionalSong(s));
       let added = 0;
       for (const s of songs) {
-        if (s.id && !localSeen.has(s.id)) {
+        if (!s.id) continue;
+        const norm = normalizeSongTitle(s.title, s.movie || s.album);
+        if (!localSeen.has(s.id) && (!norm || !localSeen.has(norm))) {
           localSeen.add(s.id);
+          if (norm) localSeen.add(norm);
           all.push(s);
           added++;
         }
@@ -729,10 +761,22 @@ function AlbumModal({
   onRequireAuth: () => void;
 }) {
   const { playSong }                  = usePlayer();
+  const { isAlbumLiked, toggleLikeAlbum } = useLibrary();
+
+  const isLiked = isAlbumLiked(album);
+
+  const handleLikePress = async () => {
+    await toggleLikeAlbum({
+      ...album,
+      songs,
+      fullyLoaded: !loadingMore
+    });
+  };
+
   const [songs, setSongs]             = useState<Song[]>(() => {
     const seen = new Set<string>();
     return album.songs.filter(s => {
-      const tKey = s.title.toLowerCase().trim();
+      const tKey = normalizeSongTitle(s.title, s.movie || s.album);
       if (seen.has(tKey)) return false;
       seen.add(tKey);
       return true;
@@ -744,7 +788,7 @@ function AlbumModal({
     if (album.fullyLoaded) {
       const seen = new Set<string>();
       const dedupped = album.songs.filter(s => {
-        const tKey = s.title.toLowerCase().trim();
+        const tKey = normalizeSongTitle(s.title, s.movie || s.album);
         if (seen.has(tKey)) return false;
         seen.add(tKey);
         return true;
@@ -775,7 +819,7 @@ function AlbumModal({
       const seenTitles = new Set<string>();
       const initialDedupped: Song[] = [];
       for (const s of album.songs) {
-        const tKey = s.title.toLowerCase().trim();
+        const tKey = normalizeSongTitle(s.title, s.movie || s.album);
         if (!seenTitles.has(tKey)) {
           seenTitles.add(tKey);
           if (s.id) seenIds.add(s.id);
@@ -796,13 +840,13 @@ function AlbumModal({
               if (items.length === 0) break;
               const newSongs = items.map(mapApiSong).filter((s: Song) => {
                 if (!s.audioUrl || !s.id) return false;
-                const tKey = s.title.toLowerCase().trim();
+                const tKey = normalizeSongTitle(s.title, s.movie || s.album);
                 if (seenIds.has(s.id) || seenTitles.has(tKey)) return false;
                 return true;
               });
               for (const s of newSongs) {
                 seenIds.add(s.id);
-                seenTitles.add(s.title.toLowerCase().trim());
+                seenTitles.add(normalizeSongTitle(s.title, s.movie || s.album));
                 accumulated.push(s);
               }
               if (newSongs.length > 0 && !controller.signal.aborted) setSongs([...accumulated]);
@@ -818,7 +862,7 @@ function AlbumModal({
           if (!controller.signal.aborted) {
             const seen = new Set<string>();
             const dedupped = fetched.filter(s => {
-              const tKey = s.title.toLowerCase().trim();
+              const tKey = normalizeSongTitle(s.title, s.movie || s.album);
               if (seen.has(tKey)) return false;
               seen.add(tKey);
               return true;
@@ -867,6 +911,14 @@ function AlbumModal({
                 {typeLabel} · {songs.length} songs
               </Text>
             </View>
+
+            <TouchableOpacity onPress={handleLikePress} style={[modalStyles.backBtn, { marginRight: 12 }]} activeOpacity={0.7}>
+              <MaterialCommunityIcons
+                name={isLiked ? "heart" : "heart-outline"}
+                size={20}
+                color={isLiked ? "#f43f5e" : "#fff"}
+              />
+            </TouchableOpacity>
 
             {songs.length > 0 ? (
               <TouchableOpacity
@@ -1510,7 +1562,11 @@ class HomePagePrefetcher {
 
     if (!sectionsOk) {
       const seen = new Set<string>();
-      this._sections.forEach(s => s.songs.forEach(song => song.id && seen.add(song.id)));
+      this._sections.forEach(s => s.songs.forEach(song => {
+        if (song.id) seen.add(song.id);
+        const norm = normalizeSongTitle(song.title, song.movie || song.album);
+        if (norm) seen.add(norm);
+      }));
 
       const allResults = await Promise.all(
         SECTION_DEFS.map(({ pool, seed }) => fetchSection(pickQuery(pool, seed), 20))

@@ -4,7 +4,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Song, mapApiSong } from "../data/songs";
 import { api, extractResults } from "../services/api";
 import { useAuth } from "../context/AuthContext";
-import { useLibrary, Playlist } from "../context/LibraryContext";
+import { useLibrary, Playlist, normalizeSongTitle } from "../context/LibraryContext";
 import { usePlayer } from "../context/PlayerContext";
 import { SongRow } from "../components/SongRow";
 import { AuthModal } from "../components/AuthModal";
@@ -393,10 +393,17 @@ function startBackgroundPreload() {
               artist: decodeHtml((s as Song & { artist?: string }).artist || ""),
               album:  decodeHtml((s as Song & { album?: string }).album   || ""),
               movie:  decodeHtml((s as Song & { movie?: string }).movie   || ""),
-            } as Song)).filter((s: Song) => Boolean(s.audioUrl));
+            } as Song)).filter((s: Song) => Boolean(s.audioUrl) && !isDevotionalSong(s));
             let added = 0;
             for (const s of songs) {
-              if (s.id && !seen.has(s.id)) { seen.add(s.id); all.push(s); added++; }
+              if (!s.id) continue;
+              const norm = normalizeSongTitle(s.title);
+              if (!seen.has(s.id) && (!norm || !seen.has(norm))) {
+                seen.add(s.id);
+                if (norm) seen.add(norm);
+                all.push(s);
+                added++;
+              }
             }
             if (items.length < 50 || added === 0) break;
           } catch { break; }
@@ -448,6 +455,7 @@ interface AlbumData {
 
 interface HomePageProps {
   onRequireAuth?: () => void;
+  setParentScrollEnabled?: (enabled: boolean) => void;
 }
 
 type RawSong = Song & { primaryArtists?: string; singers?: string };
@@ -464,6 +472,22 @@ function decodeHtml(str: string): string {
     .replace(/&#x27;/g, "'")
     .replace(/&#x2F;/g, "/");
 }
+
+function isDevotionalSong(song: Song): boolean {
+  const title = (song.title || "").toLowerCase();
+  const album = (song.album || song.movie || "").toLowerCase();
+  
+  const keywords = [
+    "bhajan", "aarti", "chalisa", "devotional", "bhakti", "mantra", 
+    "stotram", "dhun", "stotra", "shlok", "shloka", "kirtan", 
+    "hanuman chalisa", "shri ram", "krishna bhajan", "ganesha bhajan",
+    "shiv bhajan", "sai baba", "spiritual", "durga chalisa"
+  ];
+  
+  return keywords.some(kw => title.includes(kw) || album.includes(kw));
+}
+
+
 
 function getArtistName(song: Song): string {
   const raw   = song as RawSong;
@@ -497,7 +521,7 @@ async function fetchSection(query: string, limit = 50): Promise<Song[]> {
     return raw
       .map(mapApiSong)
       .map(cleanSong)
-      .filter((s) => Boolean(s.audioUrl));
+      .filter((s) => Boolean(s.audioUrl) && !isDevotionalSong(s));
   } catch {
     return [];
   }
@@ -510,8 +534,11 @@ async function fetchLanguageSongs(queries: string[], targetPerQuery = 50): Promi
   for (const r of results) {
     if (r.status !== "fulfilled") continue;
     for (const s of r.value) {
-      if (s.id && !seen.has(s.id)) {
+      if (!s.id) continue;
+      const norm = normalizeSongTitle(s.title, s.movie || s.album);
+      if (!seen.has(s.id) && (!norm || !seen.has(norm))) {
         seen.add(s.id);
+        if (norm) seen.add(norm);
         all.push(s);
       }
     }
@@ -522,8 +549,11 @@ async function fetchLanguageSongs(queries: string[], targetPerQuery = 50): Promi
 function dedup(songs: Song[], seen: Set<string>): Song[] {
   const out: Song[] = [];
   for (const s of songs) {
-    if (s.id && !seen.has(s.id)) {
+    if (!s || !s.id) continue;
+    const titleKey = normalizeSongTitle(s.title, s.movie || s.album);
+    if (!seen.has(s.id) && !seen.has(titleKey)) {
       seen.add(s.id);
+      seen.add(titleKey);
       out.push(s);
     }
   }
@@ -539,11 +569,14 @@ async function fetchAllPages(query: string, maxPages = 60, seen?: Set<string>): 
       const res   = await api.searchSongs(query, page, 50);
       const items = extractResults(res);
       if (items.length === 0) break;
-      const songs = items.map(mapApiSong).map(cleanSong).filter((s) => Boolean(s.audioUrl));
+      const songs = items.map(mapApiSong).map(cleanSong).filter((s) => Boolean(s.audioUrl) && !isDevotionalSong(s));
       let added = 0;
       for (const s of songs) {
-        if (s.id && !localSeen.has(s.id)) {
+        if (!s.id) continue;
+        const norm = normalizeSongTitle(s.title, s.movie || s.album);
+        if (!localSeen.has(s.id) && (!norm || !localSeen.has(norm))) {
           localSeen.add(s.id);
+          if (norm) localSeen.add(norm);
           all.push(s);
           added++;
         }
@@ -589,7 +622,7 @@ async function fetchCurrentYearFilmAlbums(unmountedRef: React.RefObject<boolean>
   const results = await Promise.allSettled(
     queries.map((q) =>
       api.searchSongs(q, 1, 20).then((res) =>
-        extractResults(res).map(mapApiSong).map(cleanSong).filter((s) => Boolean(s.audioUrl))
+        extractResults(res).map(mapApiSong).map(cleanSong).filter((s) => Boolean(s.audioUrl) && !isDevotionalSong(s))
       )
     )
   );
@@ -645,7 +678,7 @@ async function loadArtistAlbums(
   const discoveryResults = await Promise.allSettled(
     queries.map((q) =>
       api.searchSongs(q, 1, 20).then((res) =>
-        extractResults(res).map(mapApiSong).map(cleanSong).filter((s) => Boolean(s.audioUrl))
+        extractResults(res).map(mapApiSong).map(cleanSong).filter((s) => Boolean(s.audioUrl) && !isDevotionalSong(s))
       )
     )
   );
@@ -730,10 +763,22 @@ function AlbumModal({
   onRequireAuth: () => void;
 }) {
   const { playSong }                  = usePlayer();
+  const { isAlbumLiked, toggleLikeAlbum } = useLibrary();
+
+  const isLiked = isAlbumLiked(album);
+
+  const handleLikePress = async () => {
+    await toggleLikeAlbum({
+      ...album,
+      songs,
+      fullyLoaded: !loadingMore
+    });
+  };
+
   const [songs, setSongs]             = useState<Song[]>(() => {
     const seen = new Set<string>();
     return album.songs.filter(s => {
-      const tKey = s.title.toLowerCase().trim();
+      const tKey = normalizeSongTitle(s.title, s.movie || s.album);
       if (seen.has(tKey)) return false;
       seen.add(tKey);
       return true;
@@ -745,7 +790,7 @@ function AlbumModal({
     if (album.fullyLoaded) {
       const seen = new Set<string>();
       const dedupped = album.songs.filter(s => {
-        const tKey = s.title.toLowerCase().trim();
+        const tKey = normalizeSongTitle(s.title, s.movie || s.album);
         if (seen.has(tKey)) return false;
         seen.add(tKey);
         return true;
@@ -776,7 +821,7 @@ function AlbumModal({
       const seenTitles = new Set<string>();
       const initialDedupped: Song[] = [];
       for (const s of album.songs) {
-        const tKey = s.title.toLowerCase().trim();
+        const tKey = normalizeSongTitle(s.title, s.movie || s.album);
         if (!seenTitles.has(tKey)) {
           seenTitles.add(tKey);
           if (s.id) seenIds.add(s.id);
@@ -796,14 +841,14 @@ function AlbumModal({
               const items = extractResults(res);
               if (items.length === 0) break;
               const newSongs = items.map(mapApiSong).filter((s: Song) => {
-                if (!s.audioUrl || !s.id) return false;
-                const tKey = s.title.toLowerCase().trim();
+                if (!s.audioUrl || !s.id || isDevotionalSong(s)) return false;
+                const tKey = normalizeSongTitle(s.title, s.movie || s.album);
                 if (seenIds.has(s.id) || seenTitles.has(tKey)) return false;
                 return true;
               });
               for (const s of newSongs) {
                 seenIds.add(s.id);
-                seenTitles.add(s.title.toLowerCase().trim());
+                seenTitles.add(normalizeSongTitle(s.title, s.movie || s.album));
                 accumulated.push(s);
               }
               if (newSongs.length > 0 && !controller.signal.aborted) setSongs([...accumulated]);
@@ -819,7 +864,7 @@ function AlbumModal({
           if (!controller.signal.aborted) {
             const seen = new Set<string>();
             const dedupped = fetched.filter(s => {
-              const tKey = s.title.toLowerCase().trim();
+              const tKey = normalizeSongTitle(s.title, s.movie || s.album);
               if (seen.has(tKey)) return false;
               seen.add(tKey);
               return true;
@@ -867,6 +912,14 @@ function AlbumModal({
               {typeLabel} · {songs.length} songs
             </Text>
           </View>
+
+          <TouchableOpacity onPress={handleLikePress} style={[modalStyles.backBtn, { marginRight: 12 }]} activeOpacity={0.7}>
+            <MaterialCommunityIcons
+              name={isLiked ? "heart" : "heart-outline"}
+              size={20}
+              color={isLiked ? "#f43f5e" : "#fff"}
+            />
+          </TouchableOpacity>
 
           {songs.length > 0 ? (
             <TouchableOpacity
@@ -1057,6 +1110,7 @@ function AlbumRow({
   onOpen,
   showCount,
   roundCovers,
+  setParentScrollEnabled,
 }: {
   title:       string;
   albums:      AlbumData[];
@@ -1064,13 +1118,21 @@ function AlbumRow({
   onOpen:      (album: AlbumData) => void;
   showCount?:  boolean;
   roundCovers?: boolean;
+  setParentScrollEnabled?: (enabled: boolean) => void;
 }) {
   return (
     <View style={styles.albumRowContainer}>
       <Text style={styles.sectionHeader}>{title}</Text>
 
       {loading ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalScrollPadding}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.horizontalScrollPadding}
+          onTouchStart={() => setParentScrollEnabled?.(false)}
+          onTouchEnd={() => setParentScrollEnabled?.(true)}
+          onMomentumScrollEnd={() => setParentScrollEnabled?.(true)}
+        >
           {Array.from({ length: 6 }).map((_, i) => (
             <View key={i} style={styles.albumLoaderItem}>
               <View
@@ -1084,7 +1146,14 @@ function AlbumRow({
           ))}
         </ScrollView>
       ) : albums.length > 0 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalScrollPadding}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.horizontalScrollPadding}
+          onTouchStart={() => setParentScrollEnabled?.(false)}
+          onTouchEnd={() => setParentScrollEnabled?.(true)}
+          onMomentumScrollEnd={() => setParentScrollEnabled?.(true)}
+        >
           {albums.map((album) => {
             const { playSong } = usePlayer();
 
@@ -1226,7 +1295,7 @@ function QuickPick({ song, queue }: { song: Song; queue: Song[] }) {
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
-export default function HomePage({ onRequireAuth }: HomePageProps) {
+export default function HomePage({ onRequireAuth, setParentScrollEnabled }: HomePageProps) {
   const { user, logout }     = useAuth();
   const { recentlyPlayed }   = useLibrary();
 
@@ -1321,7 +1390,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
     const pool = sections.flatMap((s) => s.songs);
     if (pool.length === 0) return [];
     const filteredPool = pool.filter((song) => {
-      if (!song.language) return true;
+      if (!song.language) return false;
       const lang = song.language.toLowerCase().trim();
       return lang === "telugu" || lang === "hindi";
     });
@@ -1421,6 +1490,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
           loading={albumsLoading}
           onOpen={handleOpenAlbum}
           showCount={false}
+          setParentScrollEnabled={setParentScrollEnabled}
         />
 
         {/* Popular Artists */}
@@ -1430,6 +1500,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
           loading={albumsLoading && artistAlbums.length === 0}
           onOpen={handleOpenAlbum}
           roundCovers
+          setParentScrollEnabled={setParentScrollEnabled}
         />
 
         {/* Recently Played */}
@@ -1550,7 +1621,11 @@ class HomePagePrefetcher {
 
     if (!sectionsOk) {
       const seen = new Set<string>();
-      this._sections.forEach(s => s.songs.forEach(song => song.id && seen.add(song.id)));
+      this._sections.forEach(s => s.songs.forEach(song => {
+        if (song.id) seen.add(song.id);
+        const norm = normalizeSongTitle(song.title, song.movie || song.album);
+        if (norm) seen.add(norm);
+      }));
 
       const allResults = await Promise.all(
         SECTION_DEFS.map(({ pool, seed }) => fetchSection(pickQuery(pool, seed), 20))

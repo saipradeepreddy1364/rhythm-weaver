@@ -538,11 +538,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         if (!s || !s.id) return;
         
         // Strict global requirement: only Telugu and Hindi songs allowed in continuous play/radio suggestions
-        if (s.language) {
-          const l = s.language.toLowerCase().trim();
-          if (l !== "telugu" && l !== "hindi") {
-            return;
-          }
+        if (!s.language) {
+          return;
+        }
+        const l = s.language.toLowerCase().trim();
+        if (l !== "telugu" && l !== "hindi") {
+          return;
         }
 
         if (!bypassLangFilter && seedLang && s.language && s.language.toLowerCase().trim() !== seedLang) {
@@ -725,7 +726,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           : `${seed.title || "popular"} song music`;
         console.log(`[PlayerContext] Final YouTube fallback querying: "${query}"`);
         const ytSongs = await searchPiped(query);
-        addSongs(ytSongs, true);
+        const mappedYtSongs = ytSongs.map(song => ({
+          ...song,
+          language: song.language || seedLang
+        }));
+        addSongs(mappedYtSongs, true);
       } catch (err) {
         console.warn("[PlayerContext] Final YouTube fallback failed:", err);
       }
