@@ -22,37 +22,13 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Song, mapApiSong } from "../data/songs";
 import { api } from "../services/api";
 import { localStorage } from "../lib/storage";
+import { normalizeSongTitle } from "./LibraryContext";
 
 // ─── Playback History & Offline Helpers ──────────────────────────────────────
 const RECENT_LIMIT_MS = 3 * 60 * 60 * 1000; // 3 hours
 
 // Normalize song title to strip suffixes like "(From 'Movie')", "- Remix" etc. for deduplication
-function normalizeSongTitle(title: string): string {
-  let s = (title || "").toLowerCase().trim();
-  // Remove common trailing junk in parentheses/brackets recursively
-  while (true) {
-    const prev = s;
-    s = s
-      .replace(/\s*\((from|original|soundtrack|ost|single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|feat|ft|featuring|mix|lyrical|video)[^)]*\)/gi, "")
-      .replace(/\s*\[(from|original|soundtrack|ost|single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|feat|ft|featuring|mix|lyrical|video)[^\]]*\]/gi, "")
-      .trim();
-    if (s === prev) break;
-  }
-  
-  // Remove trailing single / remix / reprise etc. with dash
-  s = s.replace(/\s*-\s*(single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|mix|lyrical|video)\b.*/gi, "");
-  
-  // Strip featuring/feat at the end
-  s = s.replace(/\s*(feat\.?|ft\.?|featuring)\s+.*/gi, "");
-  
-  // Strip any trailing parentheses/brackets at the end of the string entirely
-  s = s.replace(/\s*\([^)]*\)$/gi, "");
-  s = s.replace(/\s*\[[^\]]*\]$/gi, "");
-  
-  // Clean up punctuation and spacing
-  s = s.replace(/[^a-z0-9\s]/gi, "").replace(/\s+/g, " ").trim();
-  return s;
-}
+
 
 function getPlaybackHistory(): any[] {
   try {
@@ -94,7 +70,7 @@ function filterQueueByHistory(song: Song, songQueue: Song[]): Song[] {
   activeHistory.forEach((h) => {
     recentIds.add(h.id);
     if (h.title) {
-      const key = normalizeSongTitle(h.title);
+      const key = normalizeSongTitle(h.title, h.movie || h.album);
       recentKeys.add(key);
     }
   });
@@ -103,7 +79,7 @@ function filterQueueByHistory(song: Song, songQueue: Song[]): Song[] {
     if (s.id === song.id) return true;
     if (recentIds.has(s.id)) return false;
     if (s.title) {
-      const key = normalizeSongTitle(s.title);
+      const key = normalizeSongTitle(s.title, s.movie || s.album);
       if (recentKeys.has(key)) return false;
     }
     return true;
@@ -328,6 +304,56 @@ async function searchPiped(query: string): Promise<Song[]> {
   return [];
 }
 
+function isDevotionalSong(song: Song): boolean {
+  const title = (song.title || "").toLowerCase();
+  const album = (song.album || song.movie || "").toLowerCase();
+  
+  const keywords = [
+    "bhajan", "aarti", "chalisa", "devotional", "bhakti", "mantra", 
+    "stotram", "dhun", "stotra", "shlok", "shloka", "kirtan", 
+    "hanuman chalisa", "shri ram", "krishna bhajan", "ganesha bhajan",
+    "shiv bhajan", "sai baba", "spiritual", "durga chalisa"
+  ];
+  
+  return keywords.some(kw => title.includes(kw) || album.includes(kw));
+}
+
+function getSongCategory(song: Song): string {
+  if (isDevotionalSong(song)) return "devotional";
+  
+  const title = (song.title || "").toLowerCase();
+  const album = (song.album || song.movie || "").toLowerCase();
+  const genre = (song.genre || "").toLowerCase();
+  
+  if (
+    title.includes("love") || title.includes("romantic") || title.includes("romance") || 
+    title.includes("dil") || title.includes("pyar") || title.includes("prem") || 
+    title.includes("prema") || title.includes("priya") || title.includes("valapu") ||
+    genre.includes("romantic") || genre.includes("love")
+  ) {
+    return "romantic";
+  }
+  
+  if (
+    title.includes("sad") || title.includes("dard") || title.includes("breakup") || 
+    title.includes("judai") || title.includes("baadha") || title.includes("yedustu") || 
+    title.includes("dukkha") || genre.includes("sad") || genre.includes("pain")
+  ) {
+    return "sad";
+  }
+  
+  if (
+    title.includes("party") || title.includes("dance") || title.includes("club") || 
+    title.includes("dj") || title.includes("mix") || title.includes("beat") || 
+    title.includes("dappu") || title.includes("kuthu") || 
+    genre.includes("party") || genre.includes("dance") || genre.includes("electronic")
+  ) {
+    return "party";
+  }
+  
+  return "general";
+}
+
 function calculateSongScore(song: Song, seed: Song): number {
   let score = 0;
   
@@ -518,7 +544,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const seenKeys = new Set<string>();
 
     const existingIds = new Set(queueRef.current.map((s) => s.id));
-    const existingKeys = new Set(queueRef.current.map((s) => normalizeSongTitle(s.title)));
+    const existingKeys = new Set(queueRef.current.map((s) => normalizeSongTitle(s.title, s.movie || s.album)));
 
     const history = getPlaybackHistory();
     const now = Date.now();
@@ -529,9 +555,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     activeHistory.forEach((h) => {
       recentIds.add(h.id);
       if (h.title) {
-        recentKeys.add(normalizeSongTitle(h.title));
+        recentKeys.add(normalizeSongTitle(h.title, h.movie || h.album));
       }
     });
+
+    const category = getSongCategory(seed);
+    const categoryQuerySuffix = category !== "general" ? ` ${category}` : "";
 
     const addSongs = (list: Song[], bypassLangFilter = false) => {
       list.forEach((s) => {
@@ -546,10 +575,29 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        if (!bypassLangFilter && seedLang && s.language && s.language.toLowerCase().trim() !== seedLang) {
+        // Language MUST match the seed language exactly (no bypass allowed for similar language transitions)
+        if (seedLang && l !== seedLang) {
           return;
         }
-        const key = normalizeSongTitle(s.title);
+
+        // Year/Era Match: within 10 years of seed song
+        if (seed.year && s.year) {
+          const diff = Math.abs(seed.year - s.year);
+          if (diff > 10) {
+            return;
+          }
+        }
+
+        // Category/Type Match
+        const sCat = getSongCategory(s);
+        if (category !== "general" && sCat !== category) {
+          return;
+        }
+        if (category === "general" && sCat === "devotional") {
+          return;
+        }
+
+        const key = normalizeSongTitle(s.title, s.movie || s.album);
         if (
           !seenIds.has(s.id) &&
           !seenKeys.has(key) &&
@@ -587,7 +635,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const firstArtist = seed.artist ? seed.artist.split(",")[0].trim() : "";
     if (recommendations.length < 15 && seedLang && firstArtist) {
       try {
-        const query = `${seedLang} songs ${firstArtist}`;
+        const query = `${seedLang}${categoryQuerySuffix} songs ${firstArtist}`;
         console.log(`[PlayerContext] Fallback searching: "${query}"`);
         const res = await api.searchSongs(query, 1, 30);
         const raw = res?.data?.results || res?.results || [];
@@ -604,7 +652,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
     // Attempt 3: Query the specific language pools (2 random queries from pool)
     if (recommendations.length < 15 && seedLang) {
-      const pools = LANGUAGE_QUERY_POOLS[seedLang] || [`trending ${seedLang} songs`];
+      const pools = (LANGUAGE_QUERY_POOLS[seedLang] || [`trending ${seedLang} songs`]).map(q => q + categoryQuerySuffix);
       const selectedQueries = [...pools].sort(() => Math.random() - 0.5).slice(0, 2);
       for (const q of selectedQueries) {
         if (recommendations.length >= 20) break;
@@ -628,7 +676,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const movieOrAlbum = seed.movie || seed.album || "";
     if (recommendations.length < 15 && movieOrAlbum) {
       try {
-        const query = `${movieOrAlbum} songs`;
+        const query = `${movieOrAlbum}${categoryQuerySuffix} songs`;
         console.log(`[PlayerContext] Album/Movie fallback searching: "${query}"`);
         const res = await api.searchSongs(query, 1, 20);
         const raw = res?.data?.results || res?.results || [];
@@ -646,7 +694,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     // Attempt 5: Search fallback based on artist alone
     if (recommendations.length < 10 && firstArtist) {
       try {
-        const query = `${firstArtist} songs`;
+        const query = `${firstArtist}${categoryQuerySuffix} songs`;
         console.log(`[PlayerContext] Ultimate artist search fallback: "${query}"`);
         const res = await api.searchSongs(query, 1, 20);
         const raw = res?.data?.results || res?.results || [];
@@ -661,43 +709,20 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    // Attempt 5b: Transition to similar languages / categories algorithm
-    if (recommendations.length < 12 && seedLang) {
-      const similarLangs = SIMILAR_LANGUAGES[seedLang] || [];
-      for (const simLang of similarLangs) {
-        if (recommendations.length >= 15) break;
-        const pools = LANGUAGE_QUERY_POOLS[simLang] || [`trending ${simLang} songs`];
-        const randomQ = pools[Math.floor(Math.random() * pools.length)];
-        try {
-          console.log(`[PlayerContext] Transitioning to similar category (${simLang}): "${randomQ}"`);
-          const res = await api.searchSongs(randomQ, 1, 25);
-          const raw = res?.data?.results || res?.results || [];
-          if (Array.isArray(raw)) {
-            const simSongs = raw
-              .map((item: any) => (mapApiSong ? mapApiSong(item) : item))
-              .filter((s: any): s is Song => !!s && !!s.id);
-            addSongs(simSongs, true); // Bypass language filter to allow similar languages
-          }
-        } catch (err) {
-          console.warn(`[PlayerContext] Similar language pool query failed for "${randomQ}":`, err);
-        }
-      }
-    }
-
     // Attempt 6: Continuous play general trending fallback
     if (recommendations.length < 10) {
       const fallbackQueries = [
-        "popular songs",
-        "trending songs 2025",
-        "top music hits",
-        "lofi chill beats",
-        "global top hits"
+        `popular songs${categoryQuerySuffix}`,
+        `trending songs 2025${categoryQuerySuffix}`,
+        `top music hits${categoryQuerySuffix}`,
+        `lofi chill beats${categoryQuerySuffix}`,
+        `global top hits${categoryQuerySuffix}`
       ];
       if (seedLang) {
         fallbackQueries.unshift(
-          `top ${seedLang} hits`,
-          `trending ${seedLang} songs`,
-          `new ${seedLang} songs`
+          `top ${seedLang} hits${categoryQuerySuffix}`,
+          `trending ${seedLang} songs${categoryQuerySuffix}`,
+          `new ${seedLang} songs${categoryQuerySuffix}`
         );
       }
       for (const q of fallbackQueries) {
@@ -722,8 +747,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (recommendations.length < 5) {
       try {
         const query = seedLang 
-          ? `trending ${seedLang} music songs`
-          : `${seed.title || "popular"} song music`;
+          ? `trending ${seedLang}${categoryQuerySuffix} music songs`
+          : `${seed.title || "popular"}${categoryQuerySuffix} song music`;
         console.log(`[PlayerContext] Final YouTube fallback querying: "${query}"`);
         const ytSongs = await searchPiped(query);
         const mappedYtSongs = ytSongs.map(song => ({
@@ -910,10 +935,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       const seenKeys = new Set<string>();
       q = q.filter((s) => {
         if (s.id === song.id) {
-          seenKeys.add(normalizeSongTitle(s.title));
+          seenKeys.add(normalizeSongTitle(s.title, s.movie || s.album));
           return true;
         }
-        const key = normalizeSongTitle(s.title);
+        const key = normalizeSongTitle(s.title, s.movie || s.album);
         if (seenKeys.has(key)) return false;
         seenKeys.add(key);
         return true;
