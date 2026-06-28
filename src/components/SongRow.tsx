@@ -94,7 +94,7 @@ export function SongRow({ song, queue, onRequireAuth, fromLibrary }: SongRowProp
           activeOpacity={0.7}
         >
           <MaterialCommunityIcons
-            name="playlist-plus"
+            name="playlist-play"
             size={20}
             color={queued ? "#1DB954" : "rgba(255,255,255,0.4)"}
           />

@@ -29,9 +29,7 @@ export function mapApiSong(item: any): Song {
     return { id: "", title: "Unknown", artist: "Unknown", duration: 0, albumArt: "", audioUrl: "" };
   }
 
-  // ── Album art ──────────────────────────────────────────────────────────────
-  // Try all known image field shapes
-  const imageUrl =
+  let imageUrl =
     item.image?.[2]?.url ||
     item.image?.[2]?.link ||
     item.image?.[1]?.url ||
@@ -47,12 +45,24 @@ export function mapApiSong(item: any): Song {
     item.artwork ||
     "";
 
+  if (typeof imageUrl === "string" && imageUrl.startsWith("http://")) {
+    imageUrl = imageUrl.replace("http://", "https://");
+  }
+
   // ── Audio URL ──────────────────────────────────────────────────────────────
-  // Bind directly to our Spring Boot backend redirect stream endpoint
+  // Use direct JioSaavn URL if available (faster playback), else fallback to our backend stream endpoint
   const songId = String(item.id || item.songId || item.song_id || "");
-  const audioUrl = songId
-    ? `https://musicbackend-xg4u.onrender.com/api/songs/${songId}/stream`
-    : "";
+  const downloadUrlArray = item.downloadUrl || item.download_url || item.downloadUrls || [];
+  let audioUrl = "";
+  if (Array.isArray(downloadUrlArray) && downloadUrlArray.length > 0) {
+    audioUrl = downloadUrlArray[downloadUrlArray.length - 1]?.url || downloadUrlArray[downloadUrlArray.length - 1]?.link || "";
+  }
+  if (!audioUrl) {
+    audioUrl = item.audioUrl || item.audio_url || item.url || item.media_url || item.mediaUrl || "";
+  }
+  if (!audioUrl && songId) {
+    audioUrl = `https://musicbackend-xg4u.onrender.com/api/songs/${songId}/stream`;
+  }
 
   // ── Artists ────────────────────────────────────────────────────────────────
   let artist = "Unknown";

@@ -23,8 +23,8 @@ export default defineConfig(({ mode }) => {
       dedupe: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime", "@tanstack/react-query", "@tanstack/query-core"],
     },
     define: {
-      "process.env.VITE_SUPABASE_URL": JSON.stringify(env.VITE_SUPABASE_URL || "https://zoxztfjptjkuapqldlha.supabase.co"),
-      "process.env.VITE_SUPABASE_ANON_KEY": JSON.stringify(env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpveHp0ZmpwdGprdWFwcWxkbGhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0NTYzNzQsImV4cCI6MjA5MTAzMjM3NH0.1dweJWsNFFmSN_Q17l4N_FjiE-i79dwHnFj-i4ucqPs"),
+      "process.env.VITE_SUPABASE_URL": JSON.stringify(env.VITE_SUPABASE_URL || "https://zruonfdnfvgmaebanvdm.supabase.co"),
+      "process.env.VITE_SUPABASE_ANON_KEY": JSON.stringify(env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpydW9uZmRuZnZnbWFlYmFudmRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcwMTczODksImV4cCI6MjA5MjU5MzM4OX0.AfutlmSt6ix8TNm0Lc70P2R2U554CXSaa7DxPyY8Hz4"),
     },
   };
 });

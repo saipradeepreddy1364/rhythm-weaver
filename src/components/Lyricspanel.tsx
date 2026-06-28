@@ -63,11 +63,57 @@ export function LyricsPanel({ songId, songTitle, onClose }: LyricsPanelProps) {
     }
   };
 
+  const [translationLang, setTranslationLang] = useState<"original" | "hi" | "te" | "en">("original");
+  const [translatedLyrics, setTranslatedLyrics] = useState<Record<string, string>>({});
+  const [translating, setTranslating] = useState(false);
+
+  const translateLyrics = async (targetLang: "hi" | "te" | "en", currentLyricsText: string) => {
+    if (!songId) return;
+    const cacheKey = `${songId}_${targetLang}`;
+    if (translatedLyrics[cacheKey]) return;
+
+    setTranslating(true);
+    try {
+      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(currentLyricsText)}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        let translatedText = "";
+        if (data && data[0]) {
+          for (const item of data[0]) {
+            if (item && item[0]) {
+              translatedText += item[0];
+            }
+          }
+        }
+        if (translatedText.trim()) {
+          setTranslatedLyrics((prev) => ({
+            ...prev,
+            [cacheKey]: translatedText,
+          }));
+        }
+      }
+    } catch (err) {
+      console.warn("Translation failed:", err);
+    } finally {
+      setTranslating(false);
+    }
+  };
+
+  const handleLangSelect = (lang: "original" | "hi" | "te" | "en", currentLyricsText: string) => {
+    setTranslationLang(lang);
+    if (lang !== "original") {
+      translateLyrics(lang, currentLyricsText);
+    }
+  };
+
   useEffect(() => {
     if (!songId) {
       setState({ status: "idle" });
+      setTranslationLang("original");
       return;
     }
+    setTranslationLang("original");
     fetchLyrics(songId);
     return () => abortRef.current?.abort();
   }, [songId]);
@@ -108,6 +154,33 @@ export function LyricsPanel({ songId, songTitle, onClose }: LyricsPanelProps) {
         </View>
       </View>
 
+      {/* Translation switcher above scroll */}
+      {state.status === "found" && (
+        <View style={styles.translationContainer}>
+          {(["original", "en", "hi", "te"] as const).map((lang) => {
+            const labelMap = {
+              original: "Original",
+              en: "English",
+              hi: "Hindi",
+              te: "Telugu",
+            };
+            const isActive = translationLang === lang;
+            return (
+              <TouchableOpacity
+                key={lang}
+                onPress={() => handleLangSelect(lang, state.text)}
+                style={[styles.transButton, isActive && styles.transButtonActive]}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.transButtonText, isActive && styles.transButtonTextActive]}>
+                  {labelMap[lang]}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      )}
+
       {/* Body scroll */}
       <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
         {state.status === "idle" && (
@@ -117,7 +190,14 @@ export function LyricsPanel({ songId, songTitle, onClose }: LyricsPanelProps) {
         {state.status === "loading" && <LoadingSpinner />}
 
         {state.status === "found" && (
-          <LyricsBody text={state.text} />
+          translating ? (
+            <View style={styles.translatingContainer}>
+              <ActivityIndicator size="small" color="#1DB954" style={{ marginBottom: 10 }} />
+              <Text style={styles.translatingText}>Translating lyrics...</Text>
+            </View>
+          ) : (
+            <LyricsBody text={translationLang === "original" ? state.text : (translatedLyrics[`${songId}_${translationLang}`] || state.text)} />
+          )
         )}
 
         {state.status === "missing" && (
@@ -244,6 +324,43 @@ const styles = StyleSheet.create({
     color: "rgba(255, 255, 255, 0.85)",
     textAlign: "center",
     marginVertical: 10,
+  },
+  translationContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 8,
+    marginVertical: 12,
+    paddingHorizontal: 8,
+  },
+  transButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 15,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+  },
+  transButtonActive: {
+    backgroundColor: "#1DB954",
+    borderColor: "#1DB954",
+  },
+  transButtonText: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  transButtonTextActive: {
+    color: "#000000",
+    fontWeight: "bold",
+  },
+  translatingContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 40,
+  },
+  translatingText: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.4)",
   },
 });
 

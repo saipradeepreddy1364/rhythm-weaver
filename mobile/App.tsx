@@ -1,12 +1,16 @@
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image, ActivityIndicator, SafeAreaView, StatusBar, Platform, Modal } from 'react-native'
-import React, { useRef, useState, useEffect } from "react";
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image, ActivityIndicator, SafeAreaView, StatusBar, Platform, Modal, AppState, Dimensions, useWindowDimensions, Animated } from 'react-native'
+import React, { useRef, useState, useEffect, useCallback } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { PaperProvider } from "react-native-paper";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Updates from "expo-updates";
+import * as SplashScreen from "expo-splash-screen";
 import TrackPlayer from "react-native-track-player";
 import { PlaybackService } from "./playbackService";
+
+// Prevent the splash screen from auto-hiding before storage is initialized
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 // Register playback service for background lock screen controls
 TrackPlayer.registerPlaybackService(() => PlaybackService);
@@ -17,14 +21,57 @@ import { PlayerProvider, usePlayer } from "./src/context/PlayerContext";
 import { LibraryProvider } from "./src/context/LibraryContext";
 
 // Import Native Screens / Components (these will be migrated next)
-import HomePage from "./src/pages/HomePage";
+import HomePage, { homePagePrefetcher } from "./src/pages/HomePage";
 import SearchPage from "./src/pages/SearchPage";
 import LibraryPage from "./src/pages/LibraryPage";
 import { MiniPlayer } from "./src/components/MiniPlayer";
 import { FullPlayer } from "./src/components/FullPlayer";
-import { AuthModal } from "./src/components/AuthModal";
 
 const Tab = createBottomTabNavigator();
+
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean, error: Error | null }> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: any) {
+    console.error("App render error:", error, errorInfo);
+    // Force hide the splash screen so the crash view is visible
+    SplashScreen.hideAsync().catch(() => {});
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#121212', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+          <MaterialCommunityIcons name="alert-circle-outline" size={64} color="#E91E63" style={{ marginBottom: 16 }} />
+          <Text style={{ color: '#fff', fontSize: 18, fontWeight: 'bold', marginBottom: 8 }}>App crashed on render</Text>
+          <ScrollView style={{ maxHeight: 300, width: '100%', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: 12, marginBottom: 20 }}>
+            <Text style={{ color: '#E91E63', fontFamily: 'monospace', fontSize: 12 }}>{this.state.error?.toString()}</Text>
+            <Text style={{ color: 'rgba(255,255,255,0.6)', fontFamily: 'monospace', fontSize: 10, marginTop: 8 }}>{this.state.error?.stack}</Text>
+          </ScrollView>
+          <TouchableOpacity
+            style={{
+              backgroundColor: '#1DB954',
+              paddingVertical: 12,
+              paddingHorizontal: 24,
+              borderRadius: 25,
+            }}
+            onPress={() => this.setState({ hasError: false, error: null })}
+          >
+            <Text style={{ color: '#000', fontWeight: 'bold', fontSize: 15 }}>Retry</Text>
+          </TouchableOpacity>
+        </SafeAreaView>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function AppContent() {
   const { currentSong, showPlayer } = usePlayer();
@@ -35,27 +82,77 @@ function AppContent() {
   const [updateDownloaded, setUpdateDownloaded] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
 
+  const [activeTab, setActiveTab] = useState<'Home' | 'Search' | 'Library'>('Home');
+  const scrollViewRef = useRef<ScrollView>(null);
+  const { width: screenWidth } = useWindowDimensions();
+  const navigationRef = useRef<any>(null);
+  const appState = useRef(AppState.currentState);
+
+  const setParentScroll = useCallback((enabled: boolean) => {
+    scrollViewRef.current?.setNativeProps({ scrollEnabled: enabled });
+  }, []);
+
+  // Reset navigation to Home when app is closed (backgrounded) and opened again (foregrounded)
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextAppState) => {
+      if (
+        appState.current.match(/inactive|background/) &&
+        nextAppState === "active"
+      ) {
+        setActiveTab("Home");
+        scrollViewRef.current?.scrollTo({ x: 0, animated: false });
+      }
+      appState.current = nextAppState;
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
   // Check for OTA updates on app mount
   useEffect(() => {
+    // Expose a global method to manually trigger/preview the OTA update modal
+    (global as any).triggerOTAUpdateModal = () => {
+      setUpdateAvailable(true);
+    };
+
     const checkUpdatesTimer = setTimeout(async () => {
-      if (__DEV__) return;
+      if (__DEV__) {
+        // Automatically show simulated updates popup in dev mode for UI review
+        setUpdateAvailable(true);
+        return;
+      }
       try {
+        console.log("[App] Checking for production OTA updates...");
         const update = await Updates.checkForUpdateAsync();
         if (update.isAvailable) {
+          console.log("[App] Production OTA update found, raising popup!");
           setUpdateAvailable(true);
+        } else {
+          console.log("[App] No production OTA updates available.");
         }
       } catch (e) {
         console.warn("OTA update check failed:", e);
       }
     }, 3000);
 
-    return () => clearTimeout(checkUpdatesTimer);
+    return () => {
+      clearTimeout(checkUpdatesTimer);
+      delete (global as any).triggerOTAUpdateModal;
+    };
   }, []);
 
   const handleDownloadUpdate = async () => {
     setIsDownloadingUpdate(true);
     setUpdateError(null);
     try {
+      if (__DEV__) {
+        // Simulate download delay in dev mode
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        setUpdateDownloaded(true);
+        return;
+      }
       await Updates.fetchUpdateAsync();
       setUpdateDownloaded(true);
     } catch (e: any) {
@@ -67,15 +164,31 @@ function AppContent() {
 
   const handleRestartApp = async () => {
     try {
+      if (__DEV__) {
+        // Simulates app reload by resetting modal states in dev mode
+        setUpdateDownloaded(false);
+        setUpdateAvailable(false);
+        return;
+      }
       await Updates.reloadAsync();
     } catch (e) {
       console.error("Failed to reload app:", e);
     }
   };
 
-  const handleRequireAuth = () => {
-    if (!user) setShowAuthModal(true);
+  const closeUpdateModal = () => {
+    setUpdateAvailable(false);
+    setIsDownloadingUpdate(false);
+    setUpdateDownloaded(false);
   };
+
+  const handleRequireAuth = () => {
+    // Guest mode enabled - no auth required
+  };
+
+  const renderHome = useCallback(() => <HomePage onRequireAuth={handleRequireAuth} />, []);
+  const renderSearch = useCallback(() => <SearchPage onRequireAuth={handleRequireAuth} />, []);
+  const renderLibrary = useCallback(() => <LibraryPage onRequireAuth={handleRequireAuth} />, []);
 
   // Check auth once on mount
   useEffect(() => {
@@ -88,57 +201,72 @@ function AppContent() {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#121212" />
       
-      <NavigationContainer>
-        <Tab.Navigator
-          id="root-tabs"
-          screenOptions={() => ({
-            headerShown: false,
-            tabBarStyle: {
-              backgroundColor: "#181818",
-              borderTopColor: "rgba(255, 255, 255, 0.08)",
-              height: 60,
-              paddingBottom: 8,
-              paddingTop: 8,
-            },
-            tabBarActiveTintColor: "#1DB954",
-            tabBarInactiveTintColor: "rgba(255, 255, 255, 0.5)",
-            tabBarLabelStyle: {
-              fontSize: 11,
-              fontWeight: "600",
-            },
-          })}
+      {__DEV__ && !updateAvailable && !isDownloadingUpdate && !updateDownloaded && (
+        <TouchableOpacity 
+          delayPressIn={0} 
+          style={styles.devFloatingBtn} 
+          onPress={() => setUpdateAvailable(true)}
+          activeOpacity={0.8}
         >
-          <Tab.Screen
-            name="Home"
-            options={{
-              tabBarIcon: ({ color, size }) => (
-                <MaterialCommunityIcons name="home" color={color} size={size} />
-              ),
-            }}
-          >
-            {() => <HomePage onRequireAuth={handleRequireAuth} />}
-          </Tab.Screen>
-          
-          <Tab.Screen
-            name="Search"
-            options={{
-              tabBarIcon: ({ color, size }) => (
-                <MaterialCommunityIcons name="magnify" color={color} size={size} />
-              ),
-            }}
-          >
-            {() => <SearchPage onRequireAuth={handleRequireAuth} />}
-          </Tab.Screen>
+          <MaterialCommunityIcons name="cloud-refresh" size={18} color="#000" />
+          <Text style={styles.devFloatingBtnText}>Preview OTA</Text>
+        </TouchableOpacity>
+      )}
+      
+      <NavigationContainer ref={navigationRef}>
+        <Tab.Navigator tabBar={() => null} screenOptions={{ headerShown: false }}>
+          <Tab.Screen name="Main">
+            {() => (
+              <View style={{ flex: 1, backgroundColor: "#121212" }}>
+                <ScrollView
+                  ref={scrollViewRef}
+                  horizontal
+                  pagingEnabled
+                  showsHorizontalScrollIndicator={false}
+                  onMomentumScrollEnd={(e) => {
+                    const index = screenWidth > 0 ? Math.round(e.nativeEvent.contentOffset.x / screenWidth) : 0;
+                    const tabs: ('Home' | 'Search' | 'Library')[] = ['Home', 'Search', 'Library'];
+                    setActiveTab(tabs[index]);
+                  }}
+                  style={{ flex: 1 }}
+                >
+                  <View style={{ width: screenWidth, flex: 1 }}>
+                    <HomePage onRequireAuth={handleRequireAuth} setParentScrollEnabled={setParentScroll} />
+                  </View>
+                  <View style={{ width: screenWidth, flex: 1 }}>
+                    <SearchPage onRequireAuth={handleRequireAuth} />
+                  </View>
+                  <View style={{ width: screenWidth, flex: 1 }}>
+                    <LibraryPage onRequireAuth={handleRequireAuth} />
+                  </View>
+                </ScrollView>
 
-          <Tab.Screen
-            name="Library"
-            options={{
-              tabBarIcon: ({ color, size }) => (
-                <MaterialCommunityIcons name="playlist-music" color={color} size={size} />
-              ),
-            }}
-          >
-            {() => <LibraryPage onRequireAuth={handleRequireAuth} />}
+                {/* Bottom Tab Bar */}
+                <View style={styles.tabBarStyle}>
+                  {(['Home', 'Search', 'Library'] as const).map((tab) => {
+                    const isActive = activeTab === tab;
+                    const iconName = tab === 'Home' ? 'home' : tab === 'Search' ? 'magnify' : 'playlist-music';
+                    const color = isActive ? "#1DB954" : "rgba(255, 255, 255, 0.5)";
+                    return (
+                      <TouchableOpacity
+                        delayPressIn={0}
+                        key={tab}
+                        onPress={() => {
+                          setActiveTab(tab);
+                          const index = tab === 'Home' ? 0 : tab === 'Search' ? 1 : 2;
+                          scrollViewRef.current?.scrollTo({ x: index * screenWidth, animated: true });
+                        }}
+                        style={styles.tabBarButton}
+                        activeOpacity={0.7}
+                      >
+                        <MaterialCommunityIcons name={iconName} color={color} size={24} />
+                        <Text style={[styles.tabBarLabel, { color }]}>{tab}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
           </Tab.Screen>
         </Tab.Navigator>
       </NavigationContainer>
@@ -148,9 +276,6 @@ function AppContent() {
 
       {/* Full screen overlay player (native version of FullPlayer component) */}
       {showPlayer && <FullPlayer onRequireAuth={handleRequireAuth} />}
-
-      {/* Authentication Modal */}
-      <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} />
 
       {/* Premium OTA Update Modal */}
       <Modal
@@ -187,10 +312,10 @@ function AppContent() {
             <View style={styles.modalButtonGroup}>
               {updateDownloaded ? (
                 <>
-                  <TouchableOpacity style={styles.primaryButton} onPress={handleRestartApp}>
+                  <TouchableOpacity delayPressIn={0} style={styles.primaryButton} onPress={handleRestartApp}>
                     <Text style={styles.primaryButtonText}>Restart Now</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.secondaryButton} onPress={() => setUpdateAvailable(false)}>
+                  <TouchableOpacity delayPressIn={0} style={styles.secondaryButton} onPress={closeUpdateModal}>
                     <Text style={styles.secondaryButtonText}>Later</Text>
                   </TouchableOpacity>
                 </>
@@ -201,10 +326,10 @@ function AppContent() {
                 </View>
               ) : (
                 <>
-                  <TouchableOpacity style={styles.primaryButton} onPress={handleDownloadUpdate}>
+                  <TouchableOpacity delayPressIn={0} style={styles.primaryButton} onPress={handleDownloadUpdate}>
                     <Text style={styles.primaryButtonText}>Update Now</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.secondaryButton} onPress={() => setUpdateAvailable(false)}>
+                  <TouchableOpacity delayPressIn={0} style={styles.secondaryButton} onPress={closeUpdateModal}>
                     <Text style={styles.secondaryButtonText}>Later</Text>
                   </TouchableOpacity>
                 </>
@@ -220,32 +345,92 @@ function AppContent() {
 import { localStorage } from "./src/lib/storage";
 
 export default function App() {
-  const [storageReady, setStorageReady] = useState(false);
+  const [appReady, setAppReady] = useState(false);
+  // Overlay opacity: starts at 1 (fully visible dark screen), fades to 0 after content paints
+  const overlayOpacity = useRef(new Animated.Value(1)).current;
+  const splashHidden = useRef(false);
 
   useEffect(() => {
-    localStorage.ensureInitialized().then(() => {
-      setStorageReady(true);
-    });
+    // Start background prefetching of home page content immediately on app start
+    homePagePrefetcher.start();
+
+    const startTime = Date.now();
+
+    const prepareApp = async () => {
+      try {
+        // 1. Ensure storage is initialized
+        await localStorage.ensureInitialized();
+
+        // 2. Wait for the homePagePrefetcher to be ready, up to a maximum of 6 seconds
+        const maxWait = 6000;
+        while (!homePagePrefetcher.ready && (Date.now() - startTime) < maxWait) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+
+        // 3. Ensure the splash screen stays visible for at least 1 second
+        const minDuration = 1000;
+        const elapsed = Date.now() - startTime;
+        if (elapsed < minDuration) {
+          await new Promise((resolve) => setTimeout(resolve, minDuration - elapsed));
+        }
+      } catch (e) {
+        console.warn("App initialization error:", e);
+      } finally {
+        setAppReady(true);
+      }
+    };
+
+    prepareApp();
   }, []);
 
-  if (!storageReady) {
-    return (
-      <View style={{ flex: 1, backgroundColor: "#121212", justifyContent: "center", alignItems: "center" }}>
-        <ActivityIndicator size="large" color="#1DB954" />
-      </View>
-    );
+  /**
+   * Called when the root View first lays out - at this point React has committed the
+   * full UI tree to the native layer, so it is safe to hide the native splash screen.
+   * We then fade out our React-side dark overlay to reveal the content smoothly.
+   */
+  const handleRootLayout = useCallback(() => {
+    if (splashHidden.current) return;
+    splashHidden.current = true;
+
+    // Hide native splash — content is already painted behind our overlay
+    SplashScreen.hideAsync().catch(() => {});
+
+    // Fade out the React overlay to reveal the app content
+    Animated.timing(overlayOpacity, {
+      toValue: 0,
+      duration: 350,
+      useNativeDriver: true,
+    }).start();
+  }, [overlayOpacity]);
+
+  if (!appReady) {
+    // Returning null keeps the native splash screen visible
+    return null;
   }
 
   return (
-    <PaperProvider>
-      <AuthProvider>
-        <PlayerProvider>
-          <LibraryProvider>
-            <AppContent />
-          </LibraryProvider>
-        </PlayerProvider>
-      </AuthProvider>
-    </PaperProvider>
+    <ErrorBoundary>
+      <View style={{ flex: 1 }} onLayout={handleRootLayout}>
+        <PaperProvider>
+          <AuthProvider>
+            <PlayerProvider>
+              <LibraryProvider>
+                <AppContent />
+              </LibraryProvider>
+            </PlayerProvider>
+          </AuthProvider>
+        </PaperProvider>
+
+        {/* Dark overlay that covers white flash during first paint, fades away once content is ready */}
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            { backgroundColor: '#121212', opacity: overlayOpacity },
+          ]}
+        />
+      </View>
+    </ErrorBoundary>
   );
 }
 
@@ -345,5 +530,49 @@ const styles = StyleSheet.create({
     color: "#1DB954",
     fontSize: 14,
     fontWeight: "600",
+  },
+  devFloatingBtn: {
+    position: "absolute",
+    top: Platform.OS === "ios" ? 50 : 30,
+    right: 16,
+    backgroundColor: "#1DB954",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    zIndex: 9999,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 8,
+  },
+  devFloatingBtnText: {
+    color: "#000000",
+    fontSize: 12,
+    fontWeight: "bold",
+    marginLeft: 6,
+  },
+  tabBarStyle: {
+    backgroundColor: "#181818",
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255, 255, 255, 0.08)",
+    height: Platform.OS === 'ios' ? 76 : 60,
+    paddingBottom: Platform.OS === 'ios' ? 20 : 8,
+    paddingTop: 8,
+    flexDirection: "row",
+    justifyContent: "space-around",
+    alignItems: "center",
+  },
+  tabBarButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    flex: 1,
+  },
+  tabBarLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    marginTop: 4,
   },
 });

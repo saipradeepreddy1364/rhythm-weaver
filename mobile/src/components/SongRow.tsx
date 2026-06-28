@@ -12,9 +12,10 @@ interface SongRowProps {
   queue?: Song[];
   onRequireAuth?: () => void;
   fromLibrary?: boolean;
+  hideActions?: boolean;
 }
 
-export function SongRow({ song, queue, onRequireAuth, fromLibrary }: SongRowProps) {
+export function SongRow({ song, queue, onRequireAuth, fromLibrary, hideActions }: SongRowProps) {
   const { playSong, currentSong, isPlaying, togglePlay, addToQueue } = usePlayer();
   const { downloadSong, deleteDownloadedSong, isDownloaded, downloadingIds } = useLibrary();
   const isActive = currentSong?.id === song.id;
@@ -46,14 +47,7 @@ export function SongRow({ song, queue, onRequireAuth, fromLibrary }: SongRowProp
   };
 
   return (
-    <TouchableOpacity
-      style={[
-        styles.rowContainer,
-        isActive && styles.activeContainer
-      ]}
-      onPress={handleClick}
-      activeOpacity={0.7}
-    >
+    <TouchableOpacity delayPressIn={0} style={[ styles.rowContainer, isActive && styles.activeContainer ]} onPress={handleClick} activeOpacity={0.7}>
       {/* Album art */}
       <View style={styles.albumArtContainer}>
         {song.albumArt ? (
@@ -92,50 +86,43 @@ export function SongRow({ song, queue, onRequireAuth, fromLibrary }: SongRowProp
       </View>
 
       {/* Action buttons */}
-      <View style={styles.actionsContainer}>
-        {/* Add to Queue */}
-        <TouchableOpacity
-          onPress={handleAddToQueue}
-          style={styles.actionButton}
-          activeOpacity={0.7}
-        >
-          <MaterialCommunityIcons
-            name="playlist-plus"
-            size={20}
-            color={queued ? "#1DB954" : "rgba(255,255,255,0.4)"}
-          />
-        </TouchableOpacity>
-
-        {/* Like Button */}
-        <View style={styles.likeButtonWrapper}>
-          <LikeButton
-            song={song}
-            onRequireAuth={onRequireAuth}
-            size="sm"
-          />
-        </View>
-
-        {/* Download Song */}
-        <TouchableOpacity
-          onPress={handleDownload}
-          style={styles.actionButton}
-          activeOpacity={0.7}
-          disabled={downloading}
-        >
-          {downloading ? (
-            <ActivityIndicator size="small" color="#1DB954" />
-          ) : (
+      {!hideActions && (
+        <View style={styles.actionsContainer}>
+          {/* Add to Queue */}
+          <TouchableOpacity delayPressIn={0} onPress={handleAddToQueue} style={styles.actionButton} activeOpacity={0.7}>
             <MaterialCommunityIcons
-              name={downloaded ? "check-circle" : "download"}
-              size={18}
-              color={downloaded ? "#1DB954" : "rgba(255,255,255,0.4)"}
+              name="playlist-play"
+              size={20}
+              color={queued ? "#1DB954" : "rgba(255,255,255,0.4)"}
             />
-          )}
-        </TouchableOpacity>
+          </TouchableOpacity>
 
-        {/* Add to Playlist Menu */}
-        <AddToPlaylistMenu song={song} onRequireAuth={onRequireAuth} />
-      </View>
+          {/* Like Button */}
+          <View style={styles.likeButtonWrapper}>
+            <LikeButton
+              song={song}
+              onRequireAuth={onRequireAuth}
+              size="sm"
+            />
+          </View>
+
+          {/* Download Song */}
+          <TouchableOpacity delayPressIn={0} onPress={handleDownload} style={styles.actionButton} activeOpacity={0.7} disabled={downloading}>
+            {downloading ? (
+              <ActivityIndicator size="small" color="#1DB954" />
+            ) : (
+              <MaterialCommunityIcons
+                name={downloaded ? "check-circle" : "download"}
+                size={18}
+                color={downloaded ? "#1DB954" : "rgba(255,255,255,0.4)"}
+              />
+            )}
+          </TouchableOpacity>
+
+          {/* Add to Playlist Menu */}
+          <AddToPlaylistMenu song={song} onRequireAuth={onRequireAuth} />
+        </View>
+      )}
     </TouchableOpacity>
   );
 }

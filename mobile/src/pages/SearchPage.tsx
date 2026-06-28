@@ -242,7 +242,7 @@ function CategorySongModal({
       <View style={modalStyles.content}>
         {/* Header */}
         <View style={modalStyles.header}>
-          <TouchableOpacity onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
+          <TouchableOpacity delayPressIn={0} onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
             <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
           </TouchableOpacity>
 
@@ -254,11 +254,7 @@ function CategorySongModal({
           </View>
 
           {songs.length > 0 ? (
-            <TouchableOpacity
-              onPress={() => playSong(songs[0], songs)}
-              style={modalStyles.playBtn}
-              activeOpacity={0.8}
-            >
+            <TouchableOpacity delayPressIn={0} onPress={() => playSong(songs[0], songs)} style={modalStyles.playBtn} activeOpacity={0.8}>
               <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
             </TouchableOpacity>
           ) : null}
@@ -398,7 +394,7 @@ function LanguageAlbumModal({
       <View style={modalStyles.content}>
         {/* Header */}
         <View style={modalStyles.header}>
-          <TouchableOpacity onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
+          <TouchableOpacity delayPressIn={0} onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
             <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
           </TouchableOpacity>
 
@@ -410,11 +406,7 @@ function LanguageAlbumModal({
           </View>
 
           {songs.length > 0 ? (
-            <TouchableOpacity
-              onPress={() => playSong(songs[0], songs)}
-              style={modalStyles.playBtn}
-              activeOpacity={0.8}
-            >
+            <TouchableOpacity delayPressIn={0} onPress={() => playSong(songs[0], songs)} style={modalStyles.playBtn} activeOpacity={0.8}>
               <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
             </TouchableOpacity>
           ) : null}
@@ -512,11 +504,7 @@ function CategoryCard({ label, query, onSelect }: CategoryCardProps) {
   }, [query, label]);
 
   return (
-    <TouchableOpacity
-      onPress={() => onSelect(label, songs, coverArt || "")}
-      style={styles.categoryBtn}
-      activeOpacity={0.8}
-    >
+    <TouchableOpacity delayPressIn={0} onPress={() => onSelect(label, songs, coverArt || "")} style={styles.categoryBtn} activeOpacity={0.8}>
       <View style={styles.categoryCoverWrapper}>
         {coverArt ? (
           <Image source={{ uri: coverArt }} style={styles.categoryCover} />
@@ -545,8 +533,9 @@ function CategoryCard({ label, query, onSelect }: CategoryCardProps) {
   );
 }
 
-// ─── Album Detail Modal ───────────────────────────────────────────────────────
+// ─── Album Detail View ───────────────────────────────────────────────────────
 interface Album {
+  id?: string;
   title: string;
   coverArt: string;
   songs: Song[];
@@ -564,6 +553,45 @@ function AlbumModal({
   onRequireAuth: () => void;
 }) {
   const { playSong } = usePlayer();
+  const [songs, setSongs] = useState<Song[]>(album.songs);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let unmounted = false;
+    if (!album.id) {
+      // Fallback: search for album songs using query
+      setLoading(true);
+      api.searchSongs(album.query, 1, 50).then((res) => {
+        if (unmounted) return;
+        const items = extractResults(res);
+        const mapped = items.map(mapApiSong).map(cleanSong).filter((s) => s.audioUrl);
+        if (mapped.length > 0) setSongs(mapped);
+        setLoading(false);
+      }).catch(() => {
+        if (!unmounted) setLoading(false);
+      });
+      return;
+    }
+
+    setLoading(true);
+    api.getAlbumDetails(album.id)
+      .then((res) => {
+        if (unmounted) return;
+        const raw = extractResults(res);
+        const mapped = raw.map(mapApiSong).map(cleanSong).filter((s) => s.audioUrl);
+        if (mapped.length > 0) {
+          setSongs(mapped);
+        }
+        setLoading(false);
+      })
+      .catch((err) => {
+        console.warn("Failed to fetch album details:", err);
+        if (!unmounted) setLoading(false);
+      });
+
+    return () => { unmounted = true; };
+  }, [album.id, album.query]);
+
   return (
     <View style={modalStyles.container}>
       {album.coverArt && (
@@ -579,23 +607,19 @@ function AlbumModal({
       <View style={modalStyles.content}>
         {/* Header */}
         <View style={modalStyles.header}>
-          <TouchableOpacity onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
+          <TouchableOpacity delayPressIn={0} onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
             <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
           </TouchableOpacity>
 
           <View style={modalStyles.headerMeta}>
             <Text style={modalStyles.headerTitle} numberOfLines={1}>{album.title}</Text>
             <Text style={modalStyles.headerSubtitle} numberOfLines={1}>
-              Album · {album.songs.length} songs
+              Album
             </Text>
           </View>
 
-          {album.songs.length > 0 ? (
-            <TouchableOpacity
-              onPress={() => playSong(album.songs[0], album.songs)}
-              style={modalStyles.playBtn}
-              activeOpacity={0.8}
-            >
+          {songs.length > 0 ? (
+            <TouchableOpacity delayPressIn={0} onPress={() => playSong(songs[0], songs)} style={modalStyles.playBtn} activeOpacity={0.8}>
               <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
             </TouchableOpacity>
           ) : null}
@@ -611,14 +635,42 @@ function AlbumModal({
         {/* Songs list */}
         <ScrollView style={modalStyles.songsScroll} contentContainerStyle={modalStyles.songsScrollContent}>
           <View style={{ paddingBottom: 60 }}>
-            {album.songs.map((song) => (
-              <SongRow key={song.id} song={song} queue={album.songs} onRequireAuth={onRequireAuth} />
+            {songs.map((song) => (
+              <SongRow key={song.id} song={song} queue={songs} onRequireAuth={onRequireAuth} />
             ))}
           </View>
         </ScrollView>
       </View>
     </View>
   );
+}
+
+// Normalize song title to remove movie/album/version suffixes before dedup
+function normalizeSongTitle(title: string): string {
+  let s = (title || "").toLowerCase().trim();
+  // Remove common trailing junk in parentheses/brackets recursively
+  while (true) {
+    const prev = s;
+    s = s
+      .replace(/\s*\((from|original|soundtrack|ost|single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|feat|ft|featuring|mix|lyrical|video)[^)]*\)/gi, "")
+      .replace(/\s*\[(from|original|soundtrack|ost|single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|feat|ft|featuring|mix|lyrical|video)[^\]]*\]/gi, "")
+      .trim();
+    if (s === prev) break;
+  }
+  
+  // Remove trailing single / remix / reprise etc. with dash
+  s = s.replace(/\s*-\s*(single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|mix|lyrical|video)\b.*/gi, "");
+  
+  // Strip featuring/feat at the end
+  s = s.replace(/\s*(feat\.?|ft\.?|featuring)\s+.*/gi, "");
+  
+  // Strip any trailing parentheses/brackets at the end of the string entirely
+  s = s.replace(/\s*\([^)]*\)$/gi, "");
+  s = s.replace(/\s*\[[^\]]*\]$/gi, "");
+  
+  // Clean up punctuation and spacing
+  s = s.replace(/[^a-z0-9\s]/gi, "").replace(/\s+/g, " ").trim();
+  return s;
 }
 
 async function fetchAllPages(query: string, maxPages = 60, seen?: Set<string>): Promise<Song[]> {
@@ -633,8 +685,11 @@ async function fetchAllPages(query: string, maxPages = 60, seen?: Set<string>): 
       const songs = items.map(mapApiSong).map(cleanSong).filter((s) => Boolean(s.audioUrl));
       let added = 0;
       for (const s of songs) {
-        if (s.id && !localSeen.has(s.id)) {
+        if (!s.id) continue;
+        const titleKey = normalizeSongTitle(s.title);
+        if (!localSeen.has(s.id) && !localSeen.has(titleKey)) {
           localSeen.add(s.id);
+          localSeen.add(titleKey);
           all.push(s);
           added++;
         }
@@ -665,6 +720,7 @@ async function fetchAllArtistSongs(artistName: string): Promise<Song[]> {
 
 // ─── Artist Profile Modal ─────────────────────────────────────────────────────
 interface Artist {
+  id?: string;
   name: string;
   coverArt: string;
   songs: Song[];
@@ -687,19 +743,46 @@ function ArtistModal({
     let unmounted = false;
     setLoading(true);
 
-    fetchAllArtistSongs(artist.name)
-      .then((fetched: Song[]) => {
-        if (!unmounted) {
-          if (fetched.length > 0) setSongs(fetched);
+    if (artist.id) {
+      api.getArtistSongs(artist.id, 1)
+        .then((res) => {
+          if (unmounted) return;
+          const raw = extractResults(res);
+          const mapped = raw.map(mapApiSong).map(cleanSong).filter((s) => s.audioUrl);
+          if (mapped.length > 0) {
+            setSongs(mapped);
+          }
           setLoading(false);
-        }
-      })
-      .catch(() => {
-        if (!unmounted) setLoading(false);
-      });
+        })
+        .catch(() => {
+          if (unmounted) return;
+          // Fallback
+          fetchAllArtistSongs(artist.name)
+            .then((fetched: Song[]) => {
+              if (!unmounted) {
+                if (fetched.length > 0) setSongs(fetched);
+                setLoading(false);
+              }
+            })
+            .catch(() => {
+              if (!unmounted) setLoading(false);
+            });
+        });
+    } else {
+      fetchAllArtistSongs(artist.name)
+        .then((fetched: Song[]) => {
+          if (!unmounted) {
+            if (fetched.length > 0) setSongs(fetched);
+            setLoading(false);
+          }
+        })
+        .catch(() => {
+          if (!unmounted) setLoading(false);
+        });
+    }
 
     return () => { unmounted = true; };
-  }, [artist.name]);
+  }, [artist.id, artist.name]);
 
   return (
     <View style={modalStyles.container}>
@@ -716,23 +799,19 @@ function ArtistModal({
       <View style={modalStyles.content}>
         {/* Header */}
         <View style={modalStyles.header}>
-          <TouchableOpacity onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
+          <TouchableOpacity delayPressIn={0} onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
             <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
           </TouchableOpacity>
 
           <View style={modalStyles.headerMeta}>
             <Text style={modalStyles.headerTitle} numberOfLines={1}>{artist.name}</Text>
             <Text style={modalStyles.headerSubtitle} numberOfLines={1}>
-              Artist · {songs.length} songs
+              Artist
             </Text>
           </View>
 
           {songs.length > 0 ? (
-            <TouchableOpacity
-              onPress={() => playSong(songs[0], songs)}
-              style={modalStyles.playBtn}
-              activeOpacity={0.8}
-            >
+            <TouchableOpacity delayPressIn={0} onPress={() => playSong(songs[0], songs)} style={modalStyles.playBtn} activeOpacity={0.8}>
               <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
             </TouchableOpacity>
           ) : null}
@@ -747,18 +826,11 @@ function ArtistModal({
 
         {/* Songs list */}
         <ScrollView style={modalStyles.songsScroll} contentContainerStyle={modalStyles.songsScrollContent}>
-          {loading && songs.length === artist.songs.length ? (
-            <View style={modalStyles.centerLoading}>
-              <ActivityIndicator size="large" color="#1DB954" />
-              <Text style={modalStyles.loadingText}>Loading discography…</Text>
-            </View>
-          ) : (
-            <View style={{ paddingBottom: 60 }}>
-              {songs.map((song) => (
-                <SongRow key={song.id} song={song} queue={songs} onRequireAuth={onRequireAuth} />
-              ))}
-            </View>
-          )}
+          <View style={{ paddingBottom: 60 }}>
+            {songs.map((song) => (
+              <SongRow key={song.id} song={song} queue={songs} onRequireAuth={onRequireAuth} />
+            ))}
+          </View>
         </ScrollView>
       </View>
     </View>
@@ -774,6 +846,7 @@ function groupIntoAlbums(songs: Song[]): Album[] {
     const key = title.toLowerCase().trim();
     if (!map.has(key)) {
       map.set(key, {
+        id: s.albumId || "",
         title,
         coverArt: s.albumArt || "",
         songs: [],
@@ -782,6 +855,7 @@ function groupIntoAlbums(songs: Song[]): Album[] {
       });
     }
     const album = map.get(key)!;
+    if (!album.id && s.albumId) album.id = s.albumId;
     if (!album.coverArt && s.albumArt) album.coverArt = s.albumArt;
     const sTitleKey = s.title.toLowerCase().trim();
     if (!album.songs.some((existing) => existing.title.toLowerCase().trim() === sTitleKey)) {
@@ -801,16 +875,54 @@ function groupIntoArtists(songs: Song[]): Artist[] {
     const key = cleanName.toLowerCase();
     if (!map.has(key)) {
       map.set(key, {
+        id: s.artistId || "",
         name: cleanName,
         coverArt: s.albumArt || "",
         songs: [],
       });
     }
     const artist = map.get(key)!;
+    if (!artist.id && s.artistId) artist.id = s.artistId;
     if (!artist.coverArt && s.albumArt) artist.coverArt = s.albumArt;
     artist.songs.push(s);
   }
   return [...map.values()];
+}
+
+async function searchPiped(query: string): Promise<Song[]> {
+  const PIPED_INSTANCES = [
+    "https://pipedapi.adminforge.de",
+    "https://pipedapi.projectsegfau.lt",
+    "https://pipedapi.kavin.rocks",
+    "https://pipedapi-libre.kavin.rocks",
+    "https://pipedapi.leptons.xyz",
+    "https://api.looleh.xyz"
+  ];
+  for (const instance of PIPED_INSTANCES) {
+    try {
+      const res = await Promise.race([
+        fetch(`${instance}/search?q=${encodeURIComponent(query)}&filter=videos`),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
+      ]);
+      if (!res.ok) continue;
+      const data = await res.json();
+      const items = data.items || [];
+      if (items.length === 0) continue;
+      return items.slice(0, 30).map((item: any) => ({
+        id: `yt-${item.videoId}`,
+        title: decodeHtml(item.title || "Unknown Title"),
+        artist: decodeHtml(item.uploaderName || "YouTube"),
+        duration: item.duration || 0,
+        albumArt: item.thumbnail || "",
+        audioUrl: `youtube://${item.videoId}`,
+        album: "YouTube Web",
+        movie: "YouTube Web"
+      }));
+    } catch (err) {
+      console.warn(`[SearchPage] Piped instance ${instance} failed:`, err);
+    }
+  }
+  return [];
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -856,17 +968,31 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
     }
 
     setLoading(true);
-    api.globalSearch(clean, 1, 60)
-      .then((res) => {
-        const raw = extractResults(res);
-        const songs = raw.map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
-        setResults(songs);
-        setLoading(false);
-      })
-      .catch(() => {
-        setResults([]);
-        setLoading(false);
-      });
+    Promise.all([
+      api.searchSongs(clean, 1, 60)
+        .then((res) => {
+          const raw = extractResults(res);
+          return raw.map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
+        })
+        .catch((err) => {
+          console.warn("[SearchPage] JioSaavn search failed:", err);
+          return [];
+        }),
+      searchPiped(clean)
+        .catch((err) => {
+          console.warn("[SearchPage] YouTube search failed:", err);
+          return [];
+        })
+    ]).then(([jioSongs, ytSongs]) => {
+      // Combine results: JioSaavn songs first, then YouTube songs
+      const combined = [...jioSongs, ...ytSongs];
+      setResults(combined);
+      setLoading(false);
+    }).catch((err) => {
+      console.error("[SearchPage] Search parallel execution failed:", err);
+      setResults([]);
+      setLoading(false);
+    });
   }, [debouncedQuery]);
 
   const handleRequireAuth = () => {
@@ -885,6 +1011,8 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
   const songsResult = results;
   const albumsResult = groupIntoAlbums(results);
   const artistsResult = groupIntoArtists(results);
+  const jioSongs = results.filter((s) => !s.id.startsWith("yt-"));
+  const ytSongs = results.filter((s) => s.id.startsWith("yt-"));
 
   return (
     <View style={styles.container}>
@@ -911,12 +1039,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
             {(["all", "songs", "albums", "artists"] as const).map((tab) => {
               const isActive = activeTab === tab;
               return (
-                <TouchableOpacity
-                  key={tab}
-                  onPress={() => setActiveTab(tab)}
-                  style={[styles.filterTabBtn, isActive && styles.activeFilterTabBtn]}
-                  activeOpacity={0.7}
-                >
+                <TouchableOpacity delayPressIn={0} key={tab} onPress={() => setActiveTab(tab)} style={[styles.filterTabBtn, isActive && styles.activeFilterTabBtn]} activeOpacity={0.7}>
                   <Text style={[styles.filterTabText, isActive && styles.activeFilterTabText]}>
                     {tab.toUpperCase()}
                   </Text>
@@ -960,12 +1083,31 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
         ) : (
           // Results list view
           <View style={{ paddingBottom: 60 }}>
-            {/* All / Songs */}
-            {(activeTab === "all" || activeTab === "songs") && songsResult.length > 0 ? (
+            {/* All - JioSaavn Songs */}
+            {activeTab === "all" && jioSongs.length > 0 ? (
               <View style={styles.resultSection}>
-                {activeTab === "all" && <Text style={styles.sectionSubHeader}>Songs</Text>}
-                {songsResult.slice(0, activeTab === "all" ? 6 : undefined).map((song) => (
-                  <SongRow key={song.id} song={song} queue={songsResult} onRequireAuth={handleRequireAuth} />
+                <Text style={styles.sectionSubHeader}>Songs</Text>
+                {jioSongs.slice(0, 6).map((song) => (
+                  <SongRow key={song.id} song={song} queue={results} onRequireAuth={handleRequireAuth} />
+                ))}
+              </View>
+            ) : null}
+
+            {/* All - YouTube / Web Results */}
+            {activeTab === "all" && ytSongs.length > 0 ? (
+              <View style={styles.resultSection}>
+                <Text style={styles.sectionSubHeader}>YouTube / Web Results</Text>
+                {ytSongs.slice(0, 6).map((song) => (
+                  <SongRow key={song.id} song={song} queue={results} onRequireAuth={handleRequireAuth} />
+                ))}
+              </View>
+            ) : null}
+
+            {/* Songs Tab - Show all combined */}
+            {activeTab === "songs" && results.length > 0 ? (
+              <View style={styles.resultSection}>
+                {results.map((song) => (
+                  <SongRow key={song.id} song={song} queue={results} onRequireAuth={handleRequireAuth} />
                 ))}
               </View>
             ) : null}
@@ -975,12 +1117,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
               <View style={styles.resultSection}>
                 {activeTab === "all" && <Text style={styles.sectionSubHeader}>Albums</Text>}
                 {albumsResult.slice(0, activeTab === "all" ? 6 : undefined).map((album) => (
-                  <TouchableOpacity
-                    key={album.title}
-                    onPress={() => setActiveAlbum(album)}
-                    style={styles.albumRowItem}
-                    activeOpacity={0.7}
-                  >
+                  <TouchableOpacity delayPressIn={0} key={album.title} onPress={() => setActiveAlbum(album)} style={styles.albumRowItem} activeOpacity={0.7}>
                     {album.coverArt ? (
                       <Image source={{ uri: album.coverArt }} style={styles.albumCoverImage} />
                     ) : (
@@ -1003,12 +1140,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
               <View style={styles.resultSection}>
                 {activeTab === "all" && <Text style={styles.sectionSubHeader}>Artists</Text>}
                 {artistsResult.slice(0, activeTab === "all" ? 6 : undefined).map((artist) => (
-                  <TouchableOpacity
-                    key={artist.name}
-                    onPress={() => setActiveArtist(artist)}
-                    style={styles.albumRowItem}
-                    activeOpacity={0.7}
-                  >
+                  <TouchableOpacity delayPressIn={0} key={artist.name} onPress={() => setActiveArtist(artist)} style={styles.albumRowItem} activeOpacity={0.7}>
                     {artist.coverArt ? (
                       <Image source={{ uri: artist.coverArt }} style={[styles.albumCoverImage, { borderRadius: 22 }]} />
                     ) : (

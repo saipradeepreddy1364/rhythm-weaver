@@ -864,7 +864,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
     }
 
     setLoading(true);
-    api.globalSearch(clean, 1, 60)
+    api.searchSongs(clean, 1, 60)
       .then((res) => {
         const raw = extractResults(res);
         const songs = raw.map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);

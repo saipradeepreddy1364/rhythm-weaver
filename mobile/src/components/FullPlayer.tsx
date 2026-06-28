@@ -53,6 +53,10 @@ function extractLyricsText(data: any): string | null {
   return null;
 }
 
+function hasIndicCharacters(text: string): boolean {
+  return /[\u0900-\u0DFF]/.test(text);
+}
+
 async function fetchLyrics(songId: string): Promise<string | null> {
   try {
     const res = await fetch(`https://musicbackend-xg4u.onrender.com/api/songs/${songId}/lyrics`);
@@ -94,10 +98,92 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   const [queuedFlash, setQueuedFlash] = useState(false);
   const [progressBarWidth, setProgressBarWidth] = useState(0);
 
+  const [translationLang, setTranslationLang] = useState<"original" | "en">("original");
+  const [translatedLyrics, setTranslatedLyrics] = useState<Record<string, string>>({});
+  const [translating, setTranslating] = useState(false);
+
+  const translateLyrics = async (targetLang: "en") => {
+    if (!lyrics || !currentSong) return;
+    const cacheKey = `${currentSong.id}_${targetLang}`;
+    if (translatedLyrics[cacheKey]) return;
+
+    setTranslating(true);
+    try {
+      const hasIndic = hasIndicCharacters(lyrics);
+      let resolvedText = "";
+
+      const romanizeChunk = async (chunk: string): Promise<string> => {
+        if (!chunk.trim()) return chunk;
+
+        try {
+          const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=rm&q=${encodeURIComponent(chunk)}`;
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = await res.json();
+            let roman = "";
+            if (data && Array.isArray(data[0])) {
+              for (const item of data[0]) {
+                if (item) {
+                  if (typeof item[3] === "string" && item[3].trim()) {
+                    roman += item[3];
+                  } else if (typeof item[0] === "string" && item[0].trim()) {
+                    roman += item[0];
+                  }
+                }
+              }
+            }
+            if (roman.trim()) return roman.trim();
+          }
+        } catch (err) {
+          console.warn("Romanization API failed:", err);
+        }
+
+        return chunk;
+      };
+
+      if (hasIndic) {
+        // Process in batches of 15 lines to avoid URL size limit
+        const lines = lyrics.split("\n");
+        const romanLines: string[] = [];
+        for (let i = 0; i < lines.length; i += 15) {
+          const batch = lines.slice(i, i + 15).join("\n");
+          const romanBatch = await romanizeChunk(batch);
+          romanLines.push(romanBatch);
+        }
+        resolvedText = romanLines.join("\n");
+      } else {
+        resolvedText = lyrics;
+      }
+
+      setTranslatedLyrics((prev) => ({
+        ...prev,
+        [cacheKey]: resolvedText.trim() || lyrics,
+      }));
+    } catch (err) {
+      console.warn("Transliteration failed:", err);
+      if (currentSong) {
+        setTranslatedLyrics((prev) => ({
+          ...prev,
+          [`${currentSong.id}_${targetLang}`]: lyrics,
+        }));
+      }
+    } finally {
+      setTranslating(false);
+    }
+  };
+
+  const handleLangSelect = (lang: "original" | "en") => {
+    setTranslationLang(lang);
+    if (lang !== "original") {
+      translateLyrics(lang);
+    }
+  };
+
   // Reset states when song changes
   useEffect(() => {
     setActiveTab("cover");
     setLyrics(null);
+    setTranslationLang("original");
   }, [currentSong?.id]);
 
   // Load lyrics
@@ -164,47 +250,37 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         <View style={styles.contentContainer}>
           {/* Header */}
           <View style={styles.header}>
-            <TouchableOpacity
-              onPress={() => setShowPlayer(false)}
-              style={styles.headerButton}
-              activeOpacity={0.7}
-            >
+            <TouchableOpacity delayPressIn={0} onPress={() => setShowPlayer(false)} style={styles.headerButton} activeOpacity={0.7}>
               <MaterialCommunityIcons name="chevron-down" size={24} color="#fff" />
             </TouchableOpacity>
 
             <Text style={styles.headerTitle}>Now Playing</Text>
 
-            <TouchableOpacity
-              onPress={handleAddToQueue}
-              style={styles.headerButton}
-              activeOpacity={0.7}
-            >
+            <TouchableOpacity delayPressIn={0} onPress={handleAddToQueue} style={styles.headerButton} activeOpacity={0.7}>
               <MaterialCommunityIcons
-                name="playlist-plus"
+                name="playlist-play"
                 size={22}
                 color={queuedFlash ? "#1DB954" : "rgba(255,255,255,0.7)"}
               />
             </TouchableOpacity>
           </View>
 
-          {/* Tab Switcher */}
-          <View style={styles.tabBar}>
-            {(["cover", "lyrics"] as TabType[]).map((tab) => {
-              const isActive = activeTab === tab;
-              return (
-                <TouchableOpacity
-                  key={tab}
-                  onPress={() => setActiveTab(tab)}
-                  style={[styles.tabButton, isActive && styles.activeTabButton]}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.tabButtonText, isActive && styles.activeTabButtonText]}>
-                    {tab.charAt(0).toUpperCase() + tab.slice(1)}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+          {/* Tab Switcher - show Lyrics tab only when lyrics are loaded and exist */}
+          {(!lyricsLoading && lyrics && lyrics.trim().length > 0) && (
+            <View style={styles.tabBar}>
+              {(["cover", "lyrics"] as TabType[]).map((tab) => {
+                const isActive = activeTab === tab;
+                return (
+                  <TouchableOpacity delayPressIn={0} key={tab} onPress={() => setActiveTab(tab)} style={[styles.tabButton, isActive && styles.activeTabButton]} activeOpacity={0.7}>
+                    <Text style={[styles.tabButtonText, isActive && styles.activeTabButtonText]}>
+                      {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                      {tab === "lyrics" && lyricsLoading ? " ●" : ""}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
 
           {/* Body content based on tab selection */}
           <View style={styles.mainContent}>
@@ -230,11 +306,45 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             {/* Lyrics Tab */}
             {activeTab === "lyrics" && (
               <View style={styles.lyricsWrapper}>
+                {lyrics && lyrics.length > 0 && (
+                  <View style={styles.translationContainer}>
+                    {(["original", "en"] as const).map((lang) => {
+                      const labelMap = {
+                        original: "Original",
+                        en: "English Script",
+                      };
+                      const isActive = translationLang === lang;
+                      return (
+                        <TouchableOpacity
+                          key={lang}
+                          onPress={() => handleLangSelect(lang)}
+                          style={[styles.transButton, isActive && styles.transButtonActive]}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={[styles.transButtonText, isActive && styles.transButtonTextActive]}>
+                            {labelMap[lang]}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                )}
                 <ScrollView style={styles.lyricsScroll} contentContainerStyle={styles.lyricsScrollContent}>
                   {lyricsLoading ? (
                     <ActivityIndicator size="large" color="#1DB954" style={{ marginTop: 60 }} />
                   ) : lyrics && lyrics.length > 0 ? (
-                    <Text style={styles.lyricsText}>{lyrics}</Text>
+                    translating ? (
+                      <View style={styles.translatingContainer}>
+                        <ActivityIndicator size="small" color="#1DB954" style={{ marginBottom: 10 }} />
+                        <Text style={styles.translatingText}>Translating lyrics...</Text>
+                      </View>
+                    ) : (
+                      <Text style={styles.lyricsText}>
+                        {translationLang === "original"
+                          ? lyrics
+                          : (translatedLyrics[`${currentSong.id}_${translationLang}`] || lyrics)}
+                      </Text>
+                    )
                   ) : (
                     <View style={styles.emptyLyrics}>
                       <MaterialCommunityIcons name="microphone-off" size={48} color="rgba(255,255,255,0.2)" />
@@ -257,12 +367,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             </View>
 
             <View style={styles.metaActions}>
-              <TouchableOpacity
-                onPress={handleDownload}
-                style={styles.metaButton}
-                activeOpacity={0.7}
-                disabled={downloading}
-              >
+              <TouchableOpacity delayPressIn={0} onPress={handleDownload} style={styles.metaButton} activeOpacity={0.7} disabled={downloading}>
                 {downloading ? (
                   <ActivityIndicator size="small" color="#1DB954" />
                 ) : (
@@ -282,12 +387,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
 
           {/* Progress Seek Bar */}
           <View style={styles.progressSection}>
-            <TouchableOpacity
-              style={styles.progressBarTrack}
-              onLayout={(e: any) => setProgressBarWidth(e.nativeEvent.layout.width)}
-              onPress={handleProgressBarPress}
-              activeOpacity={1}
-            >
+            <TouchableOpacity delayPressIn={0} style={styles.progressBarTrack} onLayout={(e: any) => setProgressBarWidth(e.nativeEvent.layout.width)} onPress={handleProgressBarPress} activeOpacity={1}>
               <View style={[styles.progressBarFill, { width: `${pct}%` }]} />
               <View style={[styles.progressBarThumb, { left: `${pct}%`, marginLeft: -6 }]} />
             </TouchableOpacity>
@@ -297,7 +397,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
                 {totalDuration > 0 ? formatDuration(Math.floor(progress)) : "0:00"}
               </Text>
               <Text style={styles.percentageText}>
-                {totalDuration > 0 ? `${Math.round(pct)}%` : "…"}
+                {totalDuration > 0 ? `${Math.round(pct)}%` : "--"}
               </Text>
               <Text style={styles.timeText}>
                 {totalDuration > 0 ? formatDuration(Math.floor(totalDuration)) : "0:00"}
@@ -307,7 +407,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
 
           {/* Playback controls */}
           <View style={styles.controlsSection}>
-            <TouchableOpacity onPress={toggleShuffle} style={styles.controlBtn} activeOpacity={0.7}>
+            <TouchableOpacity delayPressIn={0} onPress={toggleShuffle} style={styles.controlBtn} activeOpacity={0.7}>
               <MaterialCommunityIcons
                 name="shuffle"
                 size={22}
@@ -316,15 +416,11 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
               {shuffle && <View style={styles.dotIndicator} />}
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={prevSong} style={styles.controlBtn} activeOpacity={0.7}>
+            <TouchableOpacity delayPressIn={0} onPress={prevSong} style={styles.controlBtn} activeOpacity={0.7}>
               <MaterialCommunityIcons name="skip-previous" size={36} color="#fff" />
             </TouchableOpacity>
 
-            <TouchableOpacity
-              onPress={togglePlay}
-              style={styles.playPauseBtn}
-              activeOpacity={0.8}
-            >
+            <TouchableOpacity delayPressIn={0} onPress={togglePlay} style={styles.playPauseBtn} activeOpacity={0.8}>
               <MaterialCommunityIcons
                 name={isPlaying ? "pause" : "play"}
                 size={36}
@@ -332,11 +428,11 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
               />
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={nextSong} style={styles.controlBtn} activeOpacity={0.7}>
+            <TouchableOpacity delayPressIn={0} onPress={nextSong} style={styles.controlBtn} activeOpacity={0.7}>
               <MaterialCommunityIcons name="skip-next" size={36} color="#fff" />
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={cycleRepeat} style={styles.controlBtn} activeOpacity={0.7}>
+            <TouchableOpacity delayPressIn={0} onPress={cycleRepeat} style={styles.controlBtn} activeOpacity={0.7}>
               <View style={{ position: "relative" }}>
                 <MaterialCommunityIcons
                   name="repeat"
@@ -678,5 +774,42 @@ const styles = StyleSheet.create({
     color: "#000",
     fontSize: 7,
     fontWeight: "bold",
+  },
+  translationContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 8,
+    marginVertical: 12,
+    paddingHorizontal: 8,
+  },
+  transButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 15,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+  },
+  transButtonActive: {
+    backgroundColor: "#1DB954",
+    borderColor: "#1DB954",
+  },
+  transButtonText: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  transButtonTextActive: {
+    color: "#000000",
+    fontWeight: "bold",
+  },
+  translatingContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 40,
+  },
+  translatingText: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.4)",
   },
 });

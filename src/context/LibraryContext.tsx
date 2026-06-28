@@ -379,7 +379,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const toggleLike = useCallback(
     async (song: Song) => {
-      if (!user || !song) return;
+      if (!song) return;
       
       const queryNorm = normalizeSongTitle(song.title, song.movie || song.album);
       const matched = likedSongs.filter((s) => {
@@ -389,27 +389,36 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       });
       
       const liked = matched.length > 0;
-      let newLikedSongs = [...likedSongs];
-      
-      if (liked) {
-        newLikedSongs = newLikedSongs.filter((s) => {
-          if (s.id === song.id) return false;
-          const sNorm = normalizeSongTitle(s.title, s.movie || s.album);
-          return !(sNorm && queryNorm && sNorm === queryNorm);
-        });
-      } else {
-        newLikedSongs = [song, ...newLikedSongs];
+      if (!user) {
+        let nextLiked: Song[];
+        if (liked) {
+          nextLiked = likedSongs.filter((s) => {
+            if (s.id === song.id) return false;
+            const sNorm = normalizeSongTitle(s.title, s.movie || s.album);
+            return !(sNorm && queryNorm && sNorm === queryNorm);
+          });
+        } else {
+          nextLiked = [song, ...likedSongs];
+        }
+        setLikedSongs(nextLiked);
+        try {
+          localStorage.setItem("rw_guest_liked", JSON.stringify(nextLiked));
+        } catch (err) {
+          console.warn("Failed to save guest liked songs:", err);
+        }
+        return;
       }
-      
-      setLikedSongs(newLikedSongs);
-      try {
-        localStorage.setItem(`rw_liked_songs_${user.id}`, JSON.stringify(newLikedSongs));
-      } catch { /* ignore */ }
-
-      if (user.isAnonymous) return;
-
       try {
         if (liked) {
+          const nextLiked = likedSongs.filter((s) => {
+            if (s.id === song.id) return false;
+            const sNorm = normalizeSongTitle(s.title, s.movie || s.album);
+            return !(sNorm && queryNorm && sNorm === queryNorm);
+          });
+          setLikedSongs(nextLiked);
+          try {
+            localStorage.setItem(`rw_liked_songs_${user.id}`, JSON.stringify(nextLiked));
+          } catch { /* ignore */ }
           for (const ms of matched) {
             await supabase
               .from("liked_songs")
@@ -418,6 +427,11 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
               .eq("song_id", ms.id);
           }
         } else {
+          const nextLiked = [song, ...likedSongs];
+          setLikedSongs(nextLiked);
+          try {
+            localStorage.setItem(`rw_liked_songs_${user.id}`, JSON.stringify(nextLiked));
+          } catch { /* ignore */ }
           const audioUrl = song.audioUrl || `https://musicbackend-xg4u.onrender.com/api/songs/${song.id}/stream`;
           await supabase.from("liked_songs").insert({
             user_id: user.id,
