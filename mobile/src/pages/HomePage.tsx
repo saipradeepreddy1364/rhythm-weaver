@@ -397,7 +397,7 @@ function startBackgroundPreload() {
             let added = 0;
             for (const s of songs) {
               if (!s.id) continue;
-              const norm = normalizeSongTitle(s.title);
+              const norm = normalizeSongTitle(s.title, s.movie || s.album);
               if (!seen.has(s.id) && (!norm || !seen.has(norm))) {
                 seen.add(s.id);
                 if (norm) seen.add(norm);

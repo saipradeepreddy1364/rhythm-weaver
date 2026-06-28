@@ -15,7 +15,7 @@ interface LibraryPageProps {
 }
 
 export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
-  const { user, logout } = useAuth();
+  const { user, loading, logout } = useAuth();
   const {
     likedSongs,
     playlists,
@@ -410,7 +410,12 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
         {/* Tab content: Liked Section */}
         {activeTabStr === "liked" && (
           <View style={{ paddingBottom: 60 }}>
-            {!user ? (
+            {loading ? (
+              <View style={styles.centerLoading}>
+                <ActivityIndicator size="large" color="#1DB954" />
+                <Text style={styles.loadingText}>Loading your library…</Text>
+              </View>
+            ) : !user ? (
               <LoggedOutTabContent onSignIn={handleRequireAuth} />
             ) : (
               <View>
@@ -1010,5 +1015,15 @@ const styles = StyleSheet.create({
     backgroundColor: "#1DB954",
     alignItems: "center",
     justifyContent: "center",
+  },
+  centerLoading: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 60,
+  },
+  loadingText: {
+    color: "rgba(255,255,255,0.4)",
+    fontSize: 13,
+    marginTop: 10,
   },
 });

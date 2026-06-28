@@ -36,7 +36,7 @@
       "favicon": "./assets/favicon.png"
     },
     "updates": {
-      "url": "https://u.expo.dev/07a87de4-665a-4fbe-877e-e3ec2a863c5a",
+      "url": "https://u.expo.dev/593dee03-9473-433c-b11a-76667290cef0",
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0
@@ -46,7 +46,7 @@
     },
     "extra": {
       "eas": {
-        "projectId": "07a87de4-665a-4fbe-877e-e3ec2a863c5a"
+        "projectId": "593dee03-9473-433c-b11a-76667290cef0"
       }
     }
   }

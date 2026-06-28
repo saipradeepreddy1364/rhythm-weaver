@@ -6,7 +6,7 @@ import { api, extractResults } from "../services/api";
 import { SongRow } from "../components/SongRow";
 import { usePlayer } from "../context/PlayerContext";
 import { useAuth } from "../context/AuthContext";
-import { useLibrary } from "../context/LibraryContext";
+import { useLibrary, normalizeSongTitle } from "../context/LibraryContext";
 
 import { localStorage, sessionStorage } from "../lib/storage";
 
@@ -182,7 +182,14 @@ function startCategoryPreload() {
             const songs = items.map(mapApiSong).map(cleanSong).filter((s) => Boolean(s.audioUrl));
             let added = 0;
             for (const s of songs) {
-              if (s.id && !seen.has(s.id)) { seen.add(s.id); allSongs.push(s); added++; }
+              if (!s.id) continue;
+              const norm = normalizeSongTitle(s.title, s.movie || s.album);
+              if (!seen.has(s.id) && (!norm || !seen.has(norm))) {
+                seen.add(s.id);
+                if (norm) seen.add(norm);
+                allSongs.push(s);
+                added++;
+              }
             }
             if (items.length < 50 || added === 0) break;
           } catch { break; }
@@ -350,10 +357,11 @@ function LanguageAlbumModal({
             const mapped = items.map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
             let added = 0;
             for (const s of mapped) {
-              const tKey = s.title.toLowerCase().trim();
-              if (s.id && !seenIds.has(s.id) && !seenTitles.has(tKey)) {
+              if (!s.id) continue;
+              const tKey = normalizeSongTitle(s.title, s.movie || s.album);
+              if (!seenIds.has(s.id) && (!tKey || !seenTitles.has(tKey))) {
                 seenIds.add(s.id);
-                seenTitles.add(tKey);
+                if (tKey) seenTitles.add(tKey);
                 allSongs = [...allSongs, s];
                 added++;
               }
