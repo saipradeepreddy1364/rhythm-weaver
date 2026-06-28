@@ -645,34 +645,6 @@ function AlbumModal({
   );
 }
 
-// Normalize song title to remove movie/album/version suffixes before dedup
-function normalizeSongTitle(title: string): string {
-  let s = (title || "").toLowerCase().trim();
-  // Remove common trailing junk in parentheses/brackets recursively
-  while (true) {
-    const prev = s;
-    s = s
-      .replace(/\s*\((from|original|soundtrack|ost|single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|feat|ft|featuring|mix|lyrical|video)[^)]*\)/gi, "")
-      .replace(/\s*\[(from|original|soundtrack|ost|single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|feat|ft|featuring|mix|lyrical|video)[^\]]*\]/gi, "")
-      .trim();
-    if (s === prev) break;
-  }
-  
-  // Remove trailing single / remix / reprise etc. with dash
-  s = s.replace(/\s*-\s*(single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|mix|lyrical|video)\b.*/gi, "");
-  
-  // Strip featuring/feat at the end
-  s = s.replace(/\s*(feat\.?|ft\.?|featuring)\s+.*/gi, "");
-  
-  // Strip any trailing parentheses/brackets at the end of the string entirely
-  s = s.replace(/\s*\([^)]*\)$/gi, "");
-  s = s.replace(/\s*\[[^\]]*\]$/gi, "");
-  
-  // Clean up punctuation and spacing
-  s = s.replace(/[^a-z0-9\s]/gi, "").replace(/\s+/g, " ").trim();
-  return s;
-}
-
 async function fetchAllPages(query: string, maxPages = 60, seen?: Set<string>): Promise<Song[]> {
   const all: Song[] = [];
   const localSeen = seen || new Set<string>();
@@ -686,7 +658,7 @@ async function fetchAllPages(query: string, maxPages = 60, seen?: Set<string>): 
       let added = 0;
       for (const s of songs) {
         if (!s.id) continue;
-        const titleKey = normalizeSongTitle(s.title);
+        const titleKey = normalizeSongTitle(s.title, s.movie || s.album);
         if (!localSeen.has(s.id) && !localSeen.has(titleKey)) {
           localSeen.add(s.id);
           localSeen.add(titleKey);

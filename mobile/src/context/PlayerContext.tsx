@@ -28,36 +28,7 @@ import { normalizeSongTitle } from "./LibraryContext";
 const RECENT_LIMIT_MS = 3 * 60 * 60 * 1000; // 3 hours
 
 // Normalize song title to strip suffixes like "(From 'Movie')", "- Remix" etc. for deduplication
-<<<<<<< HEAD
 
-=======
-function normalizeSongTitle(title: string): string {
-  let s = (title || "").toLowerCase().trim();
-  // Remove common trailing junk in parentheses/brackets recursively
-  while (true) {
-    const prev = s;
-    s = s
-      .replace(/\s*\((from|original|soundtrack|ost|single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|feat|ft|featuring|mix|lyrical|video)[^)]*\)/gi, "")
-      .replace(/\s*\[(from|original|soundtrack|ost|single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|feat|ft|featuring|mix|lyrical|video)[^\]]*\]/gi, "")
-      .trim();
-    if (s === prev) break;
-  }
-  
-  // Remove trailing single / remix / reprise etc. with dash
-  s = s.replace(/\s*-\s*(single|recreated|reprise|remix|version|extended|cover|acoustic|live|unplugged|instrumental|remastered|lofi|slowed|reverb|edit|theme|mix|lyrical|video)\b.*/gi, "");
-  
-  // Strip featuring/feat at the end
-  s = s.replace(/\s*(feat\.?|ft\.?|featuring)\s+.*/gi, "");
-  
-  // Strip any trailing parentheses/brackets at the end of the string entirely
-  s = s.replace(/\s*\([^)]*\)$/gi, "");
-  s = s.replace(/\s*\[[^\]]*\]$/gi, "");
-  
-  // Clean up punctuation and spacing
-  s = s.replace(/[^a-z0-9\s]/gi, "").replace(/\s+/g, " ").trim();
-  return s;
-}
->>>>>>> origin/main
 
 function getPlaybackHistory(): any[] {
   try {
@@ -99,11 +70,7 @@ function filterQueueByHistory(song: Song, songQueue: Song[]): Song[] {
   activeHistory.forEach((h) => {
     recentIds.add(h.id);
     if (h.title) {
-<<<<<<< HEAD
       const key = normalizeSongTitle(h.title, h.movie || h.album);
-=======
-      const key = normalizeSongTitle(h.title);
->>>>>>> origin/main
       recentKeys.add(key);
     }
   });
@@ -112,11 +79,7 @@ function filterQueueByHistory(song: Song, songQueue: Song[]): Song[] {
     if (s.id === song.id) return true;
     if (recentIds.has(s.id)) return false;
     if (s.title) {
-<<<<<<< HEAD
       const key = normalizeSongTitle(s.title, s.movie || s.album);
-=======
-      const key = normalizeSongTitle(s.title);
->>>>>>> origin/main
       if (recentKeys.has(key)) return false;
     }
     return true;
@@ -341,7 +304,6 @@ async function searchPiped(query: string): Promise<Song[]> {
   return [];
 }
 
-<<<<<<< HEAD
 function isDevotionalSong(song: Song): boolean {
   const title = (song.title || "").toLowerCase();
   const album = (song.album || song.movie || "").toLowerCase();
@@ -392,8 +354,6 @@ function getSongCategory(song: Song): string {
   return "general";
 }
 
-=======
->>>>>>> origin/main
 function calculateSongScore(song: Song, seed: Song): number {
   let score = 0;
   

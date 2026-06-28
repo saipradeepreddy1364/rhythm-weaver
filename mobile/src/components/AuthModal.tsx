@@ -1,4 +1,7 @@
-import React from "react";
+import React, { useState } from "react";
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, ActivityIndicator, KeyboardAvoidingView, Platform, TextInput } from 'react-native';
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useAuth } from "../context/AuthContext";
 
 interface AuthModalProps {
   open: boolean;
