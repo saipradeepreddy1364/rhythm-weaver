@@ -1,8 +1,9 @@
-import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Modal, ActivityIndicator, Linking, Platform } from 'react-native'
-import React, { useState, useEffect } from "react";
+import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Modal, ActivityIndicator, Linking, Platform, PanResponder } from 'react-native'
+import React, { useState, useEffect, useRef } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { Video, ResizeMode } from "expo-av";
 import { usePlayer } from "../context/PlayerContext";
-import { formatDuration } from "../data/songs";
+import { formatDuration, Song } from "../data/songs";
 import { LikeButton } from "./LikeButton";
 import { useLibrary } from "../context/LibraryContext";
 
@@ -10,7 +11,95 @@ interface FullPlayerProps {
   onRequireAuth?: () => void;
 }
 
-type TabType = "cover" | "lyrics";
+type TabType = "cover" | "lyrics" | "video";
+
+interface VideoStream {
+  url: string;
+  quality: string;
+}
+
+const PIPED_INSTANCES = [
+  "https://pipedapi.adminforge.de",
+  "https://pipedapi.projectsegfau.lt",
+  "https://pipedapi.kavin.rocks",
+  "https://pipedapi-libre.kavin.rocks",
+  "https://pipedapi.leptons.xyz",
+  "https://api.looleh.xyz"
+];
+
+async function resolveVideoStreams(song: Song): Promise<VideoStream[]> {
+  const songId = song.id;
+  
+  // 1. If it's a YouTube song, resolve streams directly
+  if (songId.startsWith("yt-")) {
+    const videoId = songId.replace("yt-", "");
+    return fetchPipedStreams(videoId);
+  }
+
+  // 2. If it's a JioSaavn song, try the backend's video-url matching first
+  try {
+    const res = await Promise.race([
+      fetch(`https://musicbackend-xg4u.onrender.com/api/songs/${songId}/video-url`),
+      new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
+    ]);
+    if (res.ok) {
+      const data = await res.json();
+      const streams: VideoStream[] = data.streams ?? data.data?.streams ?? (Array.isArray(data) ? data : []);
+      if (Array.isArray(streams) && streams.length > 0) {
+        return streams.map(s => ({ url: s.url, quality: s.quality }));
+      }
+    }
+  } catch (err) {
+    console.log("[FullPlayer] Backend video-url resolve failed, falling back to Piped search:", err);
+  }
+
+  // 3. Fallback: Search YouTube via Piped to match the song
+  const query = `${song.title} ${song.artist} official video`;
+  for (const instance of PIPED_INSTANCES) {
+    try {
+      const searchRes = await Promise.race([
+        fetch(`${instance}/search?q=${encodeURIComponent(query)}&filter=videos`),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
+      ]);
+      if (!searchRes.ok) continue;
+      const searchData = await searchRes.json();
+      const items = searchData.items || [];
+      const firstVideoId = items[0]?.videoId;
+      if (firstVideoId) {
+        console.log(`[FullPlayer] Piped search resolved video ID: ${firstVideoId}`);
+        const streams = await fetchPipedStreams(firstVideoId, instance);
+        if (streams.length > 0) return streams;
+      }
+    } catch { /* try next instance */ }
+  }
+
+  return [];
+}
+
+async function fetchPipedStreams(videoId: string, preferredInstance?: string): Promise<VideoStream[]> {
+  const instances = preferredInstance ? [preferredInstance, ...PIPED_INSTANCES] : PIPED_INSTANCES;
+  for (const instance of instances) {
+    try {
+      const res = await Promise.race([
+        fetch(`${instance}/streams/${videoId}`),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
+      ]);
+      if (!res.ok) continue;
+      const data = await res.json();
+
+      // If HLS streaming playlist is available, use it as first choice since it is proxied and bypasses YouTube IP lock!
+      if (data.hls) {
+        return [{ url: data.hls, quality: "Auto (HLS)" }];
+      }
+
+      const vs: any[] = data.videoStreams || [];
+      if (vs.length > 0) {
+        return vs.map((s) => ({ url: s.url, quality: s.quality }));
+      }
+    } catch { /* try next */ }
+  }
+  return [];
+}
 
 // Clean lyrics utility matching web app regex cleaning
 function cleanLyricsHtml(raw: string): string {
@@ -97,6 +186,10 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   const [lyricsLoading, setLyricsLoading] = useState(false);
   const [queuedFlash, setQueuedFlash] = useState(false);
   const [progressBarWidth, setProgressBarWidth] = useState(0);
+  const [videoStreams, setVideoStreams] = useState<VideoStream[]>([]);
+  const [selectedStream, setSelectedStream] = useState<VideoStream | null>(null);
+  const [videoLoading, setVideoLoading] = useState(false);
+  const [videoError, setVideoError] = useState<string | null>(null);
 
   const [translationLang, setTranslationLang] = useState<"original" | "en">("original");
   const [translatedLyrics, setTranslatedLyrics] = useState<Record<string, string>>({});
@@ -184,7 +277,29 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
     setActiveTab("cover");
     setLyrics(null);
     setTranslationLang("original");
+    setVideoStreams([]);
+    setSelectedStream(null);
+    setVideoError(null);
   }, [currentSong?.id]);
+
+  // Load video streams when Video tab is active
+  useEffect(() => {
+    if (activeTab !== "video" || !currentSong || !showPlayer) return;
+    if (videoStreams.length > 0) return;
+    setVideoLoading(true);
+    setVideoError(null);
+    resolveVideoStreams(currentSong)
+      .then((streams) => {
+        if (streams.length > 0) {
+          setVideoStreams(streams);
+          setSelectedStream(streams[0]);
+        } else {
+          setVideoError("No video available for this song.");
+        }
+      })
+      .catch(() => setVideoError("Failed to load video."))
+      .finally(() => setVideoLoading(false));
+  }, [activeTab, currentSong?.id, showPlayer]);
 
   // Load lyrics
   useEffect(() => {
@@ -203,8 +318,6 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
       ? duration
       : (currentSong.duration && currentSong.duration > 1 ? currentSong.duration : 0);
 
-  const pct = totalDuration > 0 ? Math.min(100, (progress / totalDuration) * 100) : 0;
-
   const handleAddToQueue = () => {
     addToQueue(currentSong);
     setQueuedFlash(true);
@@ -220,12 +333,54 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
     }
   };
 
-  const handleProgressBarPress = (event: any) => {
-    if (totalDuration <= 0 || progressBarWidth <= 0) return;
-    const { locationX } = event.nativeEvent;
-    const ratio = Math.max(0, Math.min(1, locationX / progressBarWidth));
-    setProgress(Math.floor(ratio * totalDuration));
-  };
+  const trackLeftRef = useRef(0);
+  const isDraggingRef = useRef(false);
+  const lastSeekTimeRef = useRef(0);
+  const [dragProgress, setDragProgress] = useState<number | null>(null);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt, gestureState) => {
+        isDraggingRef.current = true;
+        const { locationX } = evt.nativeEvent;
+        // Track the absolute coordinate on the screen where the track starts using gestureState.x0
+        trackLeftRef.current = gestureState.x0 - locationX;
+        const ratio = Math.max(0, Math.min(1, locationX / progressBarWidth));
+        setDragProgress(ratio * totalDuration);
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        if (progressBarWidth <= 0 || totalDuration <= 0) return;
+        const currentX = gestureState.moveX - trackLeftRef.current;
+        const ratio = Math.max(0, Math.min(1, currentX / progressBarWidth));
+        const currentVal = ratio * totalDuration;
+        setDragProgress(currentVal);
+      },
+      onPanResponderRelease: (evt, gestureState) => {
+        if (progressBarWidth <= 0 || totalDuration <= 0) {
+          isDraggingRef.current = false;
+          setDragProgress(null);
+          return;
+        }
+        const currentX = gestureState.moveX - trackLeftRef.current;
+        const ratio = Math.max(0, Math.min(1, currentX / progressBarWidth));
+        const finalProgress = Math.floor(ratio * totalDuration);
+        setProgress(finalProgress);
+        setDragProgress(null);
+        setTimeout(() => {
+          isDraggingRef.current = false;
+        }, 100);
+      },
+      onPanResponderTerminate: () => {
+        isDraggingRef.current = false;
+        setDragProgress(null);
+      }
+    })
+  );
+
+  const displayProgress = dragProgress !== null ? dragProgress : progress;
+  const pct = totalDuration > 0 ? Math.min(100, (displayProgress / totalDuration) * 100) : 0;
 
   return (
     <Modal
@@ -265,22 +420,20 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             </TouchableOpacity>
           </View>
 
-          {/* Tab Switcher - show Lyrics tab only when lyrics are loaded and exist */}
-          {(!lyricsLoading && lyrics && lyrics.trim().length > 0) && (
-            <View style={styles.tabBar}>
-              {(["cover", "lyrics"] as TabType[]).map((tab) => {
-                const isActive = activeTab === tab;
-                return (
-                  <TouchableOpacity delayPressIn={0} key={tab} onPress={() => setActiveTab(tab)} style={[styles.tabButton, isActive && styles.activeTabButton]} activeOpacity={0.7}>
-                    <Text style={[styles.tabButtonText, isActive && styles.activeTabButtonText]}>
-                      {tab.charAt(0).toUpperCase() + tab.slice(1)}
-                      {tab === "lyrics" && lyricsLoading ? " ●" : ""}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          )}
+          {/* Tab Switcher - always show Video; show Lyrics only when available */}
+          <View style={styles.tabBar}>
+            {(["cover", ...((!lyricsLoading && lyrics && lyrics.trim().length > 0) ? ["lyrics"] : []), "video"] as TabType[]).map((tab) => {
+              const isActive = activeTab === tab;
+              return (
+                <TouchableOpacity delayPressIn={0} key={tab} onPress={() => setActiveTab(tab)} style={[styles.tabButton, isActive && styles.activeTabButton]} activeOpacity={0.7}>
+                  <Text style={[styles.tabButtonText, isActive && styles.activeTabButtonText]}>
+                    {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                    {tab === "lyrics" && lyricsLoading ? " ●" : ""}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
 
           {/* Body content based on tab selection */}
           <View style={styles.mainContent}>
@@ -354,6 +507,64 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
                 </ScrollView>
               </View>
             )}
+
+            {/* Video Tab */}
+            {activeTab === "video" && (
+              <View style={styles.videoWrapper}>
+                {videoLoading ? (
+                  <View style={styles.videoCenter}>
+                    <ActivityIndicator size="large" color="#1DB954" />
+                    <Text style={styles.videoStatusText}>Loading video...</Text>
+                  </View>
+                ) : videoError ? (
+                  <View style={styles.videoCenter}>
+                    <MaterialCommunityIcons name="video-off-outline" size={52} color="rgba(255,255,255,0.2)" />
+                    <Text style={styles.videoErrorText}>{videoError}</Text>
+                  </View>
+                ) : selectedStream ? (
+                  <View style={styles.videoPlayerContainer}>
+                    <Video
+                      source={{
+                        uri: selectedStream.url,
+                        overrideFileExtensionAndroid: selectedStream.quality.includes("HLS") ? "m3u8" : undefined
+                      }}
+                      rate={1.0}
+                      volume={1.0}
+                      isMuted={false}
+                      resizeMode={ResizeMode.CONTAIN}
+                      shouldPlay={true}
+                      useNativeControls
+                      style={styles.nativeVideo}
+                      onPlaybackStatusUpdate={(status: any) => {
+                        if (status.isLoaded && status.isPlaying && isPlaying) {
+                          togglePlay();
+                        }
+                      }}
+                    />
+                    {/* Quality selector */}
+                    {videoStreams.length > 1 && (
+                      <ScrollView horizontal style={styles.qualityList} contentContainerStyle={styles.qualityListContent} showsHorizontalScrollIndicator={false}>
+                        {videoStreams.map((stream) => {
+                          const isSel = selectedStream.quality === stream.quality;
+                          return (
+                            <TouchableOpacity
+                              key={stream.quality}
+                              onPress={() => setSelectedStream(stream)}
+                              style={[styles.qualityPill, isSel && styles.activeQualityPill]}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={[styles.qualityText, isSel && styles.activeQualityText]}>
+                                {stream.quality}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </ScrollView>
+                    )}
+                  </View>
+                ) : null}
+              </View>
+            )}
           </View>
 
           {/* Song Info Section */}
@@ -387,14 +598,18 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
 
           {/* Progress Seek Bar */}
           <View style={styles.progressSection}>
-            <TouchableOpacity delayPressIn={0} style={styles.progressBarTrack} onLayout={(e: any) => setProgressBarWidth(e.nativeEvent.layout.width)} onPress={handleProgressBarPress} activeOpacity={1}>
-              <View style={[styles.progressBarFill, { width: `${pct}%` }]} />
-              <View style={[styles.progressBarThumb, { left: `${pct}%`, marginLeft: -6 }]} />
-            </TouchableOpacity>
+            <View
+              style={styles.progressBarTrack}
+              onLayout={(e: any) => setProgressBarWidth(e.nativeEvent.layout.width)}
+              {...panResponder.current.panHandlers}
+            >
+              <View pointerEvents="none" style={[styles.progressBarFill, { width: `${pct}%` }]} />
+              <View pointerEvents="none" style={[styles.progressBarThumb, { left: `${pct}%`, marginLeft: -6 }]} />
+            </View>
 
             <View style={styles.timeLabels}>
               <Text style={styles.timeText}>
-                {totalDuration > 0 ? formatDuration(Math.floor(progress)) : "0:00"}
+                {totalDuration > 0 ? formatDuration(Math.floor(displayProgress)) : "0:00"}
               </Text>
               <Text style={styles.percentageText}>
                 {totalDuration > 0 ? `${Math.round(pct)}%` : "--"}
@@ -584,48 +799,56 @@ const styles = StyleSheet.create({
   },
   // Video View
   videoWrapper: {
-    width: "100%",
-    height: "100%",
+    flex: 1,
+    backgroundColor: "#000",
+    borderRadius: 16,
+    overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
   },
-  videoErrorContainer: {
+  videoCenter: {
+    flex: 1,
     alignItems: "center",
     justifyContent: "center",
   },
-  videoErrorText: {
-    fontSize: 12,
-    color: "rgba(255,255,255,0.4)",
+  videoStatusText: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 13,
     marginTop: 8,
   },
+  videoErrorText: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.4)",
+    textAlign: "center",
+    marginTop: 8,
+    paddingHorizontal: 24,
+  },
   videoPlayerContainer: {
+    flex: 1,
     width: "100%",
-    height: "100%",
-    justifyContent: "space-between",
-    alignItems: "center",
   },
   nativeVideo: {
+    flex: 1,
     width: "100%",
-    height: 150,
-    borderRadius: 12,
     backgroundColor: "#000",
   },
   qualityList: {
-    flexDirection: "row",
-    maxHeight: 38,
-    marginTop: 8,
+    maxHeight: 44,
+    backgroundColor: "rgba(0,0,0,0.6)",
   },
   qualityListContent: {
+    flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
   qualityPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
     borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.06)",
+    backgroundColor: "rgba(255,255,255,0.1)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
+    borderColor: "rgba(255,255,255,0.15)",
     marginHorizontal: 4,
   },
   activeQualityPill: {
@@ -633,12 +856,13 @@ const styles = StyleSheet.create({
     borderColor: "#1DB954",
   },
   qualityText: {
-    fontSize: 10,
-    fontWeight: "bold",
-    color: "rgba(255,255,255,0.6)",
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 12,
+    fontWeight: "600",
   },
   activeQualityText: {
     color: "#000",
+    fontWeight: "bold",
   },
   // Meta block
   songMeta: {
@@ -812,4 +1036,4 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "rgba(255,255,255,0.4)",
   },
-});
+});

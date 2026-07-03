@@ -907,7 +907,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [results, setResults]         = useState<Song[]>([]);
   const [loading, setLoading]         = useState(false);
-  const [activeTab, setActiveTab]     = useState<"all" | "songs" | "albums" | "artists">("all");
+  const [activeTab, setActiveTab]     = useState<"all" | "songs" | "albums" | "artists" | "youtube">("all");
 
   const [activeCategory, setActiveCategory] = useState<{ label: string; songs: Song[]; coverArt: string } | null>(null);
   const [activeLangAlbum, setActiveLangAlbum] = useState<string | null>(null);
@@ -1008,7 +1008,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
         {/* Search Results filter tabs */}
         {query.trim().length > 0 ? (
           <View style={styles.filterTabs}>
-            {(["all", "songs", "albums", "artists"] as const).map((tab) => {
+            {(["all", "songs", "albums", "artists", "youtube"] as const).map((tab) => {
               const isActive = activeTab === tab;
               return (
                 <TouchableOpacity delayPressIn={0} key={tab} onPress={() => setActiveTab(tab)} style={[styles.filterTabBtn, isActive && styles.activeFilterTabBtn]} activeOpacity={0.7}>
@@ -1060,26 +1060,35 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
               <View style={styles.resultSection}>
                 <Text style={styles.sectionSubHeader}>Songs</Text>
                 {jioSongs.slice(0, 6).map((song) => (
-                  <SongRow key={song.id} song={song} queue={results} onRequireAuth={handleRequireAuth} />
+                  <SongRow key={song.id} song={song} queue={jioSongs} onRequireAuth={handleRequireAuth} />
                 ))}
               </View>
             ) : null}
 
-            {/* All - YouTube / Web Results */}
+            {/* All - YouTube Videos */}
             {activeTab === "all" && ytSongs.length > 0 ? (
               <View style={styles.resultSection}>
-                <Text style={styles.sectionSubHeader}>YouTube / Web Results</Text>
+                <Text style={styles.sectionSubHeader}>YouTube Videos</Text>
                 {ytSongs.slice(0, 6).map((song) => (
-                  <SongRow key={song.id} song={song} queue={results} onRequireAuth={handleRequireAuth} />
+                  <SongRow key={song.id} song={song} queue={ytSongs} onRequireAuth={handleRequireAuth} />
                 ))}
               </View>
             ) : null}
 
-            {/* Songs Tab - Show all combined */}
-            {activeTab === "songs" && results.length > 0 ? (
+            {/* Songs Tab - Show JioSaavn songs only */}
+            {activeTab === "songs" && jioSongs.length > 0 ? (
               <View style={styles.resultSection}>
-                {results.map((song) => (
-                  <SongRow key={song.id} song={song} queue={results} onRequireAuth={handleRequireAuth} />
+                {jioSongs.map((song) => (
+                  <SongRow key={song.id} song={song} queue={jioSongs} onRequireAuth={handleRequireAuth} />
+                ))}
+              </View>
+            ) : null}
+
+            {/* YouTube Tab - Show YouTube Videos only */}
+            {activeTab === "youtube" && ytSongs.length > 0 ? (
+              <View style={styles.resultSection}>
+                {ytSongs.map((song) => (
+                  <SongRow key={song.id} song={song} queue={ytSongs} onRequireAuth={handleRequireAuth} />
                 ))}
               </View>
             ) : null}

@@ -50,26 +50,20 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
 
   const [isOffline, setIsOffline] = useState(false);
 
-  // Check connectivity periodically
+  // Check connectivity once on mount, non-blockingly
   useEffect(() => {
     const checkConn = async () => {
       try {
         const res = await Promise.race([
-          fetch("https://clients3.google.com/generate_204"),
-          new Promise<null>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 4000))
+          fetch("https://clients3.google.com/generate_202"),
+          new Promise<null>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3000))
         ]);
-        if (res && res.status === 204) {
-          setIsOffline(false);
-        } else {
-          setIsOffline(true);
-        }
+        setIsOffline(false);
       } catch {
         setIsOffline(true);
       }
     };
     checkConn();
-    const intervalId = setInterval(checkConn, 5000);
-    return () => clearInterval(intervalId);
   }, []);
 
   // Switch to downloads tab automatically when offline

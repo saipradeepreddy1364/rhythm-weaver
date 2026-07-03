@@ -222,6 +222,7 @@ function AppContent() {
                   ref={scrollViewRef}
                   horizontal
                   pagingEnabled
+                  removeClippedSubviews={true}
                   showsHorizontalScrollIndicator={false}
                   onMomentumScrollEnd={(e) => {
                     const index = screenWidth > 0 ? Math.round(e.nativeEvent.contentOffset.x / screenWidth) : 0;
@@ -346,65 +347,42 @@ import { localStorage } from "./src/lib/storage";
 
 export default function App() {
   const [appReady, setAppReady] = useState(false);
-  // Overlay opacity: starts at 1 (fully visible dark screen), fades to 0 after content paints
-  const overlayOpacity = useRef(new Animated.Value(1)).current;
   const splashHidden = useRef(false);
 
   useEffect(() => {
-    // Start background prefetching of home page content immediately on app start
-    homePagePrefetcher.start();
-
-    const startTime = Date.now();
-
+    // Start storage initialization
     const prepareApp = async () => {
       try {
-        // 1. Ensure storage is initialized
         await localStorage.ensureInitialized();
-
-        // 2. Wait for the homePagePrefetcher to be ready, up to a maximum of 6 seconds
-        const maxWait = 6000;
-        while (!homePagePrefetcher.ready && (Date.now() - startTime) < maxWait) {
-          await new Promise((resolve) => setTimeout(resolve, 100));
-        }
-
-        // 3. Ensure the splash screen stays visible for at least 1 second
-        const minDuration = 1000;
-        const elapsed = Date.now() - startTime;
-        if (elapsed < minDuration) {
-          await new Promise((resolve) => setTimeout(resolve, minDuration - elapsed));
-        }
       } catch (e) {
-        console.warn("App initialization error:", e);
+        console.warn("Storage init error:", e);
       } finally {
         setAppReady(true);
       }
     };
-
     prepareApp();
   }, []);
 
-  /**
-   * Called when the root View first lays out - at this point React has committed the
-   * full UI tree to the native layer, so it is safe to hide the native splash screen.
-   * We then fade out our React-side dark overlay to reveal the content smoothly.
-   */
+  useEffect(() => {
+    if (!appReady) return;
+
+    // Start prefetching immediately
+    homePagePrefetcher.start();
+
+    // Delay hiding the native splash screen for exactly 5 seconds
+    const timer = setTimeout(() => {
+      splashHidden.current = true;
+      SplashScreen.hideAsync().catch(() => {});
+    }, 5000);
+
+    return () => clearTimeout(timer);
+  }, [appReady]);
+
   const handleRootLayout = useCallback(() => {
-    if (splashHidden.current) return;
-    splashHidden.current = true;
-
-    // Hide native splash — content is already painted behind our overlay
-    SplashScreen.hideAsync().catch(() => {});
-
-    // Fade out the React overlay to reveal the app content
-    Animated.timing(overlayOpacity, {
-      toValue: 0,
-      duration: 350,
-      useNativeDriver: true,
-    }).start();
-  }, [overlayOpacity]);
+    // Native splash screen is held visible by the 5-second timer, do nothing on layout
+  }, []);
 
   if (!appReady) {
-    // Returning null keeps the native splash screen visible
     return null;
   }
 
@@ -420,15 +398,6 @@ export default function App() {
             </PlayerProvider>
           </AuthProvider>
         </PaperProvider>
-
-        {/* Dark overlay that covers white flash during first paint, fades away once content is ready */}
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            StyleSheet.absoluteFill,
-            { backgroundColor: '#121212', opacity: overlayOpacity },
-          ]}
-        />
       </View>
     </ErrorBoundary>
   );

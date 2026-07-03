@@ -1304,26 +1304,20 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
   const navigation: any                   = useNavigation();
   const [isOffline, setIsOffline]         = useState(false);
 
-  // Check connectivity periodically
+  // Check connectivity once on mount, non-blockingly
   useEffect(() => {
     const checkConnectivity = async () => {
       try {
         const res = await Promise.race([
-          fetch("https://clients3.google.com/generate_204"),
-          new Promise<null>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 4000))
+          fetch("https://clients3.google.com/generate_202"),
+          new Promise<null>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3000))
         ]);
-        if (res && res.status === 204) {
-          setIsOffline(false);
-        } else {
-          setIsOffline(true);
-        }
+        setIsOffline(false);
       } catch {
         setIsOffline(true);
       }
     };
     checkConnectivity();
-    const intervalId = setInterval(checkConnectivity, 5000);
-    return () => clearInterval(intervalId);
   }, []);
 
   const [sections,     setSections]     = useState<SectionData[]>(() => homePagePrefetcher.sections);

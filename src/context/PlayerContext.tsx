@@ -307,15 +307,18 @@ async function searchPiped(query: string): Promise<Song[]> {
 function isDevotionalSong(song: Song): boolean {
   const title = (song.title || "").toLowerCase();
   const album = (song.album || song.movie || "").toLowerCase();
+  const genre = (song.genre || "").toLowerCase();
   
   const keywords = [
     "bhajan", "aarti", "chalisa", "devotional", "bhakti", "mantra", 
     "stotram", "dhun", "stotra", "shlok", "shloka", "kirtan", 
-    "hanuman chalisa", "shri ram", "krishna bhajan", "ganesha bhajan",
-    "shiv bhajan", "sai baba", "spiritual", "durga chalisa"
+    "hanuman", "ram", "shri ram", "krishna", "ganesha",
+    "shiv bhajan", "sai baba", "spiritual", "durga", "prayer", 
+    "chants", "suprabhatam", "namam", "keerthana", "slokam", 
+    "ayyappa", "tirupati", "govinda", "god", "temple", "divine"
   ];
   
-  return keywords.some(kw => title.includes(kw) || album.includes(kw));
+  return keywords.some(kw => title.includes(kw) || album.includes(kw) || genre.includes(kw));
 }
 
 function getSongCategory(song: Song): string {
@@ -325,28 +328,44 @@ function getSongCategory(song: Song): string {
   const album = (song.album || song.movie || "").toLowerCase();
   const genre = (song.genre || "").toLowerCase();
   
+  // Romantic / Love
   if (
     title.includes("love") || title.includes("romantic") || title.includes("romance") || 
     title.includes("dil") || title.includes("pyar") || title.includes("prem") || 
     title.includes("prema") || title.includes("priya") || title.includes("valapu") ||
+    title.includes("ishq") || title.includes("mohabbat") || title.includes("pyaar") ||
+    title.includes("sanam") || title.includes("dhadkan") || title.includes("humsafar") ||
+    title.includes("mahi") || title.includes("jaan") || title.includes("cheliya") ||
+    title.includes("priyudu") || title.includes("priyuralu") || title.includes("valalo") ||
+    title.includes("pranayam") || title.includes("couple") || title.includes("valentine") ||
+    title.includes("heart") ||
     genre.includes("romantic") || genre.includes("love")
   ) {
     return "romantic";
   }
   
+  // Sad / Pain
   if (
     title.includes("sad") || title.includes("dard") || title.includes("breakup") || 
     title.includes("judai") || title.includes("baadha") || title.includes("yedustu") || 
-    title.includes("dukkha") || genre.includes("sad") || genre.includes("pain")
+    title.includes("dukkha") || title.includes("tanhai") || title.includes("gam") ||
+    title.includes("gham") || title.includes("aansu") || title.includes("bewafa") ||
+    title.includes("pain") || title.includes("lonely") || title.includes("alone") ||
+    title.includes("ontari") || title.includes("kanneeru") || title.includes("kanneru") ||
+    genre.includes("sad") || genre.includes("pain")
   ) {
     return "sad";
   }
   
+  // Party / Dance
   if (
     title.includes("party") || title.includes("dance") || title.includes("club") || 
     title.includes("dj") || title.includes("mix") || title.includes("beat") || 
-    title.includes("dappu") || title.includes("kuthu") || 
-    genre.includes("party") || genre.includes("dance") || genre.includes("electronic")
+    title.includes("dappu") || title.includes("kuthu") || title.includes("mass") ||
+    title.includes("hungama") || title.includes("masti") || title.includes("disco") ||
+    title.includes("remix") || title.includes("dhamaka") ||
+    genre.includes("party") || genre.includes("dance") || genre.includes("electronic") ||
+    genre.includes("pop") || genre.includes("rock")
   ) {
     return "party";
   }
@@ -389,6 +408,15 @@ function calculateSongScore(song: Song, seed: Song): number {
   const songGenre = song.genre ? song.genre.toLowerCase().trim() : "";
   if (seedGenre && songGenre && songGenre === seedGenre) {
     score += 40; // Genre match boost
+  }
+
+  // 3b. Category matching boost (Devotional, Romantic, Sad, Party, General)
+  const seedCat = getSongCategory(seed);
+  const songCat = getSongCategory(song);
+  if (seedCat === songCat) {
+    score += 80; // High boost for exact category match
+  } else if (seedCat !== "general" && songCat !== "general") {
+    score -= 60; // Penalty for mismatching specific categories
   }
 
   // 4. Artist matching (type of song / singer style)

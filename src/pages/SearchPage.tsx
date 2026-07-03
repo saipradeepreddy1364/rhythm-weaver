@@ -821,6 +821,42 @@ function groupIntoArtists(songs: Song[]): Artist[] {
   return [...map.values()];
 }
 
+async function searchPiped(query: string): Promise<Song[]> {
+  const PIPED_INSTANCES = [
+    "https://pipedapi.adminforge.de",
+    "https://pipedapi.projectsegfau.lt",
+    "https://pipedapi.kavin.rocks",
+    "https://pipedapi-libre.kavin.rocks",
+    "https://pipedapi.leptons.xyz",
+    "https://api.looleh.xyz"
+  ];
+  for (const instance of PIPED_INSTANCES) {
+    try {
+      const res = await Promise.race([
+        fetch(`${instance}/search?q=${encodeURIComponent(query)}&filter=videos`),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
+      ]);
+      if (!res.ok) continue;
+      const data = await res.json();
+      const items = data.items || [];
+      if (items.length === 0) continue;
+      return items.slice(0, 30).map((item: any) => ({
+        id: `yt-${item.videoId}`,
+        title: decodeHtml(item.title || "Unknown Title"),
+        artist: decodeHtml(item.uploaderName || "YouTube"),
+        duration: item.duration || 0,
+        albumArt: item.thumbnail || "",
+        audioUrl: `youtube://${item.videoId}`,
+        album: "YouTube Web",
+        movie: "YouTube Web"
+      }));
+    } catch (err) {
+      console.warn(`[SearchPage] Piped instance ${instance} failed:`, err);
+    }
+  }
+  return [];
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 interface SearchPageProps {
   onRequireAuth?: () => void;
@@ -831,7 +867,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [results, setResults]         = useState<Song[]>([]);
   const [loading, setLoading]         = useState(false);
-  const [activeTab, setActiveTab]     = useState<"all" | "songs" | "albums" | "artists">("all");
+  const [activeTab, setActiveTab]     = useState<"all" | "songs" | "albums" | "artists" | "youtube">("all");
 
   const [activeCategory, setActiveCategory] = useState<{ label: string; songs: Song[]; coverArt: string } | null>(null);
   const [activeLangAlbum, setActiveLangAlbum] = useState<string | null>(null);
@@ -864,17 +900,30 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
     }
 
     setLoading(true);
-    api.searchSongs(clean, 1, 60)
-      .then((res) => {
-        const raw = extractResults(res);
-        const songs = raw.map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
-        setResults(songs);
-        setLoading(false);
-      })
-      .catch(() => {
-        setResults([]);
-        setLoading(false);
-      });
+    Promise.all([
+      api.globalSearch(clean, 1, 60)
+        .then((res) => {
+          const raw = extractResults(res);
+          return raw.map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
+        })
+        .catch((err) => {
+          console.warn("[SearchPage] JioSaavn search failed:", err);
+          return [];
+        }),
+      searchPiped(clean)
+        .catch((err) => {
+          console.warn("[SearchPage] YouTube search failed:", err);
+          return [];
+        })
+    ]).then(([jioSongs, ytSongs]) => {
+      const combined = [...jioSongs, ...ytSongs];
+      setResults(combined);
+      setLoading(false);
+    }).catch((err) => {
+      console.error("[SearchPage] Search parallel execution failed:", err);
+      setResults([]);
+      setLoading(false);
+    });
   }, [debouncedQuery]);
 
   const handleRequireAuth = () => {
@@ -889,6 +938,9 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
       setActiveCategory({ label, songs, coverArt });
     }
   };
+
+  const jioSongs = results.filter((s) => !s.id.startsWith("yt-"));
+  const ytSongs = results.filter((s) => s.id.startsWith("yt-"));
 
   const songsResult = results;
   const albumsResult = groupIntoAlbums(results);
@@ -916,7 +968,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
         {/* Search Results filter tabs */}
         {query.trim().length > 0 ? (
           <View style={styles.filterTabs}>
-            {(["all", "songs", "albums", "artists"] as const).map((tab) => {
+            {(["all", "songs", "albums", "artists", "youtube"] as const).map((tab) => {
               const isActive = activeTab === tab;
               return (
                 <TouchableOpacity
@@ -937,7 +989,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
 
       <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
         {query.trim().length === 0 ? (
-          // Category Grid View (when query is empty)
+          // Category Grid View (when query isempty)
           <View>
             <Text style={styles.sectionTitle}>Browse Categories</Text>
             <View style={styles.grid}>
@@ -968,12 +1020,40 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
         ) : (
           // Results list view
           <View style={{ paddingBottom: 60 }}>
-            {/* All / Songs */}
-            {(activeTab === "all" || activeTab === "songs") && songsResult.length > 0 ? (
+            {/* All - JioSaavn Songs */}
+            {activeTab === "all" && jioSongs.length > 0 ? (
               <View style={styles.resultSection}>
-                {activeTab === "all" && <Text style={styles.sectionSubHeader}>Songs</Text>}
-                {songsResult.slice(0, activeTab === "all" ? 6 : undefined).map((song) => (
-                  <SongRow key={song.id} song={song} queue={songsResult} onRequireAuth={handleRequireAuth} />
+                <Text style={styles.sectionSubHeader}>Songs</Text>
+                {jioSongs.slice(0, 6).map((song) => (
+                  <SongRow key={song.id} song={song} queue={jioSongs} onRequireAuth={handleRequireAuth} />
+                ))}
+              </View>
+            ) : null}
+
+            {/* All - YouTube Videos */}
+            {activeTab === "all" && ytSongs.length > 0 ? (
+              <View style={styles.resultSection}>
+                <Text style={styles.sectionSubHeader}>YouTube Videos</Text>
+                {ytSongs.slice(0, 6).map((song) => (
+                  <SongRow key={song.id} song={song} queue={ytSongs} onRequireAuth={handleRequireAuth} />
+                ))}
+              </View>
+            ) : null}
+
+            {/* Songs Tab - JioSaavn Songs only */}
+            {activeTab === "songs" && jioSongs.length > 0 ? (
+              <View style={styles.resultSection}>
+                {jioSongs.map((song) => (
+                  <SongRow key={song.id} song={song} queue={jioSongs} onRequireAuth={handleRequireAuth} />
+                ))}
+              </View>
+            ) : null}
+
+            {/* YouTube Tab - YouTube Videos only */}
+            {activeTab === "youtube" && ytSongs.length > 0 ? (
+              <View style={styles.resultSection}>
+                {ytSongs.map((song) => (
+                  <SongRow key={song.id} song={song} queue={ytSongs} onRequireAuth={handleRequireAuth} />
                 ))}
               </View>
             ) : null}
