@@ -1,22 +1,16 @@
-import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Modal, ActivityIndicator, Linking, Platform } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Modal, ActivityIndicator, Linking, Platform, Dimensions } from 'react-native'
 import React, { useState, useEffect } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { usePlayer } from "../context/PlayerContext";
 import { formatDuration } from "../data/songs";
 import { LikeButton } from "./LikeButton";
-import { api } from "../services/api";
-import { Video, ResizeMode } from "expo-av";
+import { WebView } from "react-native-webview";
 
 interface FullPlayerProps {
   onRequireAuth?: () => void;
 }
 
 type TabType = "cover" | "lyrics" | "video";
-
-interface VideoStream {
-  quality: string;
-  url: string;
-}
 
 // Clean lyrics utility matching web app regex cleaning
 function cleanLyricsHtml(raw: string): string {
@@ -93,8 +87,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   const [activeTab, setActiveTab] = useState<TabType>("cover");
   const [lyrics, setLyrics] = useState<string | null>(null);
   const [lyricsLoading, setLyricsLoading] = useState(false);
-  const [videoStreams, setVideoStreams] = useState<VideoStream[]>([]);
-  const [selectedStream, setSelectedStream] = useState<VideoStream | null>(null);
+  const [youtubeVideoId, setYoutubeVideoId] = useState<string | null>(null);
   const [videoLoading, setVideoLoading] = useState(false);
   const [videoError, setVideoError] = useState<string | null>(null);
   const [queuedFlash, setQueuedFlash] = useState(false);
@@ -148,8 +141,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   useEffect(() => {
     setActiveTab("cover");
     setLyrics(null);
-    setVideoStreams([]);
-    setSelectedStream(null);
+    setYoutubeVideoId(null);
     setVideoError(null);
     setTranslationLang("original");
   }, [currentSong?.id]);
@@ -164,29 +156,51 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
     });
   }, [currentSong?.id, showPlayer]);
 
-  // Load video streams
+  // Search YouTube via Piped API instances to get video ID
   useEffect(() => {
     if (activeTab !== "video" || !currentSong || !showPlayer) return;
-    if (videoStreams.length > 0) return;
+    if (youtubeVideoId) return;
 
     setVideoLoading(true);
     setVideoError(null);
 
-    api.getSongVideoUrl(currentSong.id)
-      .then((res) => {
-        const streams: VideoStream[] = res.streams ?? res.data?.streams ?? (Array.isArray(res) ? res : []);
-        if (Array.isArray(streams) && streams.length > 0) {
-          setVideoStreams(streams);
-          setSelectedStream(streams[0]);
-        } else {
-          setVideoError("No video streams available for this song.");
+    const PIPED_INSTANCES = [
+      "https://pipedapi.adminforge.de",
+      "https://pipedapi.projectsegfau.lt",
+      "https://pipedapi.kavin.rocks",
+      "https://pipedapi-libre.kavin.rocks",
+      "https://pipedapi.leptons.xyz",
+      "https://api.looleh.xyz"
+    ];
+
+    const query = `${currentSong.title} ${currentSong.artist} ${currentSong.movie || currentSong.album || ""} official video`;
+
+    const tryInstances = async () => {
+      for (const instance of PIPED_INSTANCES) {
+        try {
+          const res = await Promise.race([
+            fetch(`${instance}/search?q=${encodeURIComponent(query)}&filter=videos`),
+            new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
+          ]);
+          if (!res.ok) continue;
+          const data = await res.json();
+          const items: any[] = data.items || [];
+          if (items.length === 0) continue;
+          const vid = items[0]?.videoId;
+          if (vid) {
+            setYoutubeVideoId(vid);
+            setVideoLoading(false);
+            return;
+          }
+        } catch {
+          // try next instance
         }
-        setVideoLoading(false);
-      })
-      .catch(() => {
-        setVideoError("Failed to load video streams.");
-        setVideoLoading(false);
-      });
+      }
+      setVideoError("No YouTube video found for this song.");
+      setVideoLoading(false);
+    };
+
+    tryInstances();
   }, [activeTab, currentSong?.id, showPlayer]);
 
   if (!currentSong || !showPlayer) return null;
@@ -360,54 +374,55 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
               </View>
             )}
 
-            {/* Video Tab */}
+            {/* Video Tab — YouTube embed via WebView */}
             {activeTab === "video" && (
               <View style={styles.videoWrapper}>
                 {videoLoading ? (
-                  <ActivityIndicator size="large" color="#1DB954" />
+                  <View style={styles.videoLoadingContainer}>
+                    <ActivityIndicator size="large" color="#FF0000" />
+                    <Text style={styles.videoLoadingText}>Loading YouTube video…</Text>
+                  </View>
                 ) : videoError ? (
                   <View style={styles.videoErrorContainer}>
-                    <MaterialCommunityIcons name="video-off-outline" size={48} color="rgba(255,255,255,0.2)" />
+                    <MaterialCommunityIcons name="youtube" size={52} color="rgba(255,255,255,0.2)" />
                     <Text style={styles.videoErrorText}>{videoError}</Text>
+                    <TouchableOpacity
+                      style={styles.youtubeSearchBtn}
+                      activeOpacity={0.8}
+                      onPress={() => {
+                        const q = `${currentSong.title} ${currentSong.artist} official video`;
+                        Linking.openURL(`https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`);
+                      }}
+                    >
+                      <MaterialCommunityIcons name="youtube" size={18} color="#fff" />
+                      <Text style={styles.youtubeSearchBtnText}>Search on YouTube</Text>
+                    </TouchableOpacity>
                   </View>
-                ) : selectedStream ? (
+                ) : youtubeVideoId ? (
                   <View style={styles.videoPlayerContainer}>
-                    <Video
-                      source={{ uri: selectedStream.url }}
-                      rate={1.0}
-                      volume={1.0}
-                      isMuted={false}
-                      resizeMode={ResizeMode.CONTAIN}
-                      shouldPlay={true}
-                      useNativeControls
-                      style={styles.nativeVideo}
-                      onPlaybackStatusUpdate={(status: any) => {
-                        if (status.isLoaded && status.isPlaying) {
-                          if (isPlaying) {
-                            togglePlay();
-                          }
-                        }
+                    <WebView
+                      style={styles.youtubeWebView}
+                      source={{
+                        uri: `https://www.youtube.com/embed/${youtubeVideoId}?autoplay=1&rel=0&modestbranding=1&playsinline=1`
+                      }}
+                      allowsFullscreenVideo
+                      mediaPlaybackRequiresUserAction={false}
+                      javaScriptEnabled
+                      domStorageEnabled
+                      allowsInlineMediaPlayback
+                      onLoad={() => {
+                        // Pause audio player when video loads
+                        if (isPlaying) togglePlay();
                       }}
                     />
-                    
-                    {/* Quality list */}
-                    <ScrollView horizontal style={styles.qualityList} contentContainerStyle={styles.qualityListContent}>
-                      {videoStreams.map((stream) => {
-                        const isSel = selectedStream.quality === stream.quality;
-                        return (
-                          <TouchableOpacity
-                            key={stream.quality}
-                            onPress={() => setSelectedStream(stream)}
-                            style={[styles.qualityPill, isSel && styles.activeQualityPill]}
-                            activeOpacity={0.7}
-                          >
-                            <Text style={[styles.qualityText, isSel && styles.activeQualityText]}>
-                              {stream.quality}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
+                    <TouchableOpacity
+                      style={styles.openYoutubeBtn}
+                      activeOpacity={0.8}
+                      onPress={() => Linking.openURL(`https://www.youtube.com/watch?v=${youtubeVideoId}`)}
+                    >
+                      <MaterialCommunityIcons name="open-in-new" size={14} color="rgba(255,255,255,0.6)" />
+                      <Text style={styles.openYoutubeBtnText}>Open in YouTube</Text>
+                    </TouchableOpacity>
                   </View>
                 ) : null}
               </View>
@@ -647,36 +662,68 @@ const styles = StyleSheet.create({
     height: "100%",
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "#000",
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  videoLoadingContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+  },
+  videoLoadingText: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.5)",
+    marginTop: 10,
   },
   videoErrorContainer: {
     alignItems: "center",
     justifyContent: "center",
+    paddingHorizontal: 24,
+    gap: 12,
   },
   videoErrorText: {
-    fontSize: 12,
-    color: "rgba(255,255,255,0.4)",
-    marginTop: 8,
+    fontSize: 13,
+    color: "rgba(255,255,255,0.45)",
+    marginTop: 6,
+    textAlign: "center",
+  },
+  youtubeSearchBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FF0000",
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    gap: 6,
+    marginTop: 6,
+  },
+  youtubeSearchBtnText: {
+    fontSize: 13,
+    color: "#fff",
+    fontWeight: "600",
   },
   videoPlayerContainer: {
     width: "100%",
     height: "100%",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  nativeVideo: {
-    width: "100%",
-    height: 150,
-    borderRadius: 12,
     backgroundColor: "#000",
   },
-  qualityList: {
-    flexDirection: "row",
-    maxHeight: 38,
-    marginTop: 8,
+  youtubeWebView: {
+    flex: 1,
+    width: "100%",
+    backgroundColor: "#000",
   },
-  qualityListContent: {
+  openYoutubeBtn: {
+    flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 10,
+    justifyContent: "center",
+    paddingVertical: 8,
+    gap: 5,
+    backgroundColor: "rgba(0,0,0,0.7)",
+  },
+  openYoutubeBtnText: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.6)",
   },
   qualityPill: {
     paddingHorizontal: 10,

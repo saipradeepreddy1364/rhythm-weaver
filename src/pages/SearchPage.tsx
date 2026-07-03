@@ -818,7 +818,40 @@ function groupIntoArtists(songs: Song[]): Artist[] {
     if (!artist.coverArt && s.albumArt) artist.coverArt = s.albumArt;
     artist.songs.push(s);
   }
-  return [...map.values()];
+async function searchPiped(query: string): Promise<Song[]> {
+  const PIPED_INSTANCES = [
+    "https://pipedapi.adminforge.de",
+    "https://pipedapi.projectsegfau.lt",
+    "https://pipedapi.kavin.rocks",
+    "https://pipedapi-libre.kavin.rocks",
+    "https://pipedapi.leptons.xyz",
+    "https://api.looleh.xyz"
+  ];
+  for (const instance of PIPED_INSTANCES) {
+    try {
+      const res = await Promise.race([
+        fetch(`${instance}/search?q=${encodeURIComponent(query)}&filter=videos`),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
+      ]);
+      if (!res.ok) continue;
+      const data = await res.json();
+      const items = data.items || [];
+      if (items.length === 0) continue;
+      return items.slice(0, 30).map((item: any) => ({
+        id: `yt-${item.videoId}`,
+        title: decodeHtml(item.title || "Unknown Title"),
+        artist: decodeHtml(item.uploaderName || "YouTube"),
+        duration: item.duration || 0,
+        albumArt: item.thumbnail || "",
+        audioUrl: `youtube://${item.videoId}`,
+        album: "YouTube Web",
+        movie: "YouTube Web"
+      }));
+    } catch (err) {
+      console.warn(`[SearchPage] Piped instance ${instance} failed:`, err);
+    }
+  }
+  return [];
 }
 
 async function searchPiped(query: string): Promise<Song[]> {
