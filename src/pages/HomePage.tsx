@@ -1558,10 +1558,30 @@ class HomePagePrefetcher {
     }
 
     try {
-      const res = await api.getHomeData();
+      // Use a 90-second timeout — Render free tier can have cold starts of 30-60s
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 90_000);
+
+      let res: any = null;
+      try {
+        const raw = await fetch(
+          "https://musicbackend-7a1o.onrender.com/api/music/home",
+          { signal: controller.signal }
+        );
+        clearTimeout(timeoutId);
+        if (raw.ok) res = await raw.json();
+      } catch (fetchErr: any) {
+        clearTimeout(timeoutId);
+        if (fetchErr?.name === "AbortError") {
+          console.warn("HomePagePrefetcher | Backend timed out — falling back to direct section fetch");
+        } else {
+          throw fetchErr;
+        }
+      }
+
       if (res && res.success && res.data) {
         const { sections, filmAlbums, artistAlbums } = res.data;
-        
+
         const mappedSections: SectionData[] = (sections || []).map((sec: any) => ({
           title: sec.title,
           songs: (sec.songs || []).map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl)
@@ -1593,12 +1613,63 @@ class HomePagePrefetcher {
         cacheSet(this.secKey, mappedSections);
         cacheSet(this.albKey, { film: mappedFilmAlbums, artist: mappedArtistAlbums });
         this._notify();
+      } else {
+        // Backend didn't respond in time or returned empty data — fetch sections directly
+        console.warn("HomePagePrefetcher | Backend returned no data — fetching sections directly from JioSaavn...");
+        await this._fetchSectionsFallback();
       }
     } catch (err) {
       console.warn("HomePagePrefetcher | Failed to load home data from backend:", err);
+      // Fallback: load sections directly so home page is not empty
+      await this._fetchSectionsFallback();
     }
 
     setTimeout(() => { this._running = false; this.start(); }, CACHE_TTL_MS);
+  }
+
+  /**
+   * Fallback: fetch sections directly from JioSaavn when backend is unavailable.
+   * Loads 3 priority sections in parallel, then the rest sequentially, notifying
+   * after each group so the UI updates progressively.
+   */
+  private async _fetchSectionsFallback(): Promise<void> {
+    const priorityDefs = SECTION_DEFS.slice(0, 3);
+    const restDefs     = SECTION_DEFS.slice(3);
+
+    const fetchOne = async (def: { title: string; pool: string[]; seed: number }): Promise<SectionData> => {
+      const query = pickQuery(def.pool, def.seed);
+      const songs = await fetchSection(query, 50);
+      return { title: def.title, songs };
+    };
+
+    // Fetch first 3 sections in parallel
+    const priorityResults = await Promise.allSettled(priorityDefs.map(fetchOne));
+    for (const result of priorityResults) {
+      if (result.status === "fulfilled" && result.value.songs.length > 0) {
+        this._sections = [...this._sections.filter(s => s.title !== result.value.title), result.value];
+      }
+    }
+    if (this._sections.length > 0) {
+      this._ready = true;
+      this._notify();
+    }
+
+    // Then fetch remaining sections one at a time
+    for (const def of restDefs) {
+      try {
+        const sec = await fetchOne(def);
+        if (sec.songs.length > 0) {
+          this._sections = [...this._sections.filter(s => s.title !== sec.title), sec];
+          this._notify();
+        }
+      } catch { /* continue */ }
+      await new Promise(r => setTimeout(r, 300));
+    }
+
+    // Cache what we got
+    if (this._sections.length > 0) {
+      cacheSet(this.secKey, this._sections);
+    }
   }
 }
 

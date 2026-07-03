@@ -1,5 +1,5 @@
 import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Modal, ActivityIndicator, Linking, Platform, Dimensions } from 'react-native'
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { usePlayer } from "../context/PlayerContext";
 import { formatDuration } from "../data/songs";
@@ -92,6 +92,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   const [videoError, setVideoError] = useState<string | null>(null);
   const [queuedFlash, setQueuedFlash] = useState(false);
   const [progressBarWidth, setProgressBarWidth] = useState(0);
+  const progressBarRef = useRef<any>(null);
 
   const [translationLang, setTranslationLang] = useState<"original" | "hi" | "te" | "en">("original");
   const [translatedLyrics, setTranslatedLyrics] = useState<Record<string, string>>({});
@@ -156,7 +157,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
     });
   }, [currentSong?.id, showPlayer]);
 
-  // Search YouTube via Piped API instances to get video ID
+  // Search YouTube via multiple fallback methods to get video ID
   useEffect(() => {
     if (activeTab !== "video" || !currentSong || !showPlayer) return;
     if (youtubeVideoId) return;
@@ -170,7 +171,9 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
       "https://pipedapi.kavin.rocks",
       "https://pipedapi-libre.kavin.rocks",
       "https://pipedapi.leptons.xyz",
-      "https://api.looleh.xyz"
+      "https://api.looleh.xyz",
+      "https://piapi.ggtyler.dev",
+      "https://piped.video/api",
     ];
 
     const query = `${currentSong.title} ${currentSong.artist} ${currentSong.movie || currentSong.album || ""} official video`;
@@ -186,7 +189,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           const data = await res.json();
           const items: any[] = data.items || [];
           if (items.length === 0) continue;
-          const vid = items[0]?.videoId;
+          const vid = items[0]?.videoId || items[0]?.url?.replace("/watch?v=", "");
           if (vid) {
             setYoutubeVideoId(vid);
             setVideoLoading(false);
@@ -196,7 +199,10 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           // try next instance
         }
       }
-      setVideoError("No YouTube video found for this song.");
+      // Fallback: use YouTube's noembed oEmbed approach - search directly via YouTube
+      // Show a search-based embed instead
+      const fallbackSearchQuery = encodeURIComponent(`${currentSong.title} ${currentSong.artist}`);
+      setYoutubeVideoId(`__search__${fallbackSearchQuery}`);
       setVideoLoading(false);
     };
 
@@ -226,10 +232,23 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   };
 
   const handleProgressBarPress = (event: any) => {
-    if (totalDuration <= 0 || progressBarWidth <= 0) return;
-    const { locationX } = event.nativeEvent;
-    const ratio = Math.max(0, Math.min(1, locationX / progressBarWidth));
-    setProgress(Math.floor(ratio * totalDuration));
+    if (totalDuration <= 0) return;
+    // Try to get accurate position using ref.measure first
+    if (progressBarRef.current && typeof progressBarRef.current.measure === "function") {
+      progressBarRef.current.measure((_x: number, _y: number, width: number, _height: number, pageX: number) => {
+        if (width <= 0) return;
+        const touchX = event.nativeEvent.pageX ?? event.nativeEvent.locationX ?? 0;
+        const relX = Math.max(0, touchX - pageX);
+        const ratio = Math.max(0, Math.min(1, relX / width));
+        setProgress(Math.floor(ratio * totalDuration));
+      });
+    } else {
+      // Fallback: use locationX with stored progressBarWidth
+      if (progressBarWidth <= 0) return;
+      const locationX = event.nativeEvent.pageX ?? event.nativeEvent.locationX ?? 0;
+      const ratio = Math.max(0, Math.min(1, locationX / progressBarWidth));
+      setProgress(Math.floor(ratio * totalDuration));
+    }
   };
 
   return (
@@ -398,12 +417,28 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
                       <Text style={styles.youtubeSearchBtnText}>Search on YouTube</Text>
                     </TouchableOpacity>
                   </View>
+                ) : youtubeVideoId?.startsWith("__search__") ? (
+                  <View style={styles.videoPlayerContainer}>
+                    <WebView
+                      style={styles.youtubeWebView}
+                      source={{
+                        uri: `https://www.youtube.com/results?search_query=${youtubeVideoId.replace("__search__", "")}`
+                      }}
+                      allowsFullscreenVideo
+                      javaScriptEnabled
+                      domStorageEnabled
+                      allowsInlineMediaPlayback
+                    />
+                    <Text style={{ color: "rgba(255,255,255,0.5)", textAlign: "center", fontSize: 12, marginTop: 8 }}>
+                      Showing YouTube search — tap a video to play
+                    </Text>
+                  </View>
                 ) : youtubeVideoId ? (
                   <View style={styles.videoPlayerContainer}>
                     <WebView
                       style={styles.youtubeWebView}
                       source={{
-                        uri: `https://www.youtube.com/embed/${youtubeVideoId}?autoplay=1&rel=0&modestbranding=1&playsinline=1`
+                        uri: `https://www.youtube-nocookie.com/embed/${youtubeVideoId}?autoplay=1&rel=0&modestbranding=1&playsinline=1`
                       }}
                       allowsFullscreenVideo
                       mediaPlaybackRequiresUserAction={false}
@@ -453,6 +488,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           {/* Progress Seek Bar */}
           <View style={styles.progressSection}>
             <TouchableOpacity
+              ref={progressBarRef}
               style={styles.progressBarTrack}
               onLayout={(e: any) => setProgressBarWidth(e.nativeEvent.layout.width)}
               onPress={handleProgressBarPress}
