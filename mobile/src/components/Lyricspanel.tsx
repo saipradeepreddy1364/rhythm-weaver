@@ -158,7 +158,7 @@ export function LyricsPanel({ songId, songTitle, onClose }: LyricsPanelProps) {
             };
             const isActive = translationLang === lang;
             return (
-              <TouchableOpacity
+              <TouchableOpacity delayPressIn={0}
                 key={lang}
                 onPress={() => handleLangSelect(lang, state.text)}
                 style={[styles.transButton, isActive && styles.transButtonActive]}

@@ -39,7 +39,7 @@ async function resolveVideoStreams(song: Song): Promise<VideoStream[]> {
   // 2. If it's a JioSaavn song, try the backend's video-url matching first
   try {
     const res = await Promise.race([
-      fetch(`https://musicbackend-xg4u.onrender.com/api/songs/${songId}/video-url`),
+      fetch(`https://musicbackend-7a1o.onrender.com/api/songs/${songId}/video-url`),
       new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
     ]);
     if (res.ok) {
@@ -148,7 +148,7 @@ function hasIndicCharacters(text: string): boolean {
 
 async function fetchLyrics(songId: string): Promise<string | null> {
   try {
-    const res = await fetch(`https://musicbackend-xg4u.onrender.com/api/songs/${songId}/lyrics`);
+    const res = await fetch(`https://musicbackend-7a1o.onrender.com/api/songs/${songId}/lyrics`);
     if (res.status === 404) return null;
     if (!res.ok) return null;
     const data = await res.json();
@@ -363,10 +363,10 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           setDragProgress(null);
           return;
         }
-        const currentX = gestureState.moveX - trackLeftRef.current;
-        const ratio = Math.max(0, Math.min(1, currentX / progressBarWidth));
-        const finalProgress = Math.floor(ratio * totalDuration);
-        setProgress(finalProgress);
+        if (dragProgress !== null) {
+          const finalProgress = Math.floor(Math.max(0, Math.min(totalDuration, dragProgress)));
+          setProgress(finalProgress);
+        }
         setDragProgress(null);
         setTimeout(() => {
           isDraggingRef.current = false;
@@ -1036,4 +1036,4 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "rgba(255,255,255,0.4)",
   },
-});
+});

@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image, ActivityIndicator, SafeAreaView, StatusBar, Platform, Modal, AppState, Dimensions, useWindowDimensions, Animated } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image, ActivityIndicator, SafeAreaView, StatusBar, Platform, Modal, AppState, Dimensions, useWindowDimensions, Animated, Alert } from 'react-native'
 import React, { useRef, useState, useEffect, useCallback } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
@@ -55,7 +55,7 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
             <Text style={{ color: '#E91E63', fontFamily: 'monospace', fontSize: 12 }}>{this.state.error?.toString()}</Text>
             <Text style={{ color: 'rgba(255,255,255,0.6)', fontFamily: 'monospace', fontSize: 10, marginTop: 8 }}>{this.state.error?.stack}</Text>
           </ScrollView>
-          <TouchableOpacity
+          <TouchableOpacity delayPressIn={0}
             style={{
               backgroundColor: '#1DB954',
               paddingVertical: 12,
@@ -80,6 +80,7 @@ function AppContent() {
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [isDownloadingUpdate, setIsDownloadingUpdate] = useState(false);
   const [updateDownloaded, setUpdateDownloaded] = useState(false);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<'Home' | 'Search' | 'Library'>('Home');
@@ -87,10 +88,6 @@ function AppContent() {
   const { width: screenWidth } = useWindowDimensions();
   const navigationRef = useRef<any>(null);
   const appState = useRef(AppState.currentState);
-
-  const setParentScroll = useCallback((enabled: boolean) => {
-    scrollViewRef.current?.setNativeProps({ scrollEnabled: enabled });
-  }, []);
 
   // Reset navigation to Home when app is closed (backgrounded) and opened again (foregrounded)
   useEffect(() => {
@@ -110,19 +107,37 @@ function AppContent() {
     };
   }, []);
 
+  const [isRestarting, setIsRestarting] = useState(false);
+
   // Check for OTA updates on app mount
   useEffect(() => {
     // Expose a global method to manually trigger/preview the OTA update modal
-    (global as any).triggerOTAUpdateModal = () => {
-      setUpdateAvailable(true);
+    (global as any).triggerOTAUpdateModal = async () => {
+      setIsCheckingUpdate(true);
+      setUpdateError(null);
+      try {
+        console.log("[App] Manual OTA update check requested...");
+        const update = await Updates.checkForUpdateAsync();
+        if (update.isAvailable) {
+          setUpdateAvailable(true);
+        } else {
+          Alert.alert("Up to Date", "You are already running the latest version of Medley.");
+        }
+      } catch (e: any) {
+        console.warn("Manual OTA update check failed:", e);
+        if (__DEV__) {
+          // Fallback to simulated popup in dev mode
+          setUpdateAvailable(true);
+        } else {
+          Alert.alert("Check Failed", e.message || "Failed to check for updates. Please try again later.");
+        }
+      } finally {
+        setIsCheckingUpdate(false);
+      }
     };
 
+    // Delay update checks until 8 seconds (after pages have fully mounted and splash is gone) to avoid startup CPU peak
     const checkUpdatesTimer = setTimeout(async () => {
-      if (__DEV__) {
-        // Automatically show simulated updates popup in dev mode for UI review
-        setUpdateAvailable(true);
-        return;
-      }
       try {
         console.log("[App] Checking for production OTA updates...");
         const update = await Updates.checkForUpdateAsync();
@@ -134,8 +149,13 @@ function AppContent() {
         }
       } catch (e) {
         console.warn("OTA update check failed:", e);
+        if (__DEV__) {
+          // Fallback to simulated popup in dev mode for UI validation
+          console.log("[App] Falling back to simulated updates popup in dev mode.");
+          setUpdateAvailable(true);
+        }
       }
-    }, 3000);
+    }, 8000);
 
     return () => {
       clearTimeout(checkUpdatesTimer);
@@ -144,17 +164,22 @@ function AppContent() {
   }, []);
 
   const handleDownloadUpdate = async () => {
+    if (isDownloadingUpdate) return;
     setIsDownloadingUpdate(true);
     setUpdateError(null);
     try {
-      if (__DEV__) {
-        // Simulate download delay in dev mode
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+      try {
+        await Updates.fetchUpdateAsync();
         setUpdateDownloaded(true);
-        return;
+      } catch (e) {
+        if (__DEV__) {
+          // Simulate in dev mode if real updates API is not supported by current client
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          setUpdateDownloaded(true);
+        } else {
+          throw e;
+        }
       }
-      await Updates.fetchUpdateAsync();
-      setUpdateDownloaded(true);
     } catch (e: any) {
       setUpdateError(e.message || "Failed to download update");
     } finally {
@@ -163,16 +188,24 @@ function AppContent() {
   };
 
   const handleRestartApp = async () => {
+    if (isRestarting) return;
+    setIsRestarting(true);
     try {
-      if (__DEV__) {
-        // Simulates app reload by resetting modal states in dev mode
-        setUpdateDownloaded(false);
-        setUpdateAvailable(false);
-        return;
+      try {
+        await Updates.reloadAsync();
+      } catch (e) {
+        if (__DEV__) {
+          // Simulates app reload in dev mode
+          setUpdateDownloaded(false);
+          setUpdateAvailable(false);
+          setIsRestarting(false);
+        } else {
+          throw e;
+        }
       }
-      await Updates.reloadAsync();
     } catch (e) {
       console.error("Failed to reload app:", e);
+      setIsRestarting(false);
     }
   };
 
@@ -182,13 +215,15 @@ function AppContent() {
     setUpdateDownloaded(false);
   };
 
+  const handleTabPress = (tabName: 'Home' | 'Search' | 'Library') => {
+    setActiveTab(tabName);
+    const index = tabName === 'Home' ? 0 : tabName === 'Search' ? 1 : 2;
+    scrollViewRef.current?.scrollTo({ x: index * screenWidth, animated: false });
+  };
+
   const handleRequireAuth = () => {
     // Guest mode enabled - no auth required
   };
-
-  const renderHome = useCallback(() => <HomePage onRequireAuth={handleRequireAuth} />, []);
-  const renderSearch = useCallback(() => <SearchPage onRequireAuth={handleRequireAuth} />, []);
-  const renderLibrary = useCallback(() => <LibraryPage onRequireAuth={handleRequireAuth} />, []);
 
   // Check auth once on mount
   useEffect(() => {
@@ -222,8 +257,9 @@ function AppContent() {
                   ref={scrollViewRef}
                   horizontal
                   pagingEnabled
-                  removeClippedSubviews={true}
                   showsHorizontalScrollIndicator={false}
+                  decelerationRate="fast"
+                  overScrollMode="never"
                   onMomentumScrollEnd={(e) => {
                     const index = screenWidth > 0 ? Math.round(e.nativeEvent.contentOffset.x / screenWidth) : 0;
                     const tabs: ('Home' | 'Search' | 'Library')[] = ['Home', 'Search', 'Library'];
@@ -232,7 +268,7 @@ function AppContent() {
                   style={{ flex: 1 }}
                 >
                   <View style={{ width: screenWidth, flex: 1 }}>
-                    <HomePage onRequireAuth={handleRequireAuth} setParentScrollEnabled={setParentScroll} />
+                    <HomePage onRequireAuth={handleRequireAuth} />
                   </View>
                   <View style={{ width: screenWidth, flex: 1 }}>
                     <SearchPage onRequireAuth={handleRequireAuth} />
@@ -252,11 +288,7 @@ function AppContent() {
                       <TouchableOpacity
                         delayPressIn={0}
                         key={tab}
-                        onPress={() => {
-                          setActiveTab(tab);
-                          const index = tab === 'Home' ? 0 : tab === 'Search' ? 1 : 2;
-                          scrollViewRef.current?.scrollTo({ x: index * screenWidth, animated: true });
-                        }}
+                        onPress={() => handleTabPress(tab)}
                         style={styles.tabBarButton}
                         activeOpacity={0.7}
                       >
@@ -280,7 +312,7 @@ function AppContent() {
 
       {/* Premium OTA Update Modal */}
       <Modal
-        visible={updateAvailable || isDownloadingUpdate || updateDownloaded}
+        visible={isCheckingUpdate || updateAvailable || isDownloadingUpdate || updateDownloaded}
         transparent={true}
         animationType="fade"
       >
@@ -288,22 +320,24 @@ function AppContent() {
           <View style={styles.modalContent}>
             <View style={styles.modalIconContainer}>
               <MaterialCommunityIcons 
-                name={updateDownloaded ? "check-circle" : isDownloadingUpdate ? "cloud-download" : "rocket-launch"} 
+                name={isCheckingUpdate ? "cloud-search" : updateDownloaded ? "check-circle" : isDownloadingUpdate ? "cloud-download" : "rocket-launch"} 
                 size={48} 
                 color="#1DB954" 
               />
             </View>
 
             <Text style={styles.modalTitle}>
-              {updateDownloaded ? "Update Ready!" : isDownloadingUpdate ? "Downloading..." : "Update Available!"}
+              {isCheckingUpdate ? "Checking Updates..." : updateDownloaded ? "Update Ready!" : isDownloadingUpdate ? "Downloading..." : "Update Available!"}
             </Text>
 
             <Text style={styles.modalDescription}>
-              {updateDownloaded 
-                ? "The update has been successfully downloaded and is ready to install. Restart the app now to apply the changes."
-                : isDownloadingUpdate 
-                  ? "We are fetching the latest update for Medley. This will only take a moment. Please keep the app open."
-                  : "A new version of Medley is available with performance improvements and new features. Would you like to update now?"}
+              {isCheckingUpdate 
+                ? "Connecting to the update server to check for new versions of Medley..." 
+                : updateDownloaded 
+                  ? "The update has been successfully downloaded and is ready to install. Restart the app now to apply the changes."
+                  : isDownloadingUpdate 
+                    ? "We are fetching the latest update for Medley. This will only take a moment. Please keep the app open."
+                    : "A new version of Medley is available with performance improvements and new features. Would you like to update now?"}
             </Text>
 
             {updateError && (
@@ -311,12 +345,27 @@ function AppContent() {
             )}
 
             <View style={styles.modalButtonGroup}>
-              {updateDownloaded ? (
+              {isCheckingUpdate ? (
+                <View style={styles.progressContainer}>
+                  <ActivityIndicator size="small" color="#1DB954" style={{ marginRight: 8 }} />
+                  <Text style={styles.progressText}>Checking server...</Text>
+                </View>
+              ) : updateDownloaded ? (
                 <>
-                  <TouchableOpacity delayPressIn={0} style={styles.primaryButton} onPress={handleRestartApp}>
-                    <Text style={styles.primaryButtonText}>Restart Now</Text>
+                  <TouchableOpacity 
+                    delayPressIn={0} 
+                    disabled={isRestarting}
+                    style={[styles.primaryButton, isRestarting && { opacity: 0.6 }]} 
+                    onPress={handleRestartApp}
+                  >
+                    <Text style={styles.primaryButtonText}>{isRestarting ? "Restarting..." : "Restart Now"}</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity delayPressIn={0} style={styles.secondaryButton} onPress={closeUpdateModal}>
+                  <TouchableOpacity 
+                    delayPressIn={0} 
+                    disabled={isRestarting}
+                    style={[styles.secondaryButton, isRestarting && { opacity: 0.6 }]} 
+                    onPress={closeUpdateModal}
+                  >
                     <Text style={styles.secondaryButtonText}>Later</Text>
                   </TouchableOpacity>
                 </>
@@ -327,10 +376,20 @@ function AppContent() {
                 </View>
               ) : (
                 <>
-                  <TouchableOpacity delayPressIn={0} style={styles.primaryButton} onPress={handleDownloadUpdate}>
+                  <TouchableOpacity 
+                    delayPressIn={0} 
+                    disabled={isDownloadingUpdate}
+                    style={[styles.primaryButton, isDownloadingUpdate && { opacity: 0.6 }]} 
+                    onPress={handleDownloadUpdate}
+                  >
                     <Text style={styles.primaryButtonText}>Update Now</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity delayPressIn={0} style={styles.secondaryButton} onPress={closeUpdateModal}>
+                  <TouchableOpacity 
+                    delayPressIn={0} 
+                    disabled={isDownloadingUpdate}
+                    style={[styles.secondaryButton, isDownloadingUpdate && { opacity: 0.6 }]} 
+                    onPress={closeUpdateModal}
+                  >
                     <Text style={styles.secondaryButtonText}>Later</Text>
                   </TouchableOpacity>
                 </>
@@ -353,6 +412,9 @@ export default function App() {
     // Start storage initialization
     const prepareApp = async () => {
       try {
+        // Proactively wake up Render backend in the background to prevent cold starts
+        fetch("https://musicbackend-7a1o.onrender.com/api/songs/health").catch(() => {});
+
         await localStorage.ensureInitialized();
       } catch (e) {
         console.warn("Storage init error:", e);
@@ -366,16 +428,42 @@ export default function App() {
   useEffect(() => {
     if (!appReady) return;
 
-    // Start prefetching immediately
-    homePagePrefetcher.start();
+    let timerDone = false;
+    let prefetchDone = false;
 
-    // Delay hiding the native splash screen for exactly 5 seconds
+    const maybeHideSplash = () => {
+      if (timerDone && prefetchDone && !splashHidden.current) {
+        splashHidden.current = true;
+        SplashScreen.hideAsync().catch(() => {});
+      }
+    };
+
+    // 1. Minimum 5 seconds timer
     const timer = setTimeout(() => {
-      splashHidden.current = true;
-      SplashScreen.hideAsync().catch(() => {});
+      timerDone = true;
+      maybeHideSplash();
     }, 5000);
 
-    return () => clearTimeout(timer);
+    // 2. Data prefetch tracker
+    if (homePagePrefetcher.ready) {
+      prefetchDone = true;
+      maybeHideSplash();
+    }
+
+    const unsub = homePagePrefetcher.subscribe(() => {
+      if (homePagePrefetcher.ready) {
+        prefetchDone = true;
+        maybeHideSplash();
+      }
+    });
+
+    // Start prefetching home sections immediately in the background
+    homePagePrefetcher.start();
+
+    return () => {
+      clearTimeout(timer);
+      unsub();
+    };
   }, [appReady]);
 
   const handleRootLayout = useCallback(() => {

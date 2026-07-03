@@ -130,7 +130,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       setDownloadingIds((prev) => [...prev, song.id]);
 
       try {
-        const audioUrl = song.audioUrl || `https://musicbackend-xg4u.onrender.com/api/songs/${song.id}/stream`;
+        const audioUrl = song.audioUrl || `https://musicbackend-7a1o.onrender.com/api/songs/${song.id}/stream`;
         const audioLocalUri = FileSystem.documentDirectory + song.id + ".mp3";
 
         // Download audio file

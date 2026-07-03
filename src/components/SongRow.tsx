@@ -33,7 +33,7 @@ export function SongRow({ song, queue, onRequireAuth, fromLibrary }: SongRowProp
   };
 
   const handleDownload = () => {
-    const downloadUrl = `https://musicbackend-xg4u.onrender.com/api/downloads/${song.id}/audio`;
+    const downloadUrl = `https://musicbackend-7a1o.onrender.com/api/downloads/${song.id}/audio`;
     Linking.openURL(downloadUrl).catch((err: any) => {
       console.warn("Failed to open download link:", err);
     });

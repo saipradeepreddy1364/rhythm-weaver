@@ -1549,70 +1549,53 @@ class HomePagePrefetcher {
       this._notify();
     }
 
-    const sectionsOk = secCached && !secCached.stale
-                       && secCached.data.length >= SECTION_DEFS.length;
-    const albumsOk   = albCached && !albCached.stale
-                       && albCached.data.film.length > 0
-                       && albCached.data.artist.every(a => a.fullyLoaded);
+    const sectionsOk = secCached && !secCached.stale && secCached.data.length > 0;
+    const albumsOk   = albCached && !albCached.stale && albCached.data.film.length > 0;
 
     if (sectionsOk && albumsOk) {
       setTimeout(() => { this._running = false; this.start(); }, CACHE_TTL_MS);
       return;
     }
 
-    if (!sectionsOk) {
-      const seen = new Set<string>();
-      this._sections.forEach(s => s.songs.forEach(song => {
-        if (song.id) seen.add(song.id);
-        const norm = normalizeSongTitle(song.title, song.movie || song.album);
-        if (norm) seen.add(norm);
-      }));
+    try {
+      const res = await api.getHomeData();
+      if (res && res.success && res.data) {
+        const { sections, filmAlbums, artistAlbums } = res.data;
+        
+        const mappedSections: SectionData[] = (sections || []).map((sec: any) => ({
+          title: sec.title,
+          songs: (sec.songs || []).map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl)
+        }));
 
-      const allResults = await Promise.all(
-        SECTION_DEFS.map(({ pool, seed }) => fetchSection(pickQuery(pool, seed), 20))
-      );
+        const mappedFilmAlbums: AlbumData[] = (filmAlbums || []).map((alb: any) => ({
+          title: alb.title,
+          coverArt: alb.coverArt,
+          songs: (alb.songs || []).map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl),
+          type: alb.type || "movie",
+          query: alb.query,
+          fullyLoaded: alb.fullyLoaded ?? false
+        }));
 
-      let updated: SectionData[] = [...this._sections];
-      allResults.forEach((songs, idx) => {
-        const { title } = SECTION_DEFS[idx];
-        const unique    = dedup(songs, seen);
-        if (unique.length === 0) return;
-        updated = [...updated.filter(s => s.title !== title), { title, songs: unique }];
-      });
-      updated.sort((a, b) =>
-        SECTION_DEFS.findIndex(d => d.title === a.title) -
-        SECTION_DEFS.findIndex(d => d.title === b.title)
-      );
-      this._sections = updated;
-      this._ready    = true;
-      cacheSet(this.secKey, updated);
-      this._notify();
-    }
+        const mappedArtistAlbums: AlbumData[] = (artistAlbums || []).map((alb: any) => ({
+          title: alb.title,
+          coverArt: alb.coverArt,
+          songs: (alb.songs || []).map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl),
+          type: alb.type || "artist",
+          query: alb.query,
+          fullyLoaded: alb.fullyLoaded ?? true
+        }));
 
-    if (!albCached || this._filmAlbums.length === 0) {
-      const dummyRef = { current: false };
-      const film     = await fetchCurrentYearFilmAlbums(dummyRef);
-      this._filmAlbums = film;
-      cacheSet(this.albKey, { film, artist: this._artistAlbums });
-      this._notify();
-    }
+        this._sections = mappedSections;
+        this._filmAlbums = mappedFilmAlbums;
+        this._artistAlbums = mappedArtistAlbums;
+        this._ready = true;
 
-    if (!albumsOk) {
-      const dummyRef = { current: false };
-      const filmSnap = this._filmAlbums;
-
-      await loadArtistAlbums(dummyRef, (updated) => {
-        const prev = this._artistAlbums;
-        const idx  = prev.findIndex(a => a.title === updated.title);
-        const next = idx >= 0
-          ? [...prev.slice(0, idx), updated, ...prev.slice(idx + 1)]
-          : [...prev, updated];
-        this._artistAlbums = next;
-        if (next.length > 0 && next.every(a => a.fullyLoaded)) {
-          cacheSet(this.albKey, { film: filmSnap, artist: next });
-        }
+        cacheSet(this.secKey, mappedSections);
+        cacheSet(this.albKey, { film: mappedFilmAlbums, artist: mappedArtistAlbums });
         this._notify();
-      });
+      }
+    } catch (err) {
+      console.warn("HomePagePrefetcher | Failed to load home data from backend:", err);
     }
 
     setTimeout(() => { this._running = false; this.start(); }, CACHE_TTL_MS);

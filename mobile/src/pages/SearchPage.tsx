@@ -14,18 +14,18 @@ const CURRENT_YEAR = new Date().getFullYear();
 
 // ─── Browse categories ────────────────────────────────────────────────────────
 const BROWSE_CATEGORIES = [
-  { label: "Trending",     query: "trending hindi songs 2025" },
-  { label: "New Releases", query: "new bollywood songs 2025" },
-  { label: "Hindi",        query: "top hindi hits 2025" },
-  { label: "Telugu",       query: "trending telugu songs 2025" },
-  { label: "Tamil",        query: "trending tamil songs 2025" },
-  { label: "Romantic",     query: "hindi romantic songs 2025" },
-  { label: "Punjabi",      query: "top punjabi songs 2025" },
-  { label: "Devotional",   query: "devotional songs hindi 2025" },
-  { label: "Malayalam",    query: "trending malayalam songs 2025" },
-  { label: "Lofi/Chill",   query: "lofi chill hindi songs" },
-  { label: "Retro",        query: "90s bollywood hits" },
-  { label: "Kannada",      query: "trending kannada songs 2025" },
+  { label: "Trending",     query: "trending hindi songs 2025", cover: "https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=300&q=80" },
+  { label: "New Releases", query: "new bollywood songs 2025",  cover: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300&q=80" },
+  { label: "Hindi",        query: "top hindi hits 2025",        cover: "https://images.unsplash.com/photo-1498038432885-c6f3f1b912ee?w=300&q=80" },
+  { label: "Telugu",       query: "trending telugu songs 2025", cover: "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=300&q=80" },
+  { label: "Tamil",        query: "trending tamil songs 2025",  cover: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&q=80" },
+  { label: "Romantic",     query: "hindi romantic songs 2025",  cover: "https://images.unsplash.com/photo-1518199266791-5375a83190b7?w=300&q=80" },
+  { label: "Punjabi",      query: "top punjabi songs 2025",     cover: "https://images.unsplash.com/photo-1465847899084-d164df4dedc6?w=300&q=80" },
+  { label: "Devotional",   query: "devotional songs hindi 2025",cover: "https://images.unsplash.com/photo-1542442248-61590e0c8ee0?w=300&q=80" },
+  { label: "Malayalam",    query: "trending malayalam songs 2025",cover: "https://images.unsplash.com/photo-1506157786151-b8491531f063?w=300&q=80" },
+  { label: "Lofi/Chill",   query: "lofi chill hindi songs",     cover: "https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=300&q=80" },
+  { label: "Retro",        query: "90s bollywood hits",         cover: "https://images.unsplash.com/photo-1487180142328-054b783fc471?w=300&q=80" },
+  { label: "Kannada",      query: "trending kannada songs 2025",cover: "https://images.unsplash.com/photo-1459749411175-04bf5292ceea?w=300&q=80" },
 ];
 
 const LANGUAGE_EXTRA_QUERIES: Record<string, string[]> = {
@@ -157,54 +157,9 @@ function saveCategoryCache(label: string, songs: Song[], coverArt: string) {
   } catch {}
 }
 
-let _catPreloadStarted = false;
+// Background preloading disabled to prevent thread freezing and button click delay
 function startCategoryPreload() {
-  if (_catPreloadStarted) return;
-  _catPreloadStarted = true;
-
-  setTimeout(async () => {
-    for (const cat of BROWSE_CATEGORIES) {
-      const cache = getCategoryCache(cat.label);
-      if (cache.songs.length > 0) continue;
-
-      const extraQueries = LANGUAGE_EXTRA_QUERIES[cat.label] || [];
-      const allQueries   = [cat.query, ...extraQueries];
-      const seen         = new Set<string>();
-      const allSongs: Song[] = [];
-
-      for (const q of allQueries) {
-        for (let page = 1; page <= 4; page++) {
-          try {
-            if (page > 1) await new Promise(r => setTimeout(r, 200));
-            const res     = await api.searchSongs(q, page, 50);
-            const items   = extractResults(res);
-            if (items.length === 0) break;
-            const songs = items.map(mapApiSong).map(cleanSong).filter((s) => Boolean(s.audioUrl));
-            let added = 0;
-            for (const s of songs) {
-              if (!s.id) continue;
-              const norm = normalizeSongTitle(s.title, s.movie || s.album);
-              if (!seen.has(s.id) && (!norm || !seen.has(norm))) {
-                seen.add(s.id);
-                if (norm) seen.add(norm);
-                allSongs.push(s);
-                added++;
-              }
-            }
-            if (items.length < 50 || added === 0) break;
-          } catch { break; }
-        }
-        await new Promise(r => setTimeout(r, 200));
-      }
-
-      if (allSongs.length > 0) {
-        const withArt = allSongs.filter(s => s.albumArt);
-        const art     = withArt.length > 0 ? withArt[0].albumArt! : "";
-        saveCategoryCache(cat.label, allSongs, art);
-      }
-      await new Promise(r => setTimeout(r, 1000));
-    }
-  }, 3000);
+  return;
 }
 
 startCategoryPreload();
@@ -452,69 +407,19 @@ function LanguageAlbumModal({
 interface CategoryCardProps {
   label: string;
   query: string;
-  onSelect: (label: string, songs: Song[], coverArt: string) => void;
+  coverArt: string;
+  onSelect: (label: string, query: string, coverArt: string) => void;
 }
 
-function CategoryCard({ label, query, onSelect }: CategoryCardProps) {
-  const cached                  = getCategoryCache(label);
-  const [coverArt, setCoverArt] = useState<string | null>(cached.coverArt || null);
-  const [songs, setSongs]       = useState<Song[]>(cached.songs);
-  const [loaded, setLoaded]     = useState(cached.songs.length > 0);
-  const fetchedRef              = useRef(cached.songs.length > 0);
-
-  useEffect(() => {
-    if (fetchedRef.current) return;
-    fetchedRef.current = true;
-
-    const extraQueries = LANGUAGE_EXTRA_QUERIES[label] || [];
-    const allQueries   = [query, ...extraQueries];
-
-    const fetchAll = async () => {
-      const seen     = new Set<string>();
-      const allSongs: Song[] = [];
-
-      for (const q of allQueries) {
-        for (let page = 1; page <= 4; page++) {
-          try {
-            if (page > 1) await sleep(200);
-            const res     = await api.searchSongs(q, page, 50);
-            const items   = extractResults(res);
-            const fetched = items.map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
-            for (const s of fetched) {
-              if (s.id && !seen.has(s.id)) {
-                seen.add(s.id);
-                allSongs.push(s);
-              }
-            }
-            if (items.length < 50) break;
-          } catch { break; }
-          await sleep(150);
-        }
-      }
-
-      const withArt = allSongs.filter((s: Song) => s.albumArt);
-      const art     = withArt.length > 0 ? withArt[0].albumArt! : "";
-      if (art) setCoverArt(art);
-      setSongs(allSongs);
-      setLoaded(true);
-      saveCategoryCache(label, allSongs, art);
-    };
-
-    fetchAll().catch(() => setLoaded(true));
-  }, [query, label]);
-
+function CategoryCard({ label, query, coverArt, onSelect }: CategoryCardProps) {
   return (
-    <TouchableOpacity delayPressIn={0} onPress={() => onSelect(label, songs, coverArt || "")} style={styles.categoryBtn} activeOpacity={0.8}>
+    <TouchableOpacity delayPressIn={0} onPress={() => onSelect(label, query, coverArt)} style={styles.categoryBtn} activeOpacity={0.8}>
       <View style={styles.categoryCoverWrapper}>
         {coverArt ? (
           <Image source={{ uri: coverArt }} style={styles.categoryCover} />
         ) : (
           <View style={[styles.categoryCover, styles.categoryCoverPlaceholder]}>
-            {!loaded ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <MaterialCommunityIcons name="music" size={24} color="rgba(255,255,255,0.2)" />
-            )}
+            <MaterialCommunityIcons name="music" size={24} color="rgba(255,255,255,0.2)" />
           </View>
         )}
 
@@ -525,9 +430,6 @@ function CategoryCard({ label, query, onSelect }: CategoryCardProps) {
 
       <Text style={styles.categoryLabel} numberOfLines={1}>
         {label}
-      </Text>
-      <Text style={styles.categorySongCount} numberOfLines={1}>
-        {loaded ? `${songs.length} songs` : "Loading…"}
       </Text>
     </TouchableOpacity>
   );
@@ -861,38 +763,71 @@ function groupIntoArtists(songs: Song[]): Artist[] {
   return [...map.values()];
 }
 
+function firstSuccessArray(promises: Promise<Song[] | null>[]): Promise<Song[] | null> {
+  return new Promise((resolve) => {
+    let completedCount = 0;
+    let resolved = false;
+
+    promises.forEach((p) => {
+      p.then((val) => {
+        if (val && val.length > 0 && !resolved) {
+          resolved = true;
+          resolve(val);
+        }
+      }).catch(() => {
+        // ignore
+      }).finally(() => {
+        completedCount++;
+        if (completedCount === promises.length && !resolved) {
+          resolve(null);
+        }
+      });
+    });
+  });
+}
+
 async function searchPiped(query: string): Promise<Song[]> {
   const PIPED_INSTANCES = [
     "https://pipedapi.adminforge.de",
     "https://pipedapi.projectsegfau.lt",
     "https://pipedapi.kavin.rocks",
-    "https://pipedapi-libre.kavin.rocks",
     "https://pipedapi.leptons.xyz",
     "https://api.looleh.xyz"
   ];
-  for (const instance of PIPED_INSTANCES) {
+
+  const fetchPromises = PIPED_INSTANCES.map(async (instance) => {
     try {
       const res = await Promise.race([
         fetch(`${instance}/search?q=${encodeURIComponent(query)}&filter=videos`),
-        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 2500))
       ]);
-      if (!res.ok) continue;
-      const data = await res.json();
-      const items = data.items || [];
-      if (items.length === 0) continue;
-      return items.slice(0, 30).map((item: any) => ({
-        id: `yt-${item.videoId}`,
-        title: decodeHtml(item.title || "Unknown Title"),
-        artist: decodeHtml(item.uploaderName || "YouTube"),
-        duration: item.duration || 0,
-        albumArt: item.thumbnail || "",
-        audioUrl: `youtube://${item.videoId}`,
-        album: "YouTube Web",
-        movie: "YouTube Web"
-      }));
+      if (res.ok) {
+        const data = await res.json();
+        const items = data.items || [];
+        if (items.length > 0) {
+          return items.slice(0, 30).map((item: any) => ({
+            id: `yt-${item.videoId}`,
+            title: decodeHtml(item.title || "Unknown Title"),
+            artist: decodeHtml(item.uploaderName || "YouTube"),
+            duration: item.duration || 0,
+            albumArt: item.thumbnail || "",
+            audioUrl: `youtube://${item.videoId}`,
+            album: "YouTube Web",
+            movie: "YouTube Web"
+          }));
+        }
+      }
     } catch (err) {
-      console.warn(`[SearchPage] Piped instance ${instance} failed:`, err);
+      // Ignore individual failures
     }
+    return null;
+  });
+
+  try {
+    const results = await firstSuccessArray(fetchPromises);
+    return results || [];
+  } catch (err) {
+    console.warn("[SearchPage] Parallel searchPiped failed:", err);
   }
   return [];
 }
@@ -909,7 +844,9 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
   const [loading, setLoading]         = useState(false);
   const [activeTab, setActiveTab]     = useState<"all" | "songs" | "albums" | "artists" | "youtube">("all");
 
-  const [activeCategory, setActiveCategory] = useState<{ label: string; songs: Song[]; coverArt: string } | null>(null);
+  const [activeCategory, setActiveCategory] = useState<{ label: string; coverArt: string } | null>(null);
+  const [categorySongs, setCategorySongs]   = useState<Song[]>([]);
+  const [categoryLoading, setCategoryLoading] = useState(false);
   const [activeLangAlbum, setActiveLangAlbum] = useState<string | null>(null);
   const [activeAlbum, setActiveAlbum]       = useState<Album | null>(null);
   const [activeArtist, setActiveArtist]     = useState<Artist | null>(null);
@@ -971,12 +908,54 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
     if (onRequireAuth) onRequireAuth();
   };
 
-  const handleCategorySelect = (label: string, songs: Song[], coverArt: string) => {
+  const handleCategorySelect = async (label: string, query: string, coverArt: string) => {
     const lang = detectLanguageSearch(label);
     if (lang) {
       setActiveLangAlbum(lang);
-    } else {
-      setActiveCategory({ label, songs, coverArt });
+      return;
+    }
+
+    setActiveCategory({ label, coverArt });
+    setCategorySongs([]);
+    setCategoryLoading(true);
+
+    const cache = getCategoryCache(label);
+    if (cache.songs.length > 0) {
+      setCategorySongs(cache.songs);
+      setCategoryLoading(false);
+      return;
+    }
+
+    try {
+      const extraQueries = LANGUAGE_EXTRA_QUERIES[label] || [];
+      const allQueries   = [query, ...extraQueries];
+      const seen         = new Set<string>();
+      const allSongs: Song[] = [];
+
+      for (const q of allQueries) {
+        for (let page = 1; page <= 4; page++) {
+          try {
+            if (page > 1) await new Promise(r => setTimeout(r, 200));
+            const res     = await api.searchSongs(q, page, 50);
+            const items   = extractResults(res);
+            const fetched = items.map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
+            for (const s of fetched) {
+              if (s.id && !seen.has(s.id)) {
+                seen.add(s.id);
+                allSongs.push(s);
+              }
+            }
+            if (items.length < 50) break;
+          } catch { break; }
+        }
+      }
+
+      setCategorySongs(allSongs);
+      saveCategoryCache(label, allSongs, coverArt);
+    } catch (err) {
+      console.warn("[SearchPage] Failed to load category songs:", err);
+    } finally {
+      setCategoryLoading(false);
     }
   };
 
@@ -1005,21 +984,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
           />
         </View>
 
-        {/* Search Results filter tabs */}
-        {query.trim().length > 0 ? (
-          <View style={styles.filterTabs}>
-            {(["all", "songs", "albums", "artists", "youtube"] as const).map((tab) => {
-              const isActive = activeTab === tab;
-              return (
-                <TouchableOpacity delayPressIn={0} key={tab} onPress={() => setActiveTab(tab)} style={[styles.filterTabBtn, isActive && styles.activeFilterTabBtn]} activeOpacity={0.7}>
-                  <Text style={[styles.filterTabText, isActive && styles.activeFilterTabText]}>
-                    {tab.toUpperCase()}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        ) : null}
+        {/* Search Results filter tabs removed as requested */}
       </View>
 
       <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
@@ -1033,6 +998,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                   <CategoryCard
                     label={cat.label}
                     query={cat.query}
+                    coverArt={cat.cover}
                     onSelect={handleCategorySelect}
                   />
                 </View>
@@ -1146,9 +1112,9 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
       {activeCategory ? (
         <CategorySongModal
           label={activeCategory.label}
-          songs={activeCategory.songs}
+          songs={categorySongs}
           coverArt={activeCategory.coverArt}
-          loading={false}
+          loading={categoryLoading}
           onClose={() => setActiveCategory(null)}
           onRequireAuth={handleRequireAuth}
         />

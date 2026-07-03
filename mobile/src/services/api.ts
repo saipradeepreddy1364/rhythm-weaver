@@ -1,10 +1,16 @@
 // ─── Base URL ─────────────────────────────────────────────────────────────────
 const BASE_URL =
   (typeof process !== "undefined" && process.env?.VITE_API_BACKEND_URL) ||
-  "https://musicbackend-xg4u.onrender.com/api";
+  "https://musicbackend-7a1o.onrender.com/api";
 
 export const api = {
   // ── Music Search ──────────────────────────────────────────────────────────
+  getHomeData: async () => {
+    const res = await fetch(`${BASE_URL}/music/home`);
+    if (!res.ok) throw new Error(`Home data HTTP ${res.status}`);
+    return res.json();
+  },
+
   searchSongs: async (query: string, page = 1, limit = 50) => {
     const res = await fetch(
       `${BASE_URL}/search/songs?query=${encodeURIComponent(query)}&page=${page}&limit=${limit}`

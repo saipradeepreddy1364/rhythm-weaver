@@ -4,7 +4,6 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Song, formatDuration } from "../data/songs";
 import { usePlayer } from "../context/PlayerContext";
 import { LikeButton } from "./LikeButton";
-import { AddToPlaylistMenu } from "./AddToPlaylistMenu";
 import { useLibrary } from "../context/LibraryContext";
 
 interface SongRowProps {
@@ -118,9 +117,6 @@ export function SongRow({ song, queue, onRequireAuth, fromLibrary, hideActions }
               />
             )}
           </TouchableOpacity>
-
-          {/* Add to Playlist Menu */}
-          <AddToPlaylistMenu song={song} onRequireAuth={onRequireAuth} />
         </View>
       )}
     </TouchableOpacity>

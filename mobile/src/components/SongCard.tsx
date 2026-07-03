@@ -127,7 +127,7 @@ function LyricsPanel({
               };
               const isActive = translationLang === lang;
               return (
-                <TouchableOpacity
+                <TouchableOpacity delayPressIn={0}
                   key={lang}
                   onPress={() => handleLangSelect(lang)}
                   style={[styles.transButton, isActive && styles.transButtonActive]}

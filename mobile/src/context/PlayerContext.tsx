@@ -101,7 +101,7 @@ function resolveTrack(s: Song) {
   } else if (s.id.startsWith("yt-")) {
     trackUrl = `youtube://${s.id.replace("yt-", "")}`;
   } else {
-    trackUrl = `https://musicbackend-xg4u.onrender.com/api/songs/${s.id}/stream`;
+    trackUrl = `https://musicbackend-7a1o.onrender.com/api/songs/${s.id}/stream`;
   }
 
   return {
@@ -114,31 +114,64 @@ function resolveTrack(s: Song) {
   };
 }
 
+function firstSuccess(promises: Promise<string | null>[]): Promise<string | null> {
+  return new Promise((resolve) => {
+    let completedCount = 0;
+    let resolved = false;
+
+    promises.forEach((p) => {
+      p.then((val) => {
+        if (val && !resolved) {
+          resolved = true;
+          resolve(val);
+        }
+      }).catch(() => {
+        // ignore
+      }).finally(() => {
+        completedCount++;
+        if (completedCount === promises.length && !resolved) {
+          resolve(null);
+        }
+      });
+    });
+  });
+}
+
 async function resolvePipedAudioUrl(videoId: string): Promise<string | null> {
   const PIPED_INSTANCES = [
     "https://pipedapi.adminforge.de",
     "https://pipedapi.projectsegfau.lt",
     "https://pipedapi.kavin.rocks",
-    "https://pipedapi-libre.kavin.rocks",
     "https://pipedapi.leptons.xyz",
     "https://api.looleh.xyz"
   ];
-  for (const instance of PIPED_INSTANCES) {
+
+  const fetchPromises = PIPED_INSTANCES.map(async (instance) => {
     try {
       const res = await Promise.race([
         fetch(`${instance}/streams/${videoId}`),
-        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 2500))
       ]);
-      if (!res.ok) continue;
-      const data = await res.json();
-      const audioStreams = data.audioStreams || [];
-      if (audioStreams.length === 0) continue;
-      // Pick the last stream (highest quality)
-      const bestStream = audioStreams[audioStreams.length - 1];
-      return bestStream.url || null;
+      if (res.ok) {
+        const data = await res.json();
+        const audioStreams = data.audioStreams || [];
+        if (audioStreams.length > 0) {
+          const bestStream = audioStreams[audioStreams.length - 1];
+          if (bestStream && bestStream.url) {
+            return bestStream.url as string;
+          }
+        }
+      }
     } catch (err) {
-      console.warn(`[PlayerContext] Piped streams fetch ${instance} failed:`, err);
+      // Ignore individual failures
     }
+    return null;
+  });
+
+  try {
+    return await firstSuccess(fetchPromises);
+  } catch (err) {
+    console.warn("[PlayerContext] Parallel Piped resolve failed:", err);
   }
   return null;
 }
@@ -1229,20 +1262,20 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
                         }
                       } else if (track.url.includes("saavncdn.com") || track.url.includes("oasth.me")) {
                         console.log(`[PlayerContext] Playback error on direct JioSaavn CDN track. Falling back to proxy.`);
-                        track.url = `https://musicbackend-xg4u.onrender.com/api/songs/${track.id}/stream`;
+                        track.url = `https://musicbackend-7a1o.onrender.com/api/songs/${track.id}/stream`;
                         await TrackPlayer.remove(activeIndex);
                         await TrackPlayer.add(track, activeIndex);
                         await TrackPlayer.skip(activeIndex);
                         await TrackPlayer.play();
                         return;
-                      } else if (track.url.includes("musicbackend-xg4u.onrender.com")) {
+                      } else if (track.url.includes("musicbackend-7a1o.onrender.com")) {
                         console.log(`[PlayerContext] Playback error on backend stream proxy URL. Attempting to resolve direct JioSaavn CDN URL for track: ${track.id}`);
                         try {
                           const details = await api.getSongById(track.id);
                           const dataList = details?.data;
                           if (Array.isArray(dataList) && dataList.length > 0) {
                             const mapped = mapApiSong(dataList[0]);
-                            if (mapped && mapped.audioUrl && !mapped.audioUrl.includes("musicbackend-xg4u.onrender.com") && !mapped.audioUrl.includes("oasth.me")) {
+                            if (mapped && mapped.audioUrl && !mapped.audioUrl.includes("musicbackend-7a1o.onrender.com") && !mapped.audioUrl.includes("oasth.me")) {
                               console.log(`[PlayerContext] Successfully resolved direct CDN URL for proxy fallback: ${mapped.audioUrl.substring(0, 50)}...`);
                               track.url = mapped.audioUrl;
                               await TrackPlayer.remove(activeIndex);

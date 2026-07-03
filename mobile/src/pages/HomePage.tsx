@@ -369,55 +369,7 @@ export function getPreloadedSongs(key: string): Song[] {
 
 let _preloadStarted = false;
 function startBackgroundPreload() {
-  if (_preloadStarted) return;
-  _preloadStarted = true;
-
-  setTimeout(async () => {
-    for (const target of PRELOAD_TARGETS) {
-      const sk = PRELOAD_SESSION_KEY(target.key);
-      if (sessionStorage.getItem(sk)) continue;
-
-      const seen = new Set<string>();
-      const all: Song[] = [];
-
-      for (const query of target.queries) {
-        for (let page = 1; page <= PRELOAD_MAX_PAGES; page++) {
-          try {
-            if (page > 1) await new Promise(r => setTimeout(r, PRELOAD_BATCH_DELAY));
-            const res   = await api.searchSongs(query, page, 50);
-            const items = extractResults(res);
-            if (items.length === 0) break;
-            const songs = items.map(mapApiSong).map((s: Song) => ({
-              ...s,
-              title:  decodeHtml(s.title  || ""),
-              artist: decodeHtml((s as Song & { artist?: string }).artist || ""),
-              album:  decodeHtml((s as Song & { album?: string }).album   || ""),
-              movie:  decodeHtml((s as Song & { movie?: string }).movie   || ""),
-            } as Song)).filter((s: Song) => Boolean(s.audioUrl) && !isDevotionalSong(s));
-            let added = 0;
-            for (const s of songs) {
-              if (!s.id) continue;
-              const norm = normalizeSongTitle(s.title, s.movie || s.album);
-              if (!seen.has(s.id) && (!norm || !seen.has(norm))) {
-                seen.add(s.id);
-                if (norm) seen.add(norm);
-                all.push(s);
-                added++;
-              }
-            }
-            if (items.length < 50 || added === 0) break;
-          } catch { break; }
-        }
-        await new Promise(r => setTimeout(r, 200));
-      }
-
-      if (all.length > 0) {
-        try { sessionStorage.setItem(sk, JSON.stringify(all)); } catch { /* quota */ }
-      }
-
-      await new Promise(r => setTimeout(r, 1000));
-    }
-  }, 2000);
+  return;
 }
 
 startBackgroundPreload();
@@ -902,7 +854,7 @@ function AlbumModal({
       <View style={modalStyles.content}>
         {/* Header */}
         <View style={modalStyles.header}>
-          <TouchableOpacity onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
+          <TouchableOpacity delayPressIn={0} onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
             <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
           </TouchableOpacity>
 
@@ -913,7 +865,7 @@ function AlbumModal({
             </Text>
           </View>
 
-          <TouchableOpacity onPress={handleLikePress} style={[modalStyles.backBtn, { marginRight: 12 }]} activeOpacity={0.7}>
+          <TouchableOpacity delayPressIn={0} onPress={handleLikePress} style={[modalStyles.backBtn, { marginRight: 12 }]} activeOpacity={0.7}>
             <MaterialCommunityIcons
               name={isLiked ? "heart" : "heart-outline"}
               size={20}
@@ -922,7 +874,7 @@ function AlbumModal({
           </TouchableOpacity>
 
           {songs.length > 0 ? (
-            <TouchableOpacity
+            <TouchableOpacity delayPressIn={0}
               onPress={() => playSong(songs[0], songs)}
               style={modalStyles.playBtn}
               activeOpacity={0.8}
@@ -1024,7 +976,7 @@ function LanguageCategoryModal({
       <View style={modalStyles.content}>
         {/* Header */}
         <View style={modalStyles.header}>
-          <TouchableOpacity onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
+          <TouchableOpacity delayPressIn={0} onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
             <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
           </TouchableOpacity>
 
@@ -1036,7 +988,7 @@ function LanguageCategoryModal({
           </View>
 
           {displaySongs.length > 0 ? (
-            <TouchableOpacity
+            <TouchableOpacity delayPressIn={0}
               onPress={() => playSong(displaySongs[0], displaySongs)}
               style={modalStyles.playBtn}
               activeOpacity={0.8}
@@ -1058,7 +1010,7 @@ function LanguageCategoryModal({
             const count = tab === "All" ? allSongs.length : (subSongs[tab]?.length || 0);
 
             return (
-              <TouchableOpacity
+              <TouchableOpacity delayPressIn={0}
                 key={tab}
                 onPress={() => setActiveTab(tab)}
                 style={[styles.langTab, isActive && styles.activeLangTab]}
@@ -1159,7 +1111,7 @@ function AlbumRow({
 
             return (
               <View key={album.title} style={styles.albumItem}>
-                <TouchableOpacity
+                <TouchableOpacity delayPressIn={0}
                   onPress={() => onOpen(album)}
                   style={[
                     styles.albumArtBtn,
@@ -1176,7 +1128,7 @@ function AlbumRow({
                   )}
 
                   {!roundCovers && album.songs.length > 0 ? (
-                    <TouchableOpacity
+                    <TouchableOpacity delayPressIn={0}
                       onPress={() => playSong(album.songs[0], album.songs)}
                       style={styles.playOverlayBtn}
                       activeOpacity={0.8}
@@ -1241,7 +1193,7 @@ function CollapsibleSection({
         ))}
       </View>
       {songs.length > PREVIEW ? (
-        <TouchableOpacity
+        <TouchableOpacity delayPressIn={0}
           onPress={() => setExpanded(!expanded)}
           style={styles.expandBtn}
           activeOpacity={0.7}
@@ -1275,7 +1227,7 @@ function SimpleSection({ title, children }: { title: string; children: React.Rea
 function QuickPick({ song, queue }: { song: Song; queue: Song[] }) {
   const { playSong } = usePlayer();
   return (
-    <TouchableOpacity
+    <TouchableOpacity delayPressIn={0}
       onPress={() => playSong(song, queue)}
       style={styles.quickPickCard}
       activeOpacity={0.8}
@@ -1399,7 +1351,7 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
         <Text style={modalStyles.offlineDescription}>
           Connect to the internet to stream songs, or listen to your downloaded music offline.
         </Text>
-        <TouchableOpacity
+        <TouchableOpacity delayPressIn={0}
           style={modalStyles.offlineBtn}
           onPress={() => navigation.navigate("Library" as any)}
           activeOpacity={0.8}
@@ -1423,7 +1375,7 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
           </View>
 
           <View style={styles.headerRight}>
-            <TouchableOpacity
+            <TouchableOpacity delayPressIn={0}
               onPress={() => user ? setShowUserMenu(!showUserMenu) : setShowAuthModal(true)}
               style={[styles.userMenuBtn, user && styles.activeUserMenuBtn]}
               activeOpacity={0.7}
@@ -1443,7 +1395,7 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
                   <Text style={styles.dropdownName} numberOfLines={1}>{user.username}</Text>
                   <Text style={styles.dropdownEmail} numberOfLines={1}>{user.email}</Text>
                 </View>
-                <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn} activeOpacity={0.7}>
+                <TouchableOpacity delayPressIn={0} onPress={handleLogout} style={styles.logoutBtn} activeOpacity={0.7}>
                   <MaterialCommunityIcons name="logout" size={14} color="#fff" style={{ marginRight: 6 }} />
                   <Text style={styles.logoutText}>Sign Out</Text>
                 </TouchableOpacity>
@@ -1602,70 +1554,53 @@ class HomePagePrefetcher {
       this._notify();
     }
 
-    const sectionsOk = secCached && !secCached.stale
-                       && secCached.data.length >= SECTION_DEFS.length;
-    const albumsOk   = albCached && !albCached.stale
-                       && albCached.data.film.length > 0
-                       && albCached.data.artist.every(a => a.fullyLoaded);
+    const sectionsOk = secCached && !secCached.stale && secCached.data.length > 0;
+    const albumsOk   = albCached && !albCached.stale && albCached.data.film.length > 0;
 
     if (sectionsOk && albumsOk) {
       setTimeout(() => { this._running = false; this.start(); }, CACHE_TTL_MS);
       return;
     }
 
-    if (!sectionsOk) {
-      const seen = new Set<string>();
-      this._sections.forEach(s => s.songs.forEach(song => {
-        if (song.id) seen.add(song.id);
-        const norm = normalizeSongTitle(song.title, song.movie || song.album);
-        if (norm) seen.add(norm);
-      }));
+    try {
+      const res = await api.getHomeData();
+      if (res && res.success && res.data) {
+        const { sections, filmAlbums, artistAlbums } = res.data;
+        
+        const mappedSections: SectionData[] = (sections || []).map((sec: any) => ({
+          title: sec.title,
+          songs: (sec.songs || []).map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl)
+        }));
 
-      const allResults = await Promise.all(
-        SECTION_DEFS.map(({ pool, seed }) => fetchSection(pickQuery(pool, seed), 20))
-      );
+        const mappedFilmAlbums: AlbumData[] = (filmAlbums || []).map((alb: any) => ({
+          title: alb.title,
+          coverArt: alb.coverArt,
+          songs: (alb.songs || []).map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl),
+          type: alb.type || "movie",
+          query: alb.query,
+          fullyLoaded: alb.fullyLoaded ?? false
+        }));
 
-      let updated: SectionData[] = [...this._sections];
-      allResults.forEach((songs, idx) => {
-        const { title } = SECTION_DEFS[idx];
-        const unique    = dedup(songs, seen);
-        if (unique.length === 0) return;
-        updated = [...updated.filter(s => s.title !== title), { title, songs: unique }];
-      });
-      updated.sort((a, b) =>
-        SECTION_DEFS.findIndex(d => d.title === a.title) -
-        SECTION_DEFS.findIndex(d => d.title === b.title)
-      );
-      this._sections = updated;
-      this._ready    = true;
-      cacheSet(this.secKey, updated);
-      this._notify();
-    }
+        const mappedArtistAlbums: AlbumData[] = (artistAlbums || []).map((alb: any) => ({
+          title: alb.title,
+          coverArt: alb.coverArt,
+          songs: (alb.songs || []).map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl),
+          type: alb.type || "artist",
+          query: alb.query,
+          fullyLoaded: alb.fullyLoaded ?? true
+        }));
 
-    if (!albCached || this._filmAlbums.length === 0) {
-      const dummyRef = { current: false };
-      const film     = await fetchCurrentYearFilmAlbums(dummyRef);
-      this._filmAlbums = film;
-      cacheSet(this.albKey, { film, artist: this._artistAlbums });
-      this._notify();
-    }
+        this._sections = mappedSections;
+        this._filmAlbums = mappedFilmAlbums;
+        this._artistAlbums = mappedArtistAlbums;
+        this._ready = true;
 
-    if (!albumsOk) {
-      const dummyRef = { current: false };
-      const filmSnap = this._filmAlbums;
-
-      await loadArtistAlbums(dummyRef, (updated) => {
-        const prev = this._artistAlbums;
-        const idx  = prev.findIndex(a => a.title === updated.title);
-        const next = idx >= 0
-          ? [...prev.slice(0, idx), updated, ...prev.slice(idx + 1)]
-          : [...prev, updated];
-        this._artistAlbums = next;
-        if (next.length > 0 && next.every(a => a.fullyLoaded)) {
-          cacheSet(this.albKey, { film: filmSnap, artist: next });
-        }
+        cacheSet(this.secKey, mappedSections);
+        cacheSet(this.albKey, { film: mappedFilmAlbums, artist: mappedArtistAlbums });
         this._notify();
-      });
+      }
+    } catch (err) {
+      console.warn("HomePagePrefetcher | Failed to load home data from backend:", err);
     }
 
     setTimeout(() => { this._running = false; this.start(); }, CACHE_TTL_MS);

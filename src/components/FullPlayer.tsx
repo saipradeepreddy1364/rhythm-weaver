@@ -61,7 +61,7 @@ function extractLyricsText(data: any): string | null {
 
 async function fetchLyrics(songId: string): Promise<string | null> {
   try {
-    const res = await fetch(`https://musicbackend-xg4u.onrender.com/api/songs/${songId}/lyrics`);
+    const res = await fetch(`https://musicbackend-7a1o.onrender.com/api/songs/${songId}/lyrics`);
     if (res.status === 404) return null;
     if (!res.ok) return null;
     const data = await res.json();
@@ -205,7 +205,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   };
 
   const handleDownload = () => {
-    const downloadUrl = `https://musicbackend-xg4u.onrender.com/api/downloads/${currentSong.id}/audio`;
+    const downloadUrl = `https://musicbackend-7a1o.onrender.com/api/downloads/${currentSong.id}/audio`;
     Linking.openURL(downloadUrl).catch((err: any) => {
       console.warn("Failed to open download link:", err);
     });

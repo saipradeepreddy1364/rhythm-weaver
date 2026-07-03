@@ -42,10 +42,8 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
   const [newPlaylistName, setNewPlaylistName] = useState("");
 
   useEffect(() => {
-    if (user) {
-      loadLikedSongs();
-      loadPlaylists();
-    }
+    loadLikedSongs();
+    loadPlaylists();
   }, [user]);
 
   const [isOffline, setIsOffline] = useState(false);
@@ -102,7 +100,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
       <View style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity
+          <TouchableOpacity delayPressIn={0}
             onPress={() => {
               setTab("liked");
               setPlaylistSongs([]);
@@ -133,7 +131,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
             </Text>
 
             {playlistSongs.length > 0 ? (
-              <TouchableOpacity
+              <TouchableOpacity delayPressIn={0}
                 onPress={() => playSong(playlistSongs[0], playlistSongs, true)}
                 style={styles.playAllBtn}
                 activeOpacity={0.8}
@@ -186,7 +184,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
       <View style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity
+          <TouchableOpacity delayPressIn={0}
             onPress={() => setTab("liked")}
             style={styles.backBtn}
             activeOpacity={0.7}
@@ -215,7 +213,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
 
             <View style={{ flexDirection: "row", gap: 12, marginTop: 16 }}>
               {currentAlbum.songs.length > 0 ? (
-                <TouchableOpacity
+                <TouchableOpacity delayPressIn={0}
                   onPress={() => playSong(currentAlbum.songs[0], currentAlbum.songs, true)}
                   style={styles.playAllBtn}
                   activeOpacity={0.8}
@@ -224,15 +222,6 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                   <Text style={styles.playAllBtnText}>Play All</Text>
                 </TouchableOpacity>
               ) : null}
-
-              <TouchableOpacity
-                onPress={handleUnlikeAlbum}
-                style={[styles.playAllBtn, { backgroundColor: "rgba(255,255,255,0.08)" }]}
-                activeOpacity={0.8}
-              >
-                <MaterialCommunityIcons name="heart" size={16} color="#f43f5e" style={{ marginRight: 6 }} />
-                <Text style={[styles.playAllBtnText, { color: "#fff" }]}>Remove</Text>
-              </TouchableOpacity>
             </View>
           </View>
 
@@ -266,7 +255,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
       <View style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity
+          <TouchableOpacity delayPressIn={0}
             onPress={() => setTab("liked")}
             style={styles.backBtn}
             activeOpacity={0.7}
@@ -289,7 +278,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
             </Text>
 
             {likedSongs.length > 0 ? (
-              <TouchableOpacity
+              <TouchableOpacity delayPressIn={0}
                 onPress={() => playSong(likedSongs[0], likedSongs, true)}
                 style={styles.playAllBtn}
                 activeOpacity={0.8}
@@ -348,6 +337,14 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
         <Text style={styles.dashboardTitle}>Your Library</Text>
 
         <TouchableOpacity
+          delayPressIn={0}
+          onPress={() => (global as any).triggerOTAUpdateModal?.()}
+          style={{ marginRight: 12, padding: 8 }}
+          activeOpacity={0.7}
+        >
+          <MaterialCommunityIcons name="cloud-refresh" size={22} color="#fff" />
+        </TouchableOpacity>
+        <TouchableOpacity delayPressIn={0}
           onPress={() => user ? setShowUserMenu(!showUserMenu) : setShowAuthModal(true)}
           style={styles.profileBtn}
           activeOpacity={0.7}
@@ -367,7 +364,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
               <Text style={styles.dropdownName} numberOfLines={1}>{user.username}</Text>
               <Text style={styles.dropdownEmail} numberOfLines={1}>{user.email}</Text>
             </View>
-            <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn} activeOpacity={0.7}>
+            <TouchableOpacity delayPressIn={0} onPress={handleLogout} style={styles.logoutBtn} activeOpacity={0.7}>
               <MaterialCommunityIcons name="logout" size={14} color="#fff" style={{ marginRight: 6 }} />
               <Text style={styles.logoutText}>Sign Out</Text>
             </TouchableOpacity>
@@ -378,7 +375,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
       {/* Tabs */}
       <View style={styles.tabBar}>
         {!isOffline && (
-          <TouchableOpacity
+          <TouchableOpacity delayPressIn={0}
             onPress={() => setTab("liked")}
             style={[styles.tabBtn, activeTabStr === "liked" && styles.activeTabBtn]}
             activeOpacity={0.7}
@@ -389,7 +386,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
           </TouchableOpacity>
         )}
 
-        <TouchableOpacity
+        <TouchableOpacity delayPressIn={0}
           onPress={() => setTab("downloads")}
           style={[styles.tabBtn, activeTabStr === "downloads" && styles.activeTabBtn]}
           activeOpacity={0.7}
@@ -409,15 +406,13 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                 <ActivityIndicator size="large" color="#1DB954" />
                 <Text style={styles.loadingText}>Loading your library…</Text>
               </View>
-            ) : !user ? (
-              <LoggedOutTabContent onSignIn={handleRequireAuth} />
             ) : (
               <View>
                 {/* Section Header: Folders */}
                 <View style={styles.sectionHeaderRow}>
                   <Text style={styles.sectionHeaderText}>Liked Songs & Folders</Text>
                   {!creatingPlaylist ? (
-                    <TouchableOpacity
+                    <TouchableOpacity delayPressIn={0}
                       onPress={() => setCreatingPlaylist(true)}
                       style={styles.iconAddBtn}
                       activeOpacity={0.7}
@@ -438,7 +433,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                       placeholderTextColor="rgba(255,255,255,0.3)"
                       style={styles.textInput}
                     />
-                    <TouchableOpacity
+                    <TouchableOpacity delayPressIn={0}
                       onPress={handleCreatePlaylist}
                       disabled={!newPlaylistName.trim()}
                       style={[styles.creatorBtn, !newPlaylistName.trim() && { opacity: 0.5 }]}
@@ -446,7 +441,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                     >
                       <MaterialCommunityIcons name="check" size={18} color="#000" />
                     </TouchableOpacity>
-                    <TouchableOpacity
+                    <TouchableOpacity delayPressIn={0}
                       onPress={() => setCreatingPlaylist(false)}
                       style={[styles.creatorBtn, { backgroundColor: "rgba(255,255,255,0.08)" }]}
                       activeOpacity={0.7}
@@ -458,7 +453,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
 
                 {/* 1. Default Liked Songs Row */}
                 <View style={styles.playlistItemContainer}>
-                  <TouchableOpacity
+                  <TouchableOpacity delayPressIn={0}
                     onPress={() => setTab("liked-detail")}
                     style={styles.playlistRowItem}
                     activeOpacity={0.7}
@@ -479,7 +474,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
 
                   return (
                     <View key={playlist.id} style={styles.playlistItemContainer}>
-                      <TouchableOpacity
+                      <TouchableOpacity delayPressIn={0}
                         onPress={() => openPlaylist(playlist.id)}
                         style={styles.playlistRowItem}
                         activeOpacity={0.7}
@@ -500,7 +495,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                               onChangeText={setEditName}
                               style={styles.editTextInput}
                             />
-                            <TouchableOpacity
+                            <TouchableOpacity delayPressIn={0}
                               onPress={() => handleRenamePlaylist(playlist.id)}
                               style={styles.editBtnOk}
                               activeOpacity={0.7}
@@ -523,7 +518,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                       {/* Folder Rename/Delete */}
                       {!isEditing && (
                         <View style={styles.playlistActions}>
-                          <TouchableOpacity
+                          <TouchableOpacity delayPressIn={0}
                             onPress={() => {
                               setEditingId(playlist.id);
                               setEditName(playlist.name);
@@ -533,7 +528,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                           >
                             <MaterialCommunityIcons name="pencil-outline" size={16} color="rgba(255,255,255,0.5)" />
                           </TouchableOpacity>
-                          <TouchableOpacity
+                          <TouchableOpacity delayPressIn={0}
                             onPress={() => removePlaylist(playlist.id)}
                             style={styles.actionBtn}
                             activeOpacity={0.7}
@@ -560,7 +555,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                 ) : (
                   likedAlbums.map((album) => (
                     <View key={album.title} style={styles.playlistItemContainer}>
-                      <TouchableOpacity
+                      <TouchableOpacity delayPressIn={0}
                         onPress={() => setTab({ type: "album", title: album.title })}
                         style={styles.playlistRowItem}
                         activeOpacity={0.7}
@@ -581,11 +576,6 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                           </Text>
                         </View>
                       </TouchableOpacity>
-                      <View style={styles.playlistActions}>
-                        <TouchableOpacity onPress={() => toggleLikeAlbum(album)} style={styles.actionBtn} activeOpacity={0.7}>
-                          <MaterialCommunityIcons name="heart" size={16} color="#f43f5e" />
-                        </TouchableOpacity>
-                      </View>
                     </View>
                   ))
                 )}
@@ -646,7 +636,7 @@ function LoggedOutTabContent({ onSignIn }: { onSignIn: () => void }) {
           Sign in to save songs, create playlists, and more.
         </Text>
       </View>
-      <TouchableOpacity
+      <TouchableOpacity delayPressIn={0}
         onPress={onSignIn}
         style={styles.signInBtn}
         activeOpacity={0.8}
