@@ -1,4 +1,4 @@
-import { View, StyleSheet, SafeAreaView, StatusBar, Dimensions, ScrollView, Text, TouchableOpacity, Platform, useWindowDimensions } from 'react-native'
+import { View, StyleSheet, SafeAreaView, StatusBar, Dimensions, ScrollView, Text, TouchableOpacity, Platform, useWindowDimensions, DeviceEventEmitter } from 'react-native'
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
@@ -92,6 +92,18 @@ function AppContent() {
     const interval = setInterval(checkAuth, 10 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
+
+  // Listen to global tab navigation event requests
+  useEffect(() => {
+    const subscription = DeviceEventEmitter.addListener("NAVIGATE_TO_TAB", (tabName: 'Home' | 'Search' | 'Library') => {
+      setActiveTab(tabName);
+      const index = tabName === 'Home' ? 0 : tabName === 'Search' ? 1 : 2;
+      scrollViewRef.current?.scrollTo({ x: index * screenWidth, animated: true });
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, [screenWidth]);
 
   return (
     <SafeAreaView style={styles.container}>

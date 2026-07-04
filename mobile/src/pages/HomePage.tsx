@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Modal, ActivityIndicator, Dimensions, Platform } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Modal, ActivityIndicator, Dimensions, Platform, DeviceEventEmitter } from 'react-native'
 import React, { useEffect, useState, useRef } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -1265,13 +1265,12 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
   const [showUserMenu, setShowUserMenu]   = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const navigation: any                   = useNavigation();
-  const [isOffline, setIsOffline]         = useState(false);
-
   // Settings & Equalizer states in HomePage
   const [eqBass, setEqBass] = useState(5);
   const [eqTreble, setEqTreble] = useState(5);
   const [eqVocal, setEqVocal] = useState(5);
   const [eqPreset, setEqPreset] = useState<"normal" | "bass" | "treble" | "vocal" | "electronic">("normal");
+  const [sliderWidths, setSliderWidths] = useState<Record<string, number>>({});
 
   useEffect(() => {
     AsyncStorage.getItem("rw_eq_settings").then((saved) => {
@@ -1311,22 +1310,6 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
     saveEqSettings(b, t, v, preset);
   };
 
-  // Check connectivity once on mount, non-blockingly
-  useEffect(() => {
-    const checkConnectivity = async () => {
-      try {
-        const res = await Promise.race([
-          fetch("https://clients3.google.com/generate_202"),
-          new Promise<null>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3000))
-        ]);
-        setIsOffline(false);
-      } catch {
-        setIsOffline(true);
-      }
-    };
-    checkConnectivity();
-  }, []);
-
   const [sections,     setSections]     = useState<SectionData[]>(() => homePagePrefetcher.sections);
   const [filmAlbums,   setFilmAlbums]   = useState<AlbumData[]>  (() => homePagePrefetcher.filmAlbums);
   const [artistAlbums, setArtistAlbums] = useState<AlbumData[]>  (() => homePagePrefetcher.artistAlbums);
@@ -1344,6 +1327,24 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
     homePagePrefetcher.start();
     return unsub;
   }, []);
+
+  const [isOffline, setIsOffline] = useState(false);
+
+  // Lazy network offline detection: only trigger offline mode if prefetch completely fails and we have no cached sections after 6s
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (sections.length === 0 && !albumsLoading) {
+        setIsOffline(true);
+      }
+    }, 6000);
+    return () => clearTimeout(timer);
+  }, [sections.length, albumsLoading]);
+
+  useEffect(() => {
+    if (sections.length > 0) {
+      setIsOffline(false);
+    }
+  }, [sections.length]);
 
   const [openAlbum, setOpenAlbum] = useState<{
     album:      AlbumData;
@@ -1421,7 +1422,7 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
         </Text>
         <TouchableOpacity delayPressIn={0}
           style={modalStyles.offlineBtn}
-          onPress={() => navigation.navigate("Library" as any)}
+          onPress={() => DeviceEventEmitter.emit("NAVIGATE_TO_TAB", "Library")}
           activeOpacity={0.8}
         >
           <Text style={modalStyles.offlineBtnText}>Go to Downloads</Text>
@@ -1639,17 +1640,24 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
                     <View style={modalStyles.sliderTrackContainer}>
                       <TouchableOpacity
                         activeOpacity={1}
+                        onLayout={(e) => {
+                          const w = e.nativeEvent.layout.width;
+                          setSliderWidths(prev => ({ ...prev, [slider.label]: w }));
+                        }}
                         onPress={(e) => {
                           const { locationX } = e.nativeEvent;
-                          const newVal = Math.max(0, Math.min(10, Math.round((locationX / 160) * 10)));
+                          const trackW = sliderWidths[slider.label] || 160;
+                          const ratio = Math.max(0, Math.min(1, locationX / trackW));
+                          const newVal = Math.round(ratio * 10);
+                          
                           slider.setter(newVal);
                           setEqPreset("normal");
-                          saveEqSettings(
-                            slider.type === "bass" ? newVal : eqBass,
-                            slider.type === "treble" ? newVal : eqTreble,
-                            slider.type === "vocals" ? newVal : eqVocal,
-                            "normal"
-                          );
+                          
+                          const nextBass = slider.type === "bass" ? newVal : eqBass;
+                          const nextTreble = slider.type === "treble" ? newVal : eqTreble;
+                          const nextVocal = slider.type === "vocals" ? newVal : eqVocal;
+                          
+                          saveEqSettings(nextBass, nextTreble, nextVocal, "normal");
                         }}
                         style={modalStyles.sliderTrack}
                       >
