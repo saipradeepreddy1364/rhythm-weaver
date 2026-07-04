@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Modal, ActivityIndicator, Dimensions, Platform, DeviceEventEmitter } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Modal, ActivityIndicator, Dimensions, Platform, DeviceEventEmitter, Linking } from 'react-native'
 import React, { useEffect, useState, useRef } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -1608,19 +1608,54 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
             <ScrollView style={{ width: "100%" }}>
               <View style={modalStyles.eqContainer}>
                 <Text style={modalStyles.sectionTitle}>Audio Equalizer</Text>
-                <View style={{ backgroundColor: 'rgba(255,193,7,0.12)', borderRadius: 8, padding: 10, marginBottom: 10, flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
-                  <MaterialCommunityIcons name="information-outline" size={18} color="#FFC107" style={{ marginTop: 1 }} />
-                  <Text style={{ color: '#FFC107', fontSize: 12, flex: 1, lineHeight: 18 }}>
-                    Real-time audio DSP requires native Android/iOS integration. Presets below are saved and will be applied once native EQ support is added in a future update. For now, your preference is remembered.
-                  </Text>
+
+                {/* EQ Frequency visualizer bars */}
+                <View style={modalStyles.eqVisualizer}>
+                  {[
+                    { label: "60Hz", val: eqBass },
+                    { label: "230Hz", val: Math.round((eqBass + eqVocal) / 2) },
+                    { label: "910Hz", val: eqVocal },
+                    { label: "4kHz", val: Math.round((eqVocal + eqTreble) / 2) },
+                    { label: "14kHz", val: eqTreble },
+                  ].map((band, i) => {
+                    const heightPct = Math.max(10, (band.val / 10) * 100);
+                    const isActive = band.val !== 5;
+                    return (
+                      <View key={i} style={modalStyles.eqBarColumn}>
+                        <View style={[
+                          modalStyles.eqBar,
+                          { height: heightPct, backgroundColor: isActive ? "#1DB954" : "rgba(255,255,255,0.12)" }
+                        ]} />
+                        <Text style={modalStyles.eqBarLabel}>{band.label}</Text>
+                      </View>
+                    );
+                  })}
                 </View>
-                
+
+                {/* Android system EQ button */}
+                {Platform.OS === "android" && (
+                  <TouchableOpacity
+                    delayPressIn={0}
+                    style={modalStyles.systemEqBtn}
+                    onPress={() => {
+                      // Open Android system equalizer
+                      Linking.openURL("content://settings/sound_settings").catch(() => {
+                        Linking.openURL("com.android.settings.SOUND_SETTINGS").catch(() => {});
+                      });
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <MaterialCommunityIcons name="equalizer" size={18} color="#000" style={{ marginRight: 8 }} />
+                    <Text style={modalStyles.systemEqBtnText}>Open System Equalizer</Text>
+                  </TouchableOpacity>
+                )}
+
                 <Text style={modalStyles.eqLabel}>Select Preset</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={modalStyles.presetsRow}>
                   {([
-                    { id: "normal", label: "Normal" },
-                    { id: "bass", label: "Bass Booster" },
-                    { id: "treble", label: "Treble Booster" },
+                    { id: "normal", label: "Flat" },
+                    { id: "bass", label: "Bass Boost" },
+                    { id: "treble", label: "Treble Boost" },
                     { id: "vocal", label: "Vocal Focus" },
                     { id: "electronic", label: "Electronic" },
                   ] as const).map((p) => {
@@ -1691,6 +1726,12 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
                     <Text style={modalStyles.sliderVal}>+{slider.value - 5} dB</Text>
                   </View>
                 ))}
+
+                <Text style={[modalStyles.eqLabel, { opacity: 0.45, fontSize: 11, marginTop: 12 }]}>
+                  {Platform.OS === "android"
+                    ? "Tap \"Open System Equalizer\" above to apply real DSP effects via your device's built-in audio engine."
+                    : "Preferences saved. Native EQ integration requires a custom build. Settings will auto-apply in a future update."}
+                </Text>
               </View>
             </ScrollView>
           </View>
@@ -2508,5 +2549,49 @@ const modalStyles = StyleSheet.create({
     fontSize: 12,
     color: "rgba(255,255,255,0.6)",
     textAlign: "right",
+  },
+  // EQ Visualizer
+  eqVisualizer: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-around",
+    height: 80,
+    width: "100%",
+    backgroundColor: "rgba(255,255,255,0.03)",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingBottom: 8,
+    marginBottom: 16,
+  },
+  eqBarColumn: {
+    alignItems: "center",
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  eqBar: {
+    width: 28,
+    borderRadius: 4,
+    marginBottom: 4,
+  },
+  eqBarLabel: {
+    fontSize: 9,
+    color: "rgba(255,255,255,0.35)",
+    fontWeight: "600",
+  },
+  // Android system EQ button
+  systemEqBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#1DB954",
+    borderRadius: 24,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    marginBottom: 8,
+  },
+  systemEqBtnText: {
+    color: "#000",
+    fontSize: 14,
+    fontWeight: "bold",
   },
 });
