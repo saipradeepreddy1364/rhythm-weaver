@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Modal, ActivityIndicator, Linking, Platform, PanResponder } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Modal, ActivityIndicator, Linking, Platform, PanResponder, Dimensions } from 'react-native'
 import React, { useState, useEffect, useRef } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Video, ResizeMode } from "expo-av";
@@ -12,7 +12,7 @@ interface FullPlayerProps {
   onRequireAuth?: () => void;
 }
 
-type TabType = "cover" | "lyrics" | "video" | "equalizer";
+type TabType = "cover" | "lyrics" | "video";
 
 interface VideoStream {
   url: string;
@@ -268,50 +268,11 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   const [videoLoading, setVideoLoading] = useState(false);
   const [videoError, setVideoError] = useState<string | null>(null);
 
-  // Equalizer states
-  const [eqBass, setEqBass] = useState(5);
-  const [eqTreble, setEqTreble] = useState(5);
-  const [eqVocal, setEqVocal] = useState(5);
-  const [eqPreset, setEqPreset] = useState<"normal" | "bass" | "treble" | "vocal" | "electronic">("normal");
-
   // Lyrics scrolling refs & states
   const lyricsScrollRef = useRef<ScrollView>(null);
   const [lyricsContentHeight, setLyricsContentHeight] = useState(0);
   const [userIsScrollingLyrics, setUserIsScrollingLyrics] = useState(false);
   const userScrollTimeoutRef = useRef<any>(null);
-
-  const handlePresetSelect = (preset: "normal" | "bass" | "treble" | "vocal" | "electronic") => {
-    setEqPreset(preset);
-    if (preset === "normal") {
-      setEqBass(5); setEqTreble(5); setEqVocal(5);
-    } else if (preset === "bass") {
-      setEqBass(9); setEqTreble(4); setEqVocal(5);
-    } else if (preset === "treble") {
-      setEqBass(3); setEqTreble(9); setEqVocal(6);
-    } else if (preset === "vocal") {
-      setEqBass(4); setEqTreble(5); setEqVocal(9);
-    } else if (preset === "electronic") {
-      setEqBass(8); setEqTreble(7); setEqVocal(4);
-    }
-  };
-
-  useEffect(() => {
-    AsyncStorage.getItem("rw_eq_settings").then((saved) => {
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          setEqBass(parsed.bass ?? 5);
-          setEqTreble(parsed.treble ?? 5);
-          setEqVocal(parsed.vocal ?? 5);
-          setEqPreset(parsed.preset ?? "normal");
-        } catch {}
-      }
-    });
-  }, []);
-
-  const saveEqSettings = (bass: number, treble: number, vocal: number, preset: string) => {
-    AsyncStorage.setItem("rw_eq_settings", JSON.stringify({ bass, treble, vocal, preset })).catch(() => {});
-  };
 
   const handleUserScroll = () => {
     setUserIsScrollingLyrics(true);
@@ -483,40 +444,41 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
       onPanResponderGrant: (evt, gestureState) => {
         isDraggingRef.current = true;
         const { locationX } = evt.nativeEvent;
-        // Track the absolute coordinate on the screen where the track starts using gestureState.x0
         trackLeftRef.current = gestureState.x0 - locationX;
-        const ratio = Math.max(0, Math.min(1, locationX / progressBarWidth));
+        const activeWidth = progressBarWidth > 0 ? progressBarWidth : (Dimensions.get("window").width - 48);
+        const ratio = Math.max(0, Math.min(1, locationX / activeWidth));
         setDragProgress(ratio * totalDuration);
       },
       onPanResponderMove: (evt, gestureState) => {
-        if (progressBarWidth <= 0 || totalDuration <= 0) return;
+        if (totalDuration <= 0) return;
+        const activeWidth = progressBarWidth > 0 ? progressBarWidth : (Dimensions.get("window").width - 48);
         const currentX = gestureState.moveX - trackLeftRef.current;
-        const ratio = Math.max(0, Math.min(1, currentX / progressBarWidth));
+        const ratio = Math.max(0, Math.min(1, currentX / activeWidth));
         const currentVal = ratio * totalDuration;
         setDragProgress(currentVal);
       },
       onPanResponderRelease: (evt, gestureState) => {
-        if (progressBarWidth <= 0 || totalDuration <= 0) {
+        if (totalDuration <= 0) {
           isDraggingRef.current = false;
           setDragProgress(null);
           return;
         }
         
+        const activeWidth = progressBarWidth > 0 ? progressBarWidth : (Dimensions.get("window").width - 48);
         let finalProgress = 0;
         if (Math.abs(gestureState.dx) > 2) {
           const currentX = gestureState.moveX - trackLeftRef.current;
-          const ratio = Math.max(0, Math.min(1, currentX / progressBarWidth));
+          const ratio = Math.max(0, Math.min(1, currentX / activeWidth));
           finalProgress = Math.floor(ratio * totalDuration);
         } else {
           const { locationX } = evt.nativeEvent;
-          const ratio = Math.max(0, Math.min(1, locationX / progressBarWidth));
+          const ratio = Math.max(0, Math.min(1, locationX / activeWidth));
           finalProgress = Math.floor(ratio * totalDuration);
         }
         
         setProgress(finalProgress);
         setDragProgress(finalProgress);
         
-        // Safety timeout to reset drag lock
         if (lastSeekTimeRef.current) clearTimeout(lastSeekTimeRef.current);
         lastSeekTimeRef.current = setTimeout(() => {
           setDragProgress(null);
@@ -573,7 +535,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
 
           {/* Tab Switcher - always show Video; show Lyrics only when available */}
           <View style={styles.tabBar}>
-            {(["cover", ...((!lyricsLoading && lyrics && lyrics.trim().length > 0) ? ["lyrics"] : []), "video", "equalizer"] as TabType[]).map((tab) => {
+            {(["cover", ...((!lyricsLoading && lyrics && lyrics.trim().length > 0) ? ["lyrics"] : []), "video"] as TabType[]).map((tab) => {
               const isActive = activeTab === tab;
               return (
                 <TouchableOpacity delayPressIn={0} key={tab} onPress={() => setActiveTab(tab)} style={[styles.tabButton, isActive && styles.activeTabButton]} activeOpacity={0.7}>
@@ -592,7 +554,21 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             {activeTab === "cover" && (
               <View style={styles.coverWrapper}>
                 <View style={styles.largeArtShadow}>
-                  {currentSong.albumArt ? (
+                  {selectedStream ? (
+                    <Video
+                      source={{
+                        uri: selectedStream.url,
+                        overrideFileExtensionAndroid: selectedStream.quality.includes("HLS") ? "m3u8" : undefined
+                      }}
+                      rate={1.0}
+                      volume={1.0}
+                      isMuted={false}
+                      resizeMode={ResizeMode.CONTAIN}
+                      shouldPlay={isPlaying}
+                      useNativeControls
+                      style={styles.largeArt}
+                    />
+                  ) : currentSong.albumArt ? (
                     <Image
                       source={{ uri: currentSong.albumArt }}
                       style={styles.largeArt}
@@ -604,6 +580,29 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
                     </View>
                   )}
                 </View>
+                
+                {/* Quality Selector if video is playing in cover tab */}
+                {selectedStream && videoStreams.length > 1 && (
+                  <View style={{ marginTop: 12, width: "100%", alignItems: "center" }}>
+                    <ScrollView horizontal style={styles.qualityList} contentContainerStyle={styles.qualityListContent} showsHorizontalScrollIndicator={false}>
+                      {videoStreams.map((stream) => {
+                        const isSel = selectedStream.quality === stream.quality;
+                        return (
+                          <TouchableOpacity
+                            key={stream.quality}
+                            onPress={() => setSelectedStream(stream)}
+                            style={[styles.qualityPill, isSel && styles.activeQualityPill]}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={[styles.qualityText, isSel && styles.activeQualityText]}>
+                              {stream.quality}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                )}
               </View>
             )}
 
@@ -724,93 +723,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
               </View>
             )}
 
-            {/* Equalizer Tab */}
-            {activeTab === "equalizer" && (
-              <View style={styles.eqWrapper}>
-                <Text style={styles.eqTitle}>Equalizer</Text>
-                
-                {/* Visual EQ animations */}
-                <View style={styles.eqVisualizerContainer}>
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((bar) => {
-                    const minH = 8;
-                    const maxH = 48;
-                    const val = isPlaying ? Math.floor(Math.random() * (maxH - minH) + minH) : minH;
-                    return (
-                      <View
-                        key={bar}
-                        style={[
-                          styles.eqVisualizerBar,
-                          {
-                            height: val,
-                            backgroundColor: isPlaying ? "#1DB954" : "rgba(255,255,255,0.2)",
-                          },
-                        ]}
-                      />
-                    );
-                  })}
-                </View>
 
-                {/* Preset List */}
-                <Text style={styles.eqSectionTitle}>Presets</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.presetsList}>
-                  {([
-                    { id: "normal", label: "Normal" },
-                    { id: "bass", label: "Bass Booster" },
-                    { id: "treble", label: "Treble Booster" },
-                    { id: "vocal", label: "Vocal Focus" },
-                    { id: "electronic", label: "Electronic" },
-                  ] as const).map((p) => {
-                    const isSel = eqPreset === p.id;
-                    return (
-                      <TouchableOpacity
-                        key={p.id}
-                        onPress={() => handlePresetSelect(p.id)}
-                        style={[styles.presetCard, isSel && styles.presetCardActive]}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={[styles.presetText, isSel && styles.presetTextActive]}>
-                          {p.label}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-
-                {/* Custom Sliders */}
-                <Text style={styles.eqSectionTitle}>Adjustments</Text>
-                {[
-                  { label: "Bass", value: eqBass, setter: setEqBass, type: "bass" },
-                  { label: "Treble", value: eqTreble, setter: setEqTreble, type: "treble" },
-                  { label: "Vocals", value: eqVocal, setter: setEqVocal, type: "vocals" },
-                ].map((slider) => (
-                  <View key={slider.label} style={styles.sliderRow}>
-                    <Text style={styles.sliderLabel}>{slider.label}</Text>
-                    <View style={styles.sliderTrackContainer}>
-                      <TouchableOpacity
-                        activeOpacity={1}
-                        onPress={(e) => {
-                          const { locationX } = e.nativeEvent;
-                          const newVal = Math.max(0, Math.min(10, Math.round((locationX / 160) * 10)));
-                          slider.setter(newVal);
-                          setEqPreset("normal");
-                          saveEqSettings(
-                            slider.type === "bass" ? newVal : eqBass,
-                            slider.type === "treble" ? newVal : eqTreble,
-                            slider.type === "vocals" ? newVal : eqVocal,
-                            "normal"
-                          );
-                        }}
-                        style={styles.sliderTrack}
-                      >
-                        <View pointerEvents="none" style={[styles.sliderFill, { width: `${(slider.value / 10) * 100}%` }]} />
-                        <View pointerEvents="none" style={[styles.sliderThumb, { left: `${(slider.value / 10) * 100}%`, marginLeft: -8 }]} />
-                      </TouchableOpacity>
-                    </View>
-                    <Text style={styles.sliderValueText}>+{slider.value - 5} dB</Text>
-                  </View>
-                ))}
-              </View>
-            )}
           </View>
 
           {/* Song Info Section */}
@@ -844,14 +757,24 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
 
           {/* Progress Seek Bar */}
           <View style={styles.progressSection}>
-            <View
+            <TouchableOpacity
+              activeOpacity={1}
+              onPress={(evt) => {
+                const { locationX } = evt.nativeEvent;
+                const activeWidth = progressBarWidth > 0 ? progressBarWidth : (Dimensions.get("window").width - 48);
+                if (totalDuration > 0) {
+                  const ratio = Math.max(0, Math.min(1, locationX / activeWidth));
+                  const finalProgress = Math.floor(ratio * totalDuration);
+                  setProgress(finalProgress);
+                }
+              }}
               style={styles.progressBarTrack}
               onLayout={(e: any) => setProgressBarWidth(e.nativeEvent.layout.width)}
               {...panResponder.current.panHandlers}
             >
               <View pointerEvents="none" style={[styles.progressBarFill, { width: `${pct}%` }]} />
               <View pointerEvents="none" style={[styles.progressBarThumb, { left: `${pct}%`, marginLeft: -6 }]} />
-            </View>
+            </TouchableOpacity>
 
             <View style={styles.timeLabels}>
               <Text style={styles.timeText}>

@@ -1,6 +1,7 @@
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Modal, ActivityIndicator, Dimensions, Platform } from 'react-native'
 import React, { useEffect, useState, useRef } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Song, mapApiSong } from "../data/songs";
 import { api, extractResults } from "../services/api";
 import { useAuth } from "../context/AuthContext";
@@ -1262,8 +1263,53 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
 
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showUserMenu, setShowUserMenu]   = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const navigation: any                   = useNavigation();
   const [isOffline, setIsOffline]         = useState(false);
+
+  // Settings & Equalizer states in HomePage
+  const [eqBass, setEqBass] = useState(5);
+  const [eqTreble, setEqTreble] = useState(5);
+  const [eqVocal, setEqVocal] = useState(5);
+  const [eqPreset, setEqPreset] = useState<"normal" | "bass" | "treble" | "vocal" | "electronic">("normal");
+
+  useEffect(() => {
+    AsyncStorage.getItem("rw_eq_settings").then((saved) => {
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          setEqBass(parsed.bass ?? 5);
+          setEqTreble(parsed.treble ?? 5);
+          setEqVocal(parsed.vocal ?? 5);
+          setEqPreset(parsed.preset ?? "normal");
+        } catch {}
+      }
+    });
+  }, [showSettingsModal]);
+
+  const saveEqSettings = (bass: number, treble: number, vocal: number, preset: string) => {
+    AsyncStorage.setItem("rw_eq_settings", JSON.stringify({ bass, treble, vocal, preset })).catch(() => {});
+  };
+
+  const handlePresetSelect = (preset: "normal" | "bass" | "treble" | "vocal" | "electronic") => {
+    setEqPreset(preset);
+    let b = 5, t = 5, v = 5;
+    if (preset === "normal") {
+      // normal EQs
+    } else if (preset === "bass") {
+      b = 9; t = 4; v = 5;
+    } else if (preset === "treble") {
+      b = 3; t = 9; v = 6;
+    } else if (preset === "vocal") {
+      b = 4; t = 5; v = 9;
+    } else if (preset === "electronic") {
+      b = 8; t = 7; v = 4;
+    }
+    setEqBass(b);
+    setEqTreble(t);
+    setEqVocal(v);
+    saveEqSettings(b, t, v, preset);
+  };
 
   // Check connectivity once on mount, non-blockingly
   useEffect(() => {
@@ -1398,8 +1444,16 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
 
           <View style={styles.headerRight}>
             <TouchableOpacity delayPressIn={0}
+              onPress={() => setShowSettingsModal(true)}
+              style={styles.settingsBtn}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons name="cog" size={20} color="#fff" />
+            </TouchableOpacity>
+
+            <TouchableOpacity delayPressIn={0}
               onPress={() => user ? setShowUserMenu(!showUserMenu) : setShowAuthModal(true)}
-              style={[styles.userMenuBtn, user && styles.activeUserMenuBtn]}
+              style={[styles.userMenuBtn, user && styles.activeUserMenuBtn, { marginLeft: 8 }]}
               activeOpacity={0.7}
             >
               {user ? (
@@ -1524,6 +1578,93 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
 
       {/* Authentication Dialog */}
       <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} />
+
+      {/* Settings / Equalizer Modal */}
+      <Modal
+        visible={showSettingsModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowSettingsModal(false)}
+      >
+        <View style={modalStyles.overlay}>
+          <View style={modalStyles.content}>
+            <View style={modalStyles.header}>
+              <Text style={modalStyles.title}>Settings</Text>
+              <TouchableOpacity delayPressIn={0}
+                onPress={() => setShowSettingsModal(false)}
+                style={modalStyles.closeBtn}
+                activeOpacity={0.7}
+              >
+                <MaterialCommunityIcons name="close" size={22} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ width: "100%" }}>
+              <View style={modalStyles.eqContainer}>
+                <Text style={modalStyles.sectionTitle}>Audio Equalizer</Text>
+                
+                <Text style={modalStyles.eqLabel}>Select Preset</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={modalStyles.presetsRow}>
+                  {([
+                    { id: "normal", label: "Normal" },
+                    { id: "bass", label: "Bass Booster" },
+                    { id: "treble", label: "Treble Booster" },
+                    { id: "vocal", label: "Vocal Focus" },
+                    { id: "electronic", label: "Electronic" },
+                  ] as const).map((p) => {
+                    const isSel = eqPreset === p.id;
+                    return (
+                      <TouchableOpacity
+                        key={p.id}
+                        onPress={() => handlePresetSelect(p.id)}
+                        style={[modalStyles.presetCard, isSel && modalStyles.presetCardActive]}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[modalStyles.presetCardText, isSel && modalStyles.presetCardTextActive]}>
+                          {p.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+
+                <Text style={modalStyles.eqLabel}>Custom Adjustments</Text>
+                {[
+                  { label: "Bass", value: eqBass, setter: setEqBass, type: "bass" },
+                  { label: "Treble", value: eqTreble, setter: setEqTreble, type: "treble" },
+                  { label: "Vocals", value: eqVocal, setter: setEqVocal, type: "vocals" },
+                ].map((slider) => (
+                  <View key={slider.label} style={modalStyles.sliderRow}>
+                    <Text style={modalStyles.sliderName}>{slider.label}</Text>
+                    <View style={modalStyles.sliderTrackContainer}>
+                      <TouchableOpacity
+                        activeOpacity={1}
+                        onPress={(e) => {
+                          const { locationX } = e.nativeEvent;
+                          const newVal = Math.max(0, Math.min(10, Math.round((locationX / 160) * 10)));
+                          slider.setter(newVal);
+                          setEqPreset("normal");
+                          saveEqSettings(
+                            slider.type === "bass" ? newVal : eqBass,
+                            slider.type === "treble" ? newVal : eqTreble,
+                            slider.type === "vocals" ? newVal : eqVocal,
+                            "normal"
+                          );
+                        }}
+                        style={modalStyles.sliderTrack}
+                      >
+                        <View pointerEvents="none" style={[modalStyles.sliderFill, { width: `${(slider.value / 10) * 100}%` }]} />
+                        <View pointerEvents="none" style={[modalStyles.sliderThumb, { left: `${(slider.value / 10) * 100}%`, marginLeft: -8 }]} />
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={modalStyles.sliderVal}>+{slider.value - 5} dB</Text>
+                  </View>
+                ))}
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1784,6 +1925,16 @@ const styles = StyleSheet.create({
   },
   headerRight: {
     position: "relative",
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  settingsBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   userMenuBtn: {
     width: 32,
@@ -2226,5 +2377,105 @@ const modalStyles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "bold",
     color: "#000",
+  },
+  closeBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#fff",
+    flex: 1,
+  },
+  eqContainer: {
+    padding: 16,
+    width: "100%",
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#fff",
+    marginBottom: 16,
+  },
+  eqLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "rgba(255,255,255,0.4)",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginTop: 16,
+    marginBottom: 10,
+  },
+  presetsRow: {
+    flexDirection: "row",
+    width: "100%",
+    marginBottom: 16,
+  },
+  presetCard: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 20,
+    marginRight: 10,
+  },
+  presetCardActive: {
+    backgroundColor: "#1DB954",
+  },
+  presetCardText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "rgba(255,255,255,0.6)",
+  },
+  presetCardTextActive: {
+    color: "#000",
+  },
+  sliderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    width: "100%",
+    marginVertical: 10,
+  },
+  sliderName: {
+    width: 60,
+    fontSize: 14,
+    color: "#fff",
+    fontWeight: "500",
+  },
+  sliderTrackContainer: {
+    flex: 1,
+    height: 30,
+    justifyContent: "center",
+    marginHorizontal: 12,
+  },
+  sliderTrack: {
+    height: 4,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderRadius: 2,
+    position: "relative",
+  },
+  sliderFill: {
+    height: "100%",
+    backgroundColor: "#1DB954",
+    borderRadius: 2,
+  },
+  sliderThumb: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: "#fff",
+    position: "absolute",
+    top: -6,
+  },
+  sliderVal: {
+    width: 50,
+    fontSize: 12,
+    color: "rgba(255,255,255,0.6)",
+    textAlign: "right",
   },
 });

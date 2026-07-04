@@ -1,13 +1,15 @@
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Modal, ActivityIndicator, Dimensions, Platform } from 'react-native'
 import React, { useEffect, useState, useRef } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Song, mapApiSong } from "../data/songs";
 import { api, extractResults } from "../services/api";
-import { SongRow } from "../components/SongRow";
-import { usePlayer } from "../context/PlayerContext";
 import { useAuth } from "../context/AuthContext";
-import { useLibrary, normalizeSongTitle } from "../context/LibraryContext";
+import { useLibrary, Playlist, normalizeSongTitle } from "../context/LibraryContext";
+import { usePlayer } from "../context/PlayerContext";
+import { SongRow } from "../components/SongRow";
 import { AuthModal } from "../components/AuthModal";
+import { useNavigation } from "@react-navigation/native";
 import { MiniPlayer } from "../components/MiniPlayer";
 import { localStorage, sessionStorage } from "../lib/storage";
 
@@ -368,55 +370,7 @@ export function getPreloadedSongs(key: string): Song[] {
 
 let _preloadStarted = false;
 function startBackgroundPreload() {
-  if (_preloadStarted) return;
-  _preloadStarted = true;
-
-  setTimeout(async () => {
-    for (const target of PRELOAD_TARGETS) {
-      const sk = PRELOAD_SESSION_KEY(target.key);
-      if (sessionStorage.getItem(sk)) continue;
-
-      const seen = new Set<string>();
-      const all: Song[] = [];
-
-      for (const query of target.queries) {
-        for (let page = 1; page <= PRELOAD_MAX_PAGES; page++) {
-          try {
-            if (page > 1) await new Promise(r => setTimeout(r, PRELOAD_BATCH_DELAY));
-            const res   = await api.searchSongs(query, page, 50);
-            const items = extractResults(res);
-            if (items.length === 0) break;
-            const songs = items.map(mapApiSong).map((s: Song) => ({
-              ...s,
-              title:  decodeHtml(s.title  || ""),
-              artist: decodeHtml((s as Song & { artist?: string }).artist || ""),
-              album:  decodeHtml((s as Song & { album?: string }).album   || ""),
-              movie:  decodeHtml((s as Song & { movie?: string }).movie   || ""),
-            } as Song)).filter((s: Song) => Boolean(s.audioUrl) && !isDevotionalSong(s));
-            let added = 0;
-            for (const s of songs) {
-              if (!s.id) continue;
-              const norm = normalizeSongTitle(s.title, s.movie || s.album);
-              if (!seen.has(s.id) && (!norm || !seen.has(norm))) {
-                seen.add(s.id);
-                if (norm) seen.add(norm);
-                all.push(s);
-                added++;
-              }
-            }
-            if (items.length < 50 || added === 0) break;
-          } catch { break; }
-        }
-        await new Promise(r => setTimeout(r, 200));
-      }
-
-      if (all.length > 0) {
-        try { sessionStorage.setItem(sk, JSON.stringify(all)); } catch { /* quota */ }
-      }
-
-      await new Promise(r => setTimeout(r, 1000));
-    }
-  }, 2000);
+  return;
 }
 
 startBackgroundPreload();
@@ -454,6 +408,7 @@ interface AlbumData {
 
 interface HomePageProps {
   onRequireAuth?: () => void;
+  setParentScrollEnabled?: (enabled: boolean) => void;
 }
 
 type RawSong = Song & { primaryArtists?: string; singers?: string };
@@ -470,6 +425,29 @@ function decodeHtml(str: string): string {
     .replace(/&#x27;/g, "'")
     .replace(/&#x2F;/g, "/");
 }
+
+function isDevotionalSong(song: Song): boolean {
+  const title = (song.title || "").toLowerCase();
+  const album = (song.album || song.movie || "").toLowerCase();
+  const genre = (song.genre || "").toLowerCase();
+  
+  const keywords = [
+    "bhajan", "aarti", "chalisa", "devotional", "bhakti", "mantra", 
+    "stotram", "dhun", "stotra", "shlok", "shloka", "kirtan", 
+    "hanuman", "ram", "shri ram", "krishna", "ganesha", "ganesh",
+    "shiv bhajan", "sai baba", "spiritual", "durga", "prayer", 
+    "chants", "suprabhatam", "namam", "keerthana", "slokam", 
+    "ayyappa", "tirupati", "govinda", "god", "temple", "divine",
+    "harati", "harathi", "stothram", "stothra", "suprabhatham", 
+    "sharanu", "sharanam", "namavali", "sloka", "ashtakam",
+    "mahadevi", "shiva", "rama", "venkateswara", "venkatesh",
+    "narayana", "lakshmi", "saraswati", "vigneshwara"
+  ];
+  
+  return keywords.some(kw => title.includes(kw) || album.includes(kw) || genre.includes(kw));
+}
+
+
 
 function getArtistName(song: Song): string {
   const raw   = song as RawSong;
@@ -494,22 +472,6 @@ function cleanSong(song: Song): Song {
     album:  decodeHtml(song.album   || ""),
     movie:  decodeHtml(song.movie   || ""),
   };
-}
-
-
-
-function isDevotionalSong(song: Song): boolean {
-  const title = (song.title || "").toLowerCase();
-  const album = (song.album || song.movie || "").toLowerCase();
-  
-  const keywords = [
-    "bhajan", "aarti", "chalisa", "devotional", "bhakti", "mantra", 
-    "stotram", "dhun", "stotra", "shlok", "shloka", "kirtan", 
-    "hanuman chalisa", "shri ram", "krishna bhajan", "ganesha bhajan",
-    "shiv bhajan", "sai baba", "spiritual", "durga chalisa"
-  ];
-  
-  return keywords.some(kw => title.includes(kw) || album.includes(kw));
 }
 
 async function fetchSection(query: string, limit = 50): Promise<Song[]> {
@@ -548,10 +510,10 @@ function dedup(songs: Song[], seen: Set<string>): Song[] {
   const out: Song[] = [];
   for (const s of songs) {
     if (!s || !s.id) continue;
-    const norm = normalizeSongTitle(s.title, s.movie || s.album);
-    if (!seen.has(s.id) && (!norm || !seen.has(norm))) {
+    const titleKey = normalizeSongTitle(s.title, s.movie || s.album);
+    if (!seen.has(s.id) && !seen.has(titleKey)) {
       seen.add(s.id);
-      if (norm) seen.add(norm);
+      seen.add(titleKey);
       out.push(s);
     }
   }
@@ -620,7 +582,7 @@ async function fetchCurrentYearFilmAlbums(unmountedRef: React.RefObject<boolean>
   const results = await Promise.allSettled(
     queries.map((q) =>
       api.searchSongs(q, 1, 20).then((res) =>
-        extractResults(res).map(mapApiSong).map(cleanSong).filter((s) => Boolean(s.audioUrl))
+        extractResults(res).map(mapApiSong).map(cleanSong).filter((s) => Boolean(s.audioUrl) && !isDevotionalSong(s))
       )
     )
   );
@@ -676,7 +638,7 @@ async function loadArtistAlbums(
   const discoveryResults = await Promise.allSettled(
     queries.map((q) =>
       api.searchSongs(q, 1, 20).then((res) =>
-        extractResults(res).map(mapApiSong).map(cleanSong).filter((s) => Boolean(s.audioUrl))
+        extractResults(res).map(mapApiSong).map(cleanSong).filter((s) => Boolean(s.audioUrl) && !isDevotionalSong(s))
       )
     )
   );
@@ -839,7 +801,7 @@ function AlbumModal({
               const items = extractResults(res);
               if (items.length === 0) break;
               const newSongs = items.map(mapApiSong).filter((s: Song) => {
-                if (!s.audioUrl || !s.id) return false;
+                if (!s.audioUrl || !s.id || isDevotionalSong(s)) return false;
                 const tKey = normalizeSongTitle(s.title, s.movie || s.album);
                 if (seenIds.has(s.id) || seenTitles.has(tKey)) return false;
                 return true;
@@ -886,96 +848,94 @@ function AlbumModal({
     "Album";
 
   return (
-    <Modal visible={true} animationType="slide" onRequestClose={onClose}>
-      <View style={modalStyles.container}>
-        {album.coverArt && (
-          <Image
-            source={{ uri: album.coverArt }}
-            style={modalStyles.backgroundImage}
-            blurRadius={20}
-            resizeMode="cover"
-          />
-        )}
-        <View style={modalStyles.overlay} />
+    <View style={modalStyles.container}>
+      {album.coverArt && (
+        <Image
+          source={{ uri: album.coverArt }}
+          style={modalStyles.backgroundImage}
+          blurRadius={20}
+          resizeMode="cover"
+        />
+      )}
+      <View style={modalStyles.overlay} />
 
-        <View style={modalStyles.content}>
-          {/* Header */}
-          <View style={modalStyles.header}>
-            <TouchableOpacity onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
-              <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
+      <View style={modalStyles.content}>
+        {/* Header */}
+        <View style={modalStyles.header}>
+          <TouchableOpacity delayPressIn={0} onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
+            <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
+          </TouchableOpacity>
+
+          <View style={modalStyles.headerMeta}>
+            <Text style={modalStyles.headerTitle} numberOfLines={1}>{album.title}</Text>
+            <Text style={modalStyles.headerSubtitle} numberOfLines={1}>
+              {typeLabel} · {songs.length} songs
+            </Text>
+          </View>
+
+          <TouchableOpacity delayPressIn={0} onPress={handleLikePress} style={[modalStyles.backBtn, { marginRight: 12 }]} activeOpacity={0.7}>
+            <MaterialCommunityIcons
+              name={isLiked ? "heart" : "heart-outline"}
+              size={20}
+              color={isLiked ? "#f43f5e" : "#fff"}
+            />
+          </TouchableOpacity>
+
+          {songs.length > 0 ? (
+            <TouchableOpacity delayPressIn={0}
+              onPress={() => playSong(songs[0], songs)}
+              style={modalStyles.playBtn}
+              activeOpacity={0.8}
+            >
+              <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
             </TouchableOpacity>
+          ) : null}
+        </View>
 
-            <View style={modalStyles.headerMeta}>
-              <Text style={modalStyles.headerTitle} numberOfLines={1}>{album.title}</Text>
-              <Text style={modalStyles.headerSubtitle} numberOfLines={1}>
-                {typeLabel} · {songs.length} songs
+        {/* Large cover art */}
+        <View style={modalStyles.coverWrapper}>
+          {album.coverArt ? (
+            <Image source={{ uri: album.coverArt }} style={modalStyles.coverImage} resizeMode="cover" />
+          ) : (
+            <View style={[modalStyles.coverImage, modalStyles.coverPlaceholder]}>
+              <MaterialCommunityIcons name="disc" size={80} color="rgba(255,255,255,0.2)" />
+            </View>
+          )}
+        </View>
+
+        {/* Songs scroll */}
+        <ScrollView style={modalStyles.songsScroll} contentContainerStyle={modalStyles.songsScrollContent}>
+          {loadingMore && songs.length === 0 ? (
+            <View style={modalStyles.centerLoading}>
+              <ActivityIndicator size="large" color="#1DB954" />
+              <Text style={modalStyles.loadingText}>
+                {albumType === "artist" ? "Loading full discography…" : "Loading songs…"}
               </Text>
             </View>
+          ) : (
+            <View style={{ paddingBottom: 60 }}>
+              {songs.map((song) => (
+                <SongRow
+                  key={song.id}
+                  song={song}
+                  queue={songs}
+                  onRequireAuth={onRequireAuth}
+                />
+              ))}
 
-            <TouchableOpacity onPress={handleLikePress} style={[modalStyles.backBtn, { marginRight: 12 }]} activeOpacity={0.7}>
-              <MaterialCommunityIcons
-                name={isLiked ? "heart" : "heart-outline"}
-                size={20}
-                color={isLiked ? "#f43f5e" : "#fff"}
-              />
-            </TouchableOpacity>
-
-            {songs.length > 0 ? (
-              <TouchableOpacity
-                onPress={() => playSong(songs[0], songs)}
-                style={modalStyles.playBtn}
-                activeOpacity={0.8}
-              >
-                <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
-              </TouchableOpacity>
-            ) : null}
-          </View>
-
-          {/* Large cover art */}
-          <View style={modalStyles.coverWrapper}>
-            {album.coverArt ? (
-              <Image source={{ uri: album.coverArt }} style={modalStyles.coverImage} resizeMode="cover" />
-            ) : (
-              <View style={[modalStyles.coverImage, modalStyles.coverPlaceholder]}>
-                <MaterialCommunityIcons name="disc" size={80} color="rgba(255,255,255,0.2)" />
-              </View>
-            )}
-          </View>
-
-          {/* Songs scroll */}
-          <ScrollView style={modalStyles.songsScroll} contentContainerStyle={modalStyles.songsScrollContent}>
-            {loadingMore && songs.length === 0 ? (
-              <View style={modalStyles.centerLoading}>
-                <ActivityIndicator size="large" color="#1DB954" />
-                <Text style={modalStyles.loadingText}>
-                  {albumType === "artist" ? "Loading full discography…" : "Loading songs…"}
-                </Text>
-              </View>
-            ) : (
-              <View style={{ paddingBottom: 60 }}>
-                {songs.map((song) => (
-                  <SongRow
-                    key={song.id}
-                    song={song}
-                    queue={songs}
-                    onRequireAuth={onRequireAuth}
-                  />
-                ))}
-
-                {loadingMore && songs.length > 0 ? (
-                  <View style={modalStyles.fetchingMoreRow}>
-                    <ActivityIndicator size="small" color="#1DB954" />
-                    <Text style={modalStyles.fetchingMoreText}>
-                      Fetching more songs… ({songs.length} so far)
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
-            )}
-          </ScrollView>
-        </View>
+              {loadingMore && songs.length > 0 ? (
+                <View style={modalStyles.fetchingMoreRow}>
+                  <ActivityIndicator size="small" color="#1DB954" />
+                  <Text style={modalStyles.fetchingMoreText}>
+                    Fetching more songs… ({songs.length} so far)
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          )}
+        </ScrollView>
       </View>
-    </Modal>
+    </View>
   );
 }
 
@@ -1017,90 +977,88 @@ function LanguageCategoryModal({
   const displaySongs = activeTab === "All" ? allSongs : subSongs[activeTab] || [];
 
   return (
-    <Modal visible={true} animationType="slide" onRequestClose={onClose}>
-      <View style={modalStyles.container}>
-        <View style={[modalStyles.overlay, { backgroundColor: "rgba(29, 185, 84, 0.12)" }]} />
-        <View style={modalStyles.overlay} />
+    <View style={modalStyles.container}>
+      <View style={[modalStyles.overlay, { backgroundColor: "rgba(29, 185, 84, 0.12)" }]} />
+      <View style={modalStyles.overlay} />
 
-        <View style={modalStyles.content}>
-          {/* Header */}
-          <View style={modalStyles.header}>
-            <TouchableOpacity onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
-              <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
-            </TouchableOpacity>
+      <View style={modalStyles.content}>
+        {/* Header */}
+        <View style={modalStyles.header}>
+          <TouchableOpacity delayPressIn={0} onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
+            <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
+          </TouchableOpacity>
 
-            <View style={modalStyles.headerMeta}>
-              <Text style={modalStyles.headerTitle}>{label} Music</Text>
-              <Text style={modalStyles.headerSubtitle}>
-                {loading ? "Loading…" : `${allSongs.length}+ songs`}
-              </Text>
-            </View>
-
-            {displaySongs.length > 0 ? (
-              <TouchableOpacity
-                onPress={() => playSong(displaySongs[0], displaySongs)}
-                style={modalStyles.playBtn}
-                activeOpacity={0.8}
-              >
-                <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
-              </TouchableOpacity>
-            ) : null}
+          <View style={modalStyles.headerMeta}>
+            <Text style={modalStyles.headerTitle}>{label} Music</Text>
+            <Text style={modalStyles.headerSubtitle}>
+              {loading ? "Loading…" : `${allSongs.length}+ songs`}
+            </Text>
           </View>
 
-          {/* Horizontal scroll tabs */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.tabsScroll}
-            contentContainerStyle={styles.tabsScrollContent}
-          >
-            {tabs.map((tab) => {
-              const isActive = activeTab === tab;
-              const count = tab === "All" ? allSongs.length : (subSongs[tab]?.length || 0);
-
-              return (
-                <TouchableOpacity
-                  key={tab}
-                  onPress={() => setActiveTab(tab)}
-                  style={[styles.langTab, isActive && styles.activeLangTab]}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.langTabText, isActive && styles.activeLangTabText]}>
-                    {tab} {count > 0 ? `(${count})` : ""}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-
-          {/* Songs list */}
-          <ScrollView style={modalStyles.songsScroll} contentContainerStyle={modalStyles.songsScrollContent}>
-            {loading && displaySongs.length === 0 ? (
-              <View style={modalStyles.centerLoading}>
-                <ActivityIndicator size="large" color="#1DB954" />
-                <Text style={modalStyles.loadingText}>Loading {label} songs…</Text>
-              </View>
-            ) : activeTab !== "All" && !subSongs[activeTab] ? (
-              <View style={modalStyles.centerLoading}>
-                <ActivityIndicator size="large" color="#1DB954" />
-                <Text style={modalStyles.loadingText}>Loading {activeTab} songs…</Text>
-              </View>
-            ) : (
-              <View style={{ paddingBottom: 60 }}>
-                {displaySongs.map((song) => (
-                  <SongRow
-                    key={song.id}
-                    song={song}
-                    queue={displaySongs}
-                    onRequireAuth={onRequireAuth}
-                  />
-                ))}
-              </View>
-            )}
-          </ScrollView>
+          {displaySongs.length > 0 ? (
+            <TouchableOpacity delayPressIn={0}
+              onPress={() => playSong(displaySongs[0], displaySongs)}
+              style={modalStyles.playBtn}
+              activeOpacity={0.8}
+            >
+              <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
+            </TouchableOpacity>
+          ) : null}
         </View>
+
+        {/* Horizontal scroll tabs */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.tabsScroll}
+          contentContainerStyle={styles.tabsScrollContent}
+        >
+          {tabs.map((tab) => {
+            const isActive = activeTab === tab;
+            const count = tab === "All" ? allSongs.length : (subSongs[tab]?.length || 0);
+
+            return (
+              <TouchableOpacity delayPressIn={0}
+                key={tab}
+                onPress={() => setActiveTab(tab)}
+                style={[styles.langTab, isActive && styles.activeLangTab]}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.langTabText, isActive && styles.activeLangTabText]}>
+                  {tab} {count > 0 ? `(${count})` : ""}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
+        {/* Songs list */}
+        <ScrollView style={modalStyles.songsScroll} contentContainerStyle={modalStyles.songsScrollContent}>
+          {loading && displaySongs.length === 0 ? (
+            <View style={modalStyles.centerLoading}>
+              <ActivityIndicator size="large" color="#1DB954" />
+              <Text style={modalStyles.loadingText}>Loading {label} songs…</Text>
+            </View>
+          ) : activeTab !== "All" && !subSongs[activeTab] ? (
+            <View style={modalStyles.centerLoading}>
+              <ActivityIndicator size="large" color="#1DB954" />
+              <Text style={modalStyles.loadingText}>Loading {activeTab} songs…</Text>
+            </View>
+          ) : (
+            <View style={{ paddingBottom: 60 }}>
+              {displaySongs.map((song) => (
+                <SongRow
+                  key={song.id}
+                  song={song}
+                  queue={displaySongs}
+                  onRequireAuth={onRequireAuth}
+                />
+              ))}
+            </View>
+          )}
+        </ScrollView>
       </View>
-    </Modal>
+    </View>
   );
 }
 
@@ -1112,6 +1070,7 @@ function AlbumRow({
   onOpen,
   showCount,
   roundCovers,
+  setParentScrollEnabled,
 }: {
   title:       string;
   albums:      AlbumData[];
@@ -1119,13 +1078,25 @@ function AlbumRow({
   onOpen:      (album: AlbumData) => void;
   showCount?:  boolean;
   roundCovers?: boolean;
+  setParentScrollEnabled?: (enabled: boolean) => void;
 }) {
   return (
     <View style={styles.albumRowContainer}>
       <Text style={styles.sectionHeader}>{title}</Text>
 
       {loading ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalScrollPadding}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.horizontalScrollPadding}
+          onScrollBeginDrag={() => setParentScrollEnabled?.(false)}
+          onScrollEndDrag={() => setParentScrollEnabled?.(true)}
+          onMomentumScrollBegin={() => setParentScrollEnabled?.(false)}
+          onMomentumScrollEnd={() => setParentScrollEnabled?.(true)}
+          onTouchStart={() => setParentScrollEnabled?.(false)}
+          onTouchEnd={() => setParentScrollEnabled?.(true)}
+          nestedScrollEnabled={true}
+        >
           {Array.from({ length: 6 }).map((_, i) => (
             <View key={i} style={styles.albumLoaderItem}>
               <View
@@ -1139,13 +1110,24 @@ function AlbumRow({
           ))}
         </ScrollView>
       ) : albums.length > 0 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalScrollPadding}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.horizontalScrollPadding}
+          onScrollBeginDrag={() => setParentScrollEnabled?.(false)}
+          onScrollEndDrag={() => setParentScrollEnabled?.(true)}
+          onMomentumScrollBegin={() => setParentScrollEnabled?.(false)}
+          onMomentumScrollEnd={() => setParentScrollEnabled?.(true)}
+          onTouchStart={() => setParentScrollEnabled?.(false)}
+          onTouchEnd={() => setParentScrollEnabled?.(true)}
+          nestedScrollEnabled={true}
+        >
           {albums.map((album) => {
             const { playSong } = usePlayer();
 
             return (
               <View key={album.title} style={styles.albumItem}>
-                <TouchableOpacity
+                <TouchableOpacity delayPressIn={0}
                   onPress={() => onOpen(album)}
                   style={[
                     styles.albumArtBtn,
@@ -1162,7 +1144,7 @@ function AlbumRow({
                   )}
 
                   {!roundCovers && album.songs.length > 0 ? (
-                    <TouchableOpacity
+                    <TouchableOpacity delayPressIn={0}
                       onPress={() => playSong(album.songs[0], album.songs)}
                       style={styles.playOverlayBtn}
                       activeOpacity={0.8}
@@ -1176,12 +1158,6 @@ function AlbumRow({
                       <Text style={styles.countBadgeText}>
                         {album.fullyLoaded ? album.songs.length : `${album.songs.length}+`}
                       </Text>
-                    </View>
-                  ) : null}
-
-                  {roundCovers && !album.fullyLoaded ? (
-                    <View style={styles.loadingSpinnerBadge}>
-                      <ActivityIndicator size="small" color="#fff" />
                     </View>
                   ) : null}
                 </TouchableOpacity>
@@ -1227,7 +1203,7 @@ function CollapsibleSection({
         ))}
       </View>
       {songs.length > PREVIEW ? (
-        <TouchableOpacity
+        <TouchableOpacity delayPressIn={0}
           onPress={() => setExpanded(!expanded)}
           style={styles.expandBtn}
           activeOpacity={0.7}
@@ -1261,7 +1237,7 @@ function SimpleSection({ title, children }: { title: string; children: React.Rea
 function QuickPick({ song, queue }: { song: Song; queue: Song[] }) {
   const { playSong } = usePlayer();
   return (
-    <TouchableOpacity
+    <TouchableOpacity delayPressIn={0}
       onPress={() => playSong(song, queue)}
       style={styles.quickPickCard}
       activeOpacity={0.8}
@@ -1281,12 +1257,75 @@ function QuickPick({ song, queue }: { song: Song; queue: Song[] }) {
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
-export default function HomePage({ onRequireAuth }: HomePageProps) {
+export default function HomePage({ onRequireAuth, setParentScrollEnabled }: HomePageProps) {
   const { user, logout }     = useAuth();
   const { recentlyPlayed }   = useLibrary();
 
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showUserMenu, setShowUserMenu]   = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const navigation: any                   = useNavigation();
+  const [isOffline, setIsOffline]         = useState(false);
+
+  // Settings & Equalizer states in HomePage
+  const [eqBass, setEqBass] = useState(5);
+  const [eqTreble, setEqTreble] = useState(5);
+  const [eqVocal, setEqVocal] = useState(5);
+  const [eqPreset, setEqPreset] = useState<"normal" | "bass" | "treble" | "vocal" | "electronic">("normal");
+
+  useEffect(() => {
+    AsyncStorage.getItem("rw_eq_settings").then((saved) => {
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          setEqBass(parsed.bass ?? 5);
+          setEqTreble(parsed.treble ?? 5);
+          setEqVocal(parsed.vocal ?? 5);
+          setEqPreset(parsed.preset ?? "normal");
+        } catch {}
+      }
+    });
+  }, [showSettingsModal]);
+
+  const saveEqSettings = (bass: number, treble: number, vocal: number, preset: string) => {
+    AsyncStorage.setItem("rw_eq_settings", JSON.stringify({ bass, treble, vocal, preset })).catch(() => {});
+  };
+
+  const handlePresetSelect = (preset: "normal" | "bass" | "treble" | "vocal" | "electronic") => {
+    setEqPreset(preset);
+    let b = 5, t = 5, v = 5;
+    if (preset === "normal") {
+      // normal EQs
+    } else if (preset === "bass") {
+      b = 9; t = 4; v = 5;
+    } else if (preset === "treble") {
+      b = 3; t = 9; v = 6;
+    } else if (preset === "vocal") {
+      b = 4; t = 5; v = 9;
+    } else if (preset === "electronic") {
+      b = 8; t = 7; v = 4;
+    }
+    setEqBass(b);
+    setEqTreble(t);
+    setEqVocal(v);
+    saveEqSettings(b, t, v, preset);
+  };
+
+  // Check connectivity once on mount, non-blockingly
+  useEffect(() => {
+    const checkConnectivity = async () => {
+      try {
+        const res = await Promise.race([
+          fetch("https://clients3.google.com/generate_202"),
+          new Promise<null>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3000))
+        ]);
+        setIsOffline(false);
+      } catch {
+        setIsOffline(true);
+      }
+    };
+    checkConnectivity();
+  }, []);
 
   const [sections,     setSections]     = useState<SectionData[]>(() => homePagePrefetcher.sections);
   const [filmAlbums,   setFilmAlbums]   = useState<AlbumData[]>  (() => homePagePrefetcher.filmAlbums);
@@ -1342,22 +1381,54 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
     try { sessionStorage.removeItem("rw_open_album"); } catch { /**/ }
   };
 
-  const [minuteTick, setMinuteTick] = useState(oneMinSeed());
-  useEffect(() => {
-    const id = setInterval(() => setMinuteTick(prev => prev + 1), 60_000);
-    return () => clearInterval(id);
-  }, []);
+  const [quickPickSongs, setQuickPickSongs] = useState<Song[]>([]);
 
-  const quickPickSongs = (() => {
+  useEffect(() => {
+    if (quickPickSongs.length > 0) return;
     const pool = sections.flatMap((s) => s.songs);
-    if (pool.length === 0) return [];
-    const filteredPool = pool.filter((song) => {
-      if (!song.language) return false;
-      const lang = song.language.toLowerCase().trim();
-      return lang === "telugu" || lang === "hindi";
+    if (pool.length === 0) return;
+
+    // Filter out devotional songs and separate by language
+    const teluguSongs = pool.filter((song) => {
+      if (!song.language || isDevotionalSong(song)) return false;
+      return song.language.toLowerCase().trim() === "telugu";
     });
-    return seededShuffle(filteredPool, minuteTick).slice(0, 12);
-  })();
+
+    const hindiSongs = pool.filter((song) => {
+      if (!song.language || isDevotionalSong(song)) return false;
+      return song.language.toLowerCase().trim() === "hindi";
+    });
+
+    // Populate only when we have at least 6 of each language to ensure equal representation
+    if (teluguSongs.length >= 6 && hindiSongs.length >= 6) {
+      const selectedTelugu = seededShuffle(teluguSongs, todaysSeed()).slice(0, 6);
+      const selectedHindi = seededShuffle(hindiSongs, todaysSeed()).slice(0, 6);
+      
+      // Combine and mix the final 12 songs with a stable seed
+      const combined = [...selectedTelugu, ...selectedHindi];
+      const mixed = seededShuffle(combined, todaysSeed() + 9);
+      setQuickPickSongs(mixed);
+    }
+  }, [sections, quickPickSongs.length]);
+
+  if (isOffline) {
+    return (
+      <View style={[styles.container, modalStyles.offlineContainer]}>
+        <MaterialCommunityIcons name="cloud-off-outline" size={64} color="#1DB954" style={{ marginBottom: 16 }} />
+        <Text style={modalStyles.offlineTitle}>You are offline</Text>
+        <Text style={modalStyles.offlineDescription}>
+          Connect to the internet to stream songs, or listen to your downloaded music offline.
+        </Text>
+        <TouchableOpacity delayPressIn={0}
+          style={modalStyles.offlineBtn}
+          onPress={() => navigation.navigate("Library" as any)}
+          activeOpacity={0.8}
+        >
+          <Text style={modalStyles.offlineBtnText}>Go to Downloads</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -1372,9 +1443,17 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
           </View>
 
           <View style={styles.headerRight}>
-            <TouchableOpacity
+            <TouchableOpacity delayPressIn={0}
+              onPress={() => setShowSettingsModal(true)}
+              style={styles.settingsBtn}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons name="cog" size={20} color="#fff" />
+            </TouchableOpacity>
+
+            <TouchableOpacity delayPressIn={0}
               onPress={() => user ? setShowUserMenu(!showUserMenu) : setShowAuthModal(true)}
-              style={[styles.userMenuBtn, user && styles.activeUserMenuBtn]}
+              style={[styles.userMenuBtn, user && styles.activeUserMenuBtn, { marginLeft: 8 }]}
               activeOpacity={0.7}
             >
               {user ? (
@@ -1392,7 +1471,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
                   <Text style={styles.dropdownName} numberOfLines={1}>{user.username}</Text>
                   <Text style={styles.dropdownEmail} numberOfLines={1}>{user.email}</Text>
                 </View>
-                <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn} activeOpacity={0.7}>
+                <TouchableOpacity delayPressIn={0} onPress={handleLogout} style={styles.logoutBtn} activeOpacity={0.7}>
                   <MaterialCommunityIcons name="logout" size={14} color="#fff" style={{ marginRight: 6 }} />
                   <Text style={styles.logoutText}>Sign Out</Text>
                 </TouchableOpacity>
@@ -1433,6 +1512,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
           loading={albumsLoading}
           onOpen={handleOpenAlbum}
           showCount={false}
+          setParentScrollEnabled={setParentScrollEnabled}
         />
 
         {/* Popular Artists */}
@@ -1442,6 +1522,7 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
           loading={albumsLoading && artistAlbums.length === 0}
           onOpen={handleOpenAlbum}
           roundCovers
+          setParentScrollEnabled={setParentScrollEnabled}
         />
 
         {/* Recently Played */}
@@ -1497,6 +1578,93 @@ export default function HomePage({ onRequireAuth }: HomePageProps) {
 
       {/* Authentication Dialog */}
       <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} />
+
+      {/* Settings / Equalizer Modal */}
+      <Modal
+        visible={showSettingsModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowSettingsModal(false)}
+      >
+        <View style={modalStyles.overlay}>
+          <View style={modalStyles.content}>
+            <View style={modalStyles.header}>
+              <Text style={modalStyles.title}>Settings</Text>
+              <TouchableOpacity delayPressIn={0}
+                onPress={() => setShowSettingsModal(false)}
+                style={modalStyles.closeBtn}
+                activeOpacity={0.7}
+              >
+                <MaterialCommunityIcons name="close" size={22} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ width: "100%" }}>
+              <View style={modalStyles.eqContainer}>
+                <Text style={modalStyles.sectionTitle}>Audio Equalizer</Text>
+                
+                <Text style={modalStyles.eqLabel}>Select Preset</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={modalStyles.presetsRow}>
+                  {([
+                    { id: "normal", label: "Normal" },
+                    { id: "bass", label: "Bass Booster" },
+                    { id: "treble", label: "Treble Booster" },
+                    { id: "vocal", label: "Vocal Focus" },
+                    { id: "electronic", label: "Electronic" },
+                  ] as const).map((p) => {
+                    const isSel = eqPreset === p.id;
+                    return (
+                      <TouchableOpacity
+                        key={p.id}
+                        onPress={() => handlePresetSelect(p.id)}
+                        style={[modalStyles.presetCard, isSel && modalStyles.presetCardActive]}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[modalStyles.presetCardText, isSel && modalStyles.presetCardTextActive]}>
+                          {p.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+
+                <Text style={modalStyles.eqLabel}>Custom Adjustments</Text>
+                {[
+                  { label: "Bass", value: eqBass, setter: setEqBass, type: "bass" },
+                  { label: "Treble", value: eqTreble, setter: setEqTreble, type: "treble" },
+                  { label: "Vocals", value: eqVocal, setter: setEqVocal, type: "vocals" },
+                ].map((slider) => (
+                  <View key={slider.label} style={modalStyles.sliderRow}>
+                    <Text style={modalStyles.sliderName}>{slider.label}</Text>
+                    <View style={modalStyles.sliderTrackContainer}>
+                      <TouchableOpacity
+                        activeOpacity={1}
+                        onPress={(e) => {
+                          const { locationX } = e.nativeEvent;
+                          const newVal = Math.max(0, Math.min(10, Math.round((locationX / 160) * 10)));
+                          slider.setter(newVal);
+                          setEqPreset("normal");
+                          saveEqSettings(
+                            slider.type === "bass" ? newVal : eqBass,
+                            slider.type === "treble" ? newVal : eqTreble,
+                            slider.type === "vocals" ? newVal : eqVocal,
+                            "normal"
+                          );
+                        }}
+                        style={modalStyles.sliderTrack}
+                      >
+                        <View pointerEvents="none" style={[modalStyles.sliderFill, { width: `${(slider.value / 10) * 100}%` }]} />
+                        <View pointerEvents="none" style={[modalStyles.sliderThumb, { left: `${(slider.value / 10) * 100}%`, marginLeft: -8 }]} />
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={modalStyles.sliderVal}>+{slider.value - 5} dB</Text>
+                  </View>
+                ))}
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1654,6 +1822,20 @@ class HomePagePrefetcher {
       this._notify();
     }
 
+    // Fallback: Fetch film albums and artist albums directly on frontend
+    const fakeRef = { current: false };
+    fetchCurrentYearFilmAlbums(fakeRef as any).then((films) => {
+      if (films.length > 0) {
+        this._filmAlbums = films;
+        this._notify();
+      }
+    }).catch(err => console.warn("Fallback film albums fetch failed:", err));
+
+    loadArtistAlbums(fakeRef as any, (artAlbum) => {
+      this._artistAlbums = [...this._artistAlbums.filter(a => a.title !== artAlbum.title), artAlbum];
+      this._notify();
+    }).catch(err => console.warn("Fallback artist albums fetch failed:", err));
+
     // Then fetch remaining sections one at a time
     for (const def of restDefs) {
       try {
@@ -1669,6 +1851,9 @@ class HomePagePrefetcher {
     // Cache what we got
     if (this._sections.length > 0) {
       cacheSet(this.secKey, this._sections);
+    }
+    if (this._filmAlbums.length > 0 || this._artistAlbums.length > 0) {
+      cacheSet(this.albKey, { film: this._filmAlbums, artist: this._artistAlbums });
     }
   }
 }
@@ -1740,6 +1925,16 @@ const styles = StyleSheet.create({
   },
   headerRight: {
     position: "relative",
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  settingsBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   userMenuBtn: {
     width: 32,
@@ -2052,8 +2247,9 @@ const styles = StyleSheet.create({
 
 const modalStyles = StyleSheet.create({
   container: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: "#0d0d0d",
+    zIndex: 100,
   },
   backgroundImage: {
     ...StyleSheet.absoluteFillObject,
@@ -2150,5 +2346,136 @@ const modalStyles = StyleSheet.create({
   fetchingMoreText: {
     fontSize: 11,
     color: "rgba(255,255,255,0.4)",
+  },
+  offlineContainer: {
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 32,
+    flex: 1,
+    backgroundColor: "#121212",
+  },
+  offlineTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#fff",
+    marginBottom: 8,
+  },
+  offlineDescription: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.5)",
+    textAlign: "center",
+    lineHeight: 18,
+    marginBottom: 24,
+  },
+  offlineBtn: {
+    backgroundColor: "#1DB954",
+    paddingHorizontal: 28,
+    paddingVertical: 12,
+    borderRadius: 24,
+  },
+  offlineBtnText: {
+    fontSize: 13,
+    fontWeight: "bold",
+    color: "#000",
+  },
+  closeBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#fff",
+    flex: 1,
+  },
+  eqContainer: {
+    padding: 16,
+    width: "100%",
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#fff",
+    marginBottom: 16,
+  },
+  eqLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "rgba(255,255,255,0.4)",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginTop: 16,
+    marginBottom: 10,
+  },
+  presetsRow: {
+    flexDirection: "row",
+    width: "100%",
+    marginBottom: 16,
+  },
+  presetCard: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 20,
+    marginRight: 10,
+  },
+  presetCardActive: {
+    backgroundColor: "#1DB954",
+  },
+  presetCardText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "rgba(255,255,255,0.6)",
+  },
+  presetCardTextActive: {
+    color: "#000",
+  },
+  sliderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    width: "100%",
+    marginVertical: 10,
+  },
+  sliderName: {
+    width: 60,
+    fontSize: 14,
+    color: "#fff",
+    fontWeight: "500",
+  },
+  sliderTrackContainer: {
+    flex: 1,
+    height: 30,
+    justifyContent: "center",
+    marginHorizontal: 12,
+  },
+  sliderTrack: {
+    height: 4,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderRadius: 2,
+    position: "relative",
+  },
+  sliderFill: {
+    height: "100%",
+    backgroundColor: "#1DB954",
+    borderRadius: 2,
+  },
+  sliderThumb: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: "#fff",
+    position: "absolute",
+    top: -6,
+  },
+  sliderVal: {
+    width: 50,
+    fontSize: 12,
+    color: "rgba(255,255,255,0.6)",
+    textAlign: "right",
   },
 });
