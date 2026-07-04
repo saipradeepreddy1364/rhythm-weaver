@@ -421,6 +421,70 @@ function isDevotionalSong(song: Song): boolean {
   return keywords.some(kw => title.includes(kw) || album.includes(kw) || genre.includes(kw));
 }
 
+function getSongMood(song: Song): string {
+  const title = (song.title || "").toLowerCase();
+  const album = (song.album || song.movie || "").toLowerCase();
+  const genre = (song.genre || "").toLowerCase();
+  
+  if (isDevotionalSong(song)) {
+    return "peaceful";
+  }
+
+  // Romantic
+  if (
+    title.includes("love") || title.includes("romantic") || title.includes("romance") || 
+    title.includes("dil") || title.includes("pyar") || title.includes("prem") || 
+    title.includes("prema") || title.includes("priya") || title.includes("valapu") ||
+    title.includes("ishq") || title.includes("mohabbat") || title.includes("pyaar") ||
+    title.includes("sanam") || title.includes("dhadkan") || title.includes("humsafar") ||
+    title.includes("mahi") || title.includes("jaan") || title.includes("cheliya") ||
+    title.includes("priyudu") || title.includes("priyuralu") || title.includes("valalo") ||
+    title.includes("pranayam") || title.includes("couple") || title.includes("valentine") ||
+    title.includes("heart") ||
+    genre.includes("romantic") || genre.includes("love")
+  ) {
+    return "romantic";
+  }
+
+  // Sad / Melancholic
+  if (
+    title.includes("sad") || title.includes("dard") || title.includes("breakup") || 
+    title.includes("judai") || title.includes("baadha") || title.includes("yedustu") || 
+    title.includes("dukkha") || title.includes("tanhai") || title.includes("gam") ||
+    title.includes("gham") || title.includes("aansu") || title.includes("bewafa") ||
+    title.includes("pain") || title.includes("lonely") || title.includes("alone") ||
+    title.includes("ontari") || title.includes("kanneeru") || title.includes("kanneru") ||
+    genre.includes("sad") || genre.includes("pain")
+  ) {
+    return "sad";
+  }
+
+  // Upbeat / Party / Dance / Energetic
+  if (
+    title.includes("party") || title.includes("dance") || title.includes("club") || 
+    title.includes("dj") || title.includes("mix") || title.includes("beat") || 
+    title.includes("dappu") || title.includes("kuthu") || title.includes("mass") ||
+    title.includes("hungama") || title.includes("masti") || title.includes("disco") ||
+    title.includes("remix") || title.includes("dhamaka") ||
+    genre.includes("party") || genre.includes("dance") || genre.includes("electronic") ||
+    genre.includes("pop") || genre.includes("rock")
+  ) {
+    return "upbeat";
+  }
+
+  // Calm / Chill / Ghazal
+  if (
+    title.includes("sufi") || title.includes("ghazal") || title.includes("calm") ||
+    title.includes("peace") || title.includes("chill") || title.includes("lofi") ||
+    title.includes("relax") || title.includes("soft") || title.includes("soothing") ||
+    genre.includes("lofi") || genre.includes("chill")
+  ) {
+    return "calm";
+  }
+
+  return "general";
+}
+
 function getSongCategory(song: Song): string {
   if (isDevotionalSong(song)) return "devotional";
   
@@ -496,10 +560,13 @@ function calculateSongScore(song: Song, seed: Song): number {
       score += 45; // Within 2 years
     } else if (yearDiff <= 5) {
       score += 30; // Within 5 years
-    } else if (yearDiff <= 10) {
-      score += 15; // Within same decade
     } else {
-      score -= Math.min(25, yearDiff * 1.5); // Penalty scales with difference
+      score -= 100; // Strong penalty for year diff > 5
+    }
+    
+    // Penalty for too old songs (older than 5 years globally)
+    if (song.year < CURRENT_YEAR - 5) {
+      score -= 150;
     }
   }
 
@@ -517,6 +584,15 @@ function calculateSongScore(song: Song, seed: Song): number {
     score += 80; // High boost for exact category match
   } else if (seedCat !== "general" && songCat !== "general") {
     score -= 60; // Penalty for mismatching specific categories
+  }
+
+  // 3c. Mood matching boost
+  const seedMood = getSongMood(seed);
+  const songMood = getSongMood(song);
+  if (seedMood === songMood) {
+    score += 80; // High boost for exact mood match
+  } else if (seedMood !== "general" && songMood !== "general") {
+    score -= 60; // Penalty for mismatching specific moods
   }
 
   // 4. Artist matching (type of song / singer style)
@@ -708,11 +784,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        // Year/Era Match: within 10 years of seed song
-        if (seed.year && s.year) {
-          const diff = Math.abs(seed.year - s.year);
-          if (diff > 10) {
+        // Year/Era Match: within 5 years of seed song, and not older than 5 years globally
+        if (s.year) {
+          if (s.year < CURRENT_YEAR - 5) {
             return;
+          }
+          if (seed.year) {
+            const diff = Math.abs(seed.year - s.year);
+            if (diff > 5) {
+              return;
+            }
           }
         }
 
@@ -722,6 +803,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           return;
         }
         if (category === "general" && sCat === "devotional") {
+          return;
+        }
+
+        // Mood Match
+        const sMood = getSongMood(s);
+        const seedMood = getSongMood(seed);
+        if (seedMood !== "general" && sMood !== seedMood) {
           return;
         }
 

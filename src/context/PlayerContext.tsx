@@ -98,7 +98,9 @@ function resolveTrack(s: Song) {
   let trackUrl = s.audioUrl;
   if (downloaded?.audioUrl) {
     trackUrl = downloaded.audioUrl;
-  } else if (!trackUrl || trackUrl.includes("oasth.me")) {
+  } else if (s.id.startsWith("yt-")) {
+    trackUrl = `youtube://${s.id.replace("yt-", "")}`;
+  } else {
     trackUrl = `https://musicbackend-7a1o.onrender.com/api/songs/${s.id}/stream`;
   }
 
@@ -112,6 +114,75 @@ function resolveTrack(s: Song) {
   };
 }
 
+function firstSuccess(promises: Promise<string | null>[]): Promise<string | null> {
+  return new Promise((resolve) => {
+    let completedCount = 0;
+    let resolved = false;
+
+    promises.forEach((p) => {
+      p.then((val) => {
+        if (val && !resolved) {
+          resolved = true;
+          resolve(val);
+        }
+      }).catch(() => {
+        // ignore
+      }).finally(() => {
+        completedCount++;
+        if (completedCount === promises.length && !resolved) {
+          resolve(null);
+        }
+      });
+    });
+  });
+}
+
+async function resolveInvidiousAudioUrl(videoId: string): Promise<string | null> {
+  const INVOLUNTARY_INSTANCES = [
+    "https://iv.melmac.space",
+    "https://invidious.flokinet.to",
+    "https://invidious.privacydev.net",
+    "https://invidious.nerdvpn.de",
+    "https://invidious.slipfox.xyz",
+    "https://inv.tux.pizza"
+  ];
+
+  const fetchPromises = INVOLUNTARY_INSTANCES.map(async (instance) => {
+    try {
+      const res = await Promise.race([
+        fetch(`${instance}/api/v1/videos/${videoId}`, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+            "Accept": "application/json"
+          }
+        }),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3000))
+      ]);
+      if (res.ok) {
+        const data = await res.json();
+        const adaptiveFormats = data.adaptiveFormats || [];
+        const audioStreams = adaptiveFormats.filter((f: any) => f.type && f.type.startsWith("audio/"));
+        if (audioStreams.length > 0) {
+          const best = audioStreams[0];
+          if (best && best.url) {
+            return best.url as string;
+          }
+        }
+      }
+    } catch (err) {
+      // Ignore
+    }
+    return null;
+  });
+
+  try {
+    return await firstSuccess(fetchPromises);
+  } catch (err) {
+    console.warn("[PlayerContext] Parallel Invidious resolve failed:", err);
+  }
+  return null;
+}
+
 async function resolvePipedAudioUrl(videoId: string): Promise<string | null> {
   const PIPED_INSTANCES = [
     "https://pipedapi.adminforge.de",
@@ -119,26 +190,51 @@ async function resolvePipedAudioUrl(videoId: string): Promise<string | null> {
     "https://pipedapi.kavin.rocks",
     "https://pipedapi-libre.kavin.rocks",
     "https://pipedapi.leptons.xyz",
-    "https://api.looleh.xyz"
+    "https://api.looleh.xyz",
+    "https://piapi.ggtyler.dev",
+    "https://pipedapi.moomoo.me",
+    "https://pipedapi.ox.am",
+    "https://piped-api.garudalinux.org",
+    "https://pipedapi.tokhmi.xyz"
   ];
-  for (const instance of PIPED_INSTANCES) {
+
+  const fetchPromises = PIPED_INSTANCES.map(async (instance) => {
     try {
       const res = await Promise.race([
-        fetch(`${instance}/streams/${videoId}`),
-        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
+        fetch(`${instance}/streams/${videoId}`, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+            "Accept": "application/json"
+          }
+        }),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 2500))
       ]);
-      if (!res.ok) continue;
-      const data = await res.json();
-      const audioStreams = data.audioStreams || [];
-      if (audioStreams.length === 0) continue;
-      // Pick the last stream (highest quality)
-      const bestStream = audioStreams[audioStreams.length - 1];
-      return bestStream.url || null;
+      if (res.ok) {
+        const data = await res.json();
+        const audioStreams = data.audioStreams || [];
+        if (audioStreams.length > 0) {
+          const bestStream = audioStreams[audioStreams.length - 1];
+          if (bestStream && bestStream.url) {
+            return bestStream.url as string;
+          }
+        }
+      }
     } catch (err) {
-      console.warn(`[PlayerContext] Piped streams fetch ${instance} failed:`, err);
+      // Ignore individual failures
     }
+    return null;
+  });
+
+  try {
+    const res = await firstSuccess(fetchPromises);
+    if (res) return res;
+  } catch (err) {
+    console.warn("[PlayerContext] Parallel Piped resolve failed:", err);
   }
-  return null;
+
+  // Fallback to Invidious resolve
+  console.log("[PlayerContext] Piped resolve failed. Trying Invidious resolve fallback...");
+  return await resolveInvidiousAudioUrl(videoId);
 }
 
 async function getDirectAudioUrl(url: string): Promise<string> {
@@ -312,13 +408,81 @@ function isDevotionalSong(song: Song): boolean {
   const keywords = [
     "bhajan", "aarti", "chalisa", "devotional", "bhakti", "mantra", 
     "stotram", "dhun", "stotra", "shlok", "shloka", "kirtan", 
-    "hanuman", "ram", "shri ram", "krishna", "ganesha",
+    "hanuman", "ram", "shri ram", "krishna", "ganesha", "ganesh",
     "shiv bhajan", "sai baba", "spiritual", "durga", "prayer", 
     "chants", "suprabhatam", "namam", "keerthana", "slokam", 
-    "ayyappa", "tirupati", "govinda", "god", "temple", "divine"
+    "ayyappa", "tirupati", "govinda", "god", "temple", "divine",
+    "harati", "harathi", "stothram", "stothra", "suprabhatham", 
+    "sharanu", "sharanam", "namavali", "sloka", "ashtakam",
+    "mahadevi", "shiva", "rama", "venkateswara", "venkatesh",
+    "narayana", "lakshmi", "saraswati", "vigneshwara"
   ];
   
   return keywords.some(kw => title.includes(kw) || album.includes(kw) || genre.includes(kw));
+}
+
+function getSongMood(song: Song): string {
+  const title = (song.title || "").toLowerCase();
+  const album = (song.album || song.movie || "").toLowerCase();
+  const genre = (song.genre || "").toLowerCase();
+  
+  if (isDevotionalSong(song)) {
+    return "peaceful";
+  }
+
+  // Romantic
+  if (
+    title.includes("love") || title.includes("romantic") || title.includes("romance") || 
+    title.includes("dil") || title.includes("pyar") || title.includes("prem") || 
+    title.includes("prema") || title.includes("priya") || title.includes("valapu") ||
+    title.includes("ishq") || title.includes("mohabbat") || title.includes("pyaar") ||
+    title.includes("sanam") || title.includes("dhadkan") || title.includes("humsafar") ||
+    title.includes("mahi") || title.includes("jaan") || title.includes("cheliya") ||
+    title.includes("priyudu") || title.includes("priyuralu") || title.includes("valalo") ||
+    title.includes("pranayam") || title.includes("couple") || title.includes("valentine") ||
+    title.includes("heart") ||
+    genre.includes("romantic") || genre.includes("love")
+  ) {
+    return "romantic";
+  }
+
+  // Sad / Melancholic
+  if (
+    title.includes("sad") || title.includes("dard") || title.includes("breakup") || 
+    title.includes("judai") || title.includes("baadha") || title.includes("yedustu") || 
+    title.includes("dukkha") || title.includes("tanhai") || title.includes("gam") ||
+    title.includes("gham") || title.includes("aansu") || title.includes("bewafa") ||
+    title.includes("pain") || title.includes("lonely") || title.includes("alone") ||
+    title.includes("ontari") || title.includes("kanneeru") || title.includes("kanneru") ||
+    genre.includes("sad") || genre.includes("pain")
+  ) {
+    return "sad";
+  }
+
+  // Upbeat / Party / Dance / Energetic
+  if (
+    title.includes("party") || title.includes("dance") || title.includes("club") || 
+    title.includes("dj") || title.includes("mix") || title.includes("beat") || 
+    title.includes("dappu") || title.includes("kuthu") || title.includes("mass") ||
+    title.includes("hungama") || title.includes("masti") || title.includes("disco") ||
+    title.includes("remix") || title.includes("dhamaka") ||
+    genre.includes("party") || genre.includes("dance") || genre.includes("electronic") ||
+    genre.includes("pop") || genre.includes("rock")
+  ) {
+    return "upbeat";
+  }
+
+  // Calm / Chill / Ghazal
+  if (
+    title.includes("sufi") || title.includes("ghazal") || title.includes("calm") ||
+    title.includes("peace") || title.includes("chill") || title.includes("lofi") ||
+    title.includes("relax") || title.includes("soft") || title.includes("soothing") ||
+    genre.includes("lofi") || genre.includes("chill")
+  ) {
+    return "calm";
+  }
+
+  return "general";
 }
 
 function getSongCategory(song: Song): string {
@@ -396,10 +560,13 @@ function calculateSongScore(song: Song, seed: Song): number {
       score += 45; // Within 2 years
     } else if (yearDiff <= 5) {
       score += 30; // Within 5 years
-    } else if (yearDiff <= 10) {
-      score += 15; // Within same decade
     } else {
-      score -= Math.min(25, yearDiff * 1.5); // Penalty scales with difference
+      score -= 100; // Strong penalty for year diff > 5
+    }
+    
+    // Penalty for too old songs (older than 5 years globally)
+    if (song.year < CURRENT_YEAR - 5) {
+      score -= 150;
     }
   }
 
@@ -417,6 +584,15 @@ function calculateSongScore(song: Song, seed: Song): number {
     score += 80; // High boost for exact category match
   } else if (seedCat !== "general" && songCat !== "general") {
     score -= 60; // Penalty for mismatching specific categories
+  }
+
+  // 3c. Mood matching boost
+  const seedMood = getSongMood(seed);
+  const songMood = getSongMood(song);
+  if (seedMood === songMood) {
+    score += 80; // High boost for exact mood match
+  } else if (seedMood !== "general" && songMood !== "general") {
+    score -= 60; // Penalty for mismatching specific moods
   }
 
   // 4. Artist matching (type of song / singer style)
@@ -608,11 +784,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        // Year/Era Match: within 10 years of seed song
-        if (seed.year && s.year) {
-          const diff = Math.abs(seed.year - s.year);
-          if (diff > 10) {
+        // Year/Era Match: within 5 years of seed song, and not older than 5 years globally
+        if (s.year) {
+          if (s.year < CURRENT_YEAR - 5) {
             return;
+          }
+          if (seed.year) {
+            const diff = Math.abs(seed.year - s.year);
+            if (diff > 5) {
+              return;
+            }
           }
         }
 
@@ -622,6 +803,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           return;
         }
         if (category === "general" && sCat === "devotional") {
+          return;
+        }
+
+        // Mood Match
+        const sMood = getSongMood(s);
+        const seedMood = getSongMood(seed);
+        if (seedMood !== "general" && sMood !== seedMood) {
           return;
         }
 
@@ -1112,7 +1300,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const togglePlay = useCallback(async () => {
     try {
       const stateObj = await TrackPlayer.getPlaybackState();
-      if (stateObj.state === State.Playing) {
+      const isCurrentlyPlaying = stateObj.state === State.Playing ||
+                                 stateObj.state === State.Buffering ||
+                                 stateObj.state === State.Loading;
+      if (isCurrentlyPlaying) {
         await TrackPlayer.pause();
       } else {
         await TrackPlayer.play();
@@ -1163,6 +1354,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     let active = true;
     let queueEndedListener: any;
     let playbackErrorListener: any;
+    let activeTrackChangedListener: any;
 
     const init = async () => {
       try {
@@ -1192,6 +1384,33 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             async (event) => {
               console.log("[PlayerContext] Playback queue ended, triggering nextSong/radio mode");
               await nextSongInternal();
+            }
+          );
+
+          activeTrackChangedListener = TrackPlayer.addEventListener(
+            Event.PlaybackActiveTrackChanged,
+            async (event) => {
+              if (event.index === undefined || event.index === null) return;
+              try {
+                const nextIndex = event.index + 1;
+                const nativeQueue = await TrackPlayer.getQueue();
+                if (nextIndex < nativeQueue.length) {
+                  const nextTrack = nativeQueue[nextIndex];
+                  if (nextTrack && nextTrack.url && nextTrack.url.startsWith("youtube://")) {
+                    const videoId = nextTrack.url.replace("youtube://", "");
+                    console.log(`[PlayerContext] Pre-resolving next YouTube track in queue: ${videoId}`);
+                    const directUrl = await resolvePipedAudioUrl(videoId);
+                    if (directUrl) {
+                      nextTrack.url = directUrl;
+                      await TrackPlayer.remove(nextIndex);
+                      await TrackPlayer.add(nextTrack, nextIndex);
+                      console.log(`[PlayerContext] Successfully pre-resolved next track in queue at index ${nextIndex}`);
+                    }
+                  }
+                }
+              } catch (e) {
+                console.warn("[PlayerContext] Failed to pre-resolve next track:", e);
+              }
             }
           );
 
@@ -1274,6 +1493,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
       if (playbackErrorListener) {
         playbackErrorListener.remove();
+      }
+      if (activeTrackChangedListener) {
+        activeTrackChangedListener.remove();
       }
     };
   }, [nextSongInternal]);
