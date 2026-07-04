@@ -107,16 +107,20 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const [downloadingIds, setDownloadingIds]   = useState<string[]>([]);
   const [likedAlbums, setLikedAlbums]         = useState<AlbumData[]>([]);
 
-  // Load downloads from localStorage on mount
+  // Load downloads from localStorage after initialization
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem("rw_downloads");
-      if (raw) {
-        setDownloadedSongs(JSON.parse(raw));
+    const loadDownloads = async () => {
+      try {
+        await localStorage.ensureInitialized();
+        const raw = localStorage.getItem("rw_downloads");
+        if (raw) {
+          setDownloadedSongs(JSON.parse(raw));
+        }
+      } catch (err) {
+        console.warn("Failed to load downloaded songs:", err);
       }
-    } catch (err) {
-      console.warn("Failed to load downloaded songs:", err);
-    }
+    };
+    loadDownloads();
   }, []);
 
   const isDownloaded = useCallback(
@@ -192,6 +196,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const loadLikedAlbums = useCallback(async () => {
     try {
+      await localStorage.ensureInitialized();
       const rawAlbums = localStorage.getItem("rw_liked_albums") || localStorage.getItem("rw_guest_liked_albums");
       if (rawAlbums) {
         setLikedAlbums(JSON.parse(rawAlbums));
@@ -208,6 +213,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const loadLikedSongs = useCallback(async () => {
     try {
+      await localStorage.ensureInitialized();
       const raw = localStorage.getItem("rw_liked_songs") || localStorage.getItem("rw_guest_liked");
       if (raw) {
         setLikedSongs(JSON.parse(raw));
@@ -221,6 +227,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const loadRecentlyPlayed = useCallback(async () => {
     try {
+      await localStorage.ensureInitialized();
       const raw = localStorage.getItem("rw_recently_played");
       if (raw) {
         setRecentlyPlayed(JSON.parse(raw));
@@ -234,6 +241,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const loadPlaylists = useCallback(async () => {
     try {
+      await localStorage.ensureInitialized();
       const raw = localStorage.getItem("rw_playlists");
       if (raw) {
         setStoredPlaylists(JSON.parse(raw));
