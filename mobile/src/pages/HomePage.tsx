@@ -1286,8 +1286,13 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
     });
   }, [showSettingsModal]);
 
-  const saveEqSettings = (bass: number, treble: number, vocal: number, preset: string) => {
-    AsyncStorage.setItem("rw_eq_settings", JSON.stringify({ bass, treble, vocal, preset })).catch(() => {});
+  const saveTimeoutRef = useRef<any>(null);
+
+  const saveEqSettingsDebounced = (bass: number, treble: number, vocal: number, preset: string) => {
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      AsyncStorage.setItem("rw_eq_settings", JSON.stringify({ bass, treble, vocal, preset })).catch(() => {});
+    }, 400);
   };
 
   const handlePresetSelect = (preset: "normal" | "bass" | "treble" | "vocal" | "electronic") => {
@@ -1307,7 +1312,7 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
     setEqBass(b);
     setEqTreble(t);
     setEqVocal(v);
-    saveEqSettings(b, t, v, preset);
+    saveEqSettingsDebounced(b, t, v, preset);
   };
 
   const [sections,     setSections]     = useState<SectionData[]>(() => homePagePrefetcher.sections);
@@ -1637,33 +1642,45 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
                 ].map((slider) => (
                   <View key={slider.label} style={modalStyles.sliderRow}>
                     <Text style={modalStyles.sliderName}>{slider.label}</Text>
-                    <View style={modalStyles.sliderTrackContainer}>
-                      <TouchableOpacity
-                        activeOpacity={1}
-                        onLayout={(e) => {
-                          const w = e.nativeEvent.layout.width;
-                          setSliderWidths(prev => ({ ...prev, [slider.label]: w }));
-                        }}
-                        onPress={(e) => {
-                          const { locationX } = e.nativeEvent;
-                          const trackW = sliderWidths[slider.label] || 160;
-                          const ratio = Math.max(0, Math.min(1, locationX / trackW));
-                          const newVal = Math.round(ratio * 10);
-                          
-                          slider.setter(newVal);
-                          setEqPreset("normal");
-                          
-                          const nextBass = slider.type === "bass" ? newVal : eqBass;
-                          const nextTreble = slider.type === "treble" ? newVal : eqTreble;
-                          const nextVocal = slider.type === "vocals" ? newVal : eqVocal;
-                          
-                          saveEqSettings(nextBass, nextTreble, nextVocal, "normal");
-                        }}
-                        style={modalStyles.sliderTrack}
-                      >
+                    <View 
+                      style={modalStyles.sliderTrackContainer}
+                      onLayout={(e) => {
+                        const w = e.nativeEvent.layout.width;
+                        setSliderWidths(prev => ({ ...prev, [slider.label]: w }));
+                      }}
+                      onStartShouldSetResponder={() => true}
+                      onMoveShouldSetResponder={() => true}
+                      onResponderGrant={(e) => {
+                        const { locationX } = e.nativeEvent;
+                        const trackW = sliderWidths[slider.label] || 200;
+                        const ratio = Math.max(0, Math.min(1, locationX / trackW));
+                        const newVal = Math.round(ratio * 10);
+                        slider.setter(newVal);
+                        setEqPreset("normal");
+                        
+                        const nextBass = slider.type === "bass" ? newVal : eqBass;
+                        const nextTreble = slider.type === "treble" ? newVal : eqTreble;
+                        const nextVocal = slider.type === "vocals" ? newVal : eqVocal;
+                        saveEqSettingsDebounced(nextBass, nextTreble, nextVocal, "normal");
+                      }}
+                      onResponderMove={(e) => {
+                        const { locationX } = e.nativeEvent;
+                        const trackW = sliderWidths[slider.label] || 200;
+                        const ratio = Math.max(0, Math.min(1, locationX / trackW));
+                        const newVal = Math.round(ratio * 10);
+                        slider.setter(newVal);
+                        setEqPreset("normal");
+                        
+                        const nextBass = slider.type === "bass" ? newVal : eqBass;
+                        const nextTreble = slider.type === "treble" ? newVal : eqTreble;
+                        const nextVocal = slider.type === "vocals" ? newVal : eqVocal;
+                        saveEqSettingsDebounced(nextBass, nextTreble, nextVocal, "normal");
+                      }}
+                    >
+                      <View style={modalStyles.sliderTrack}>
                         <View pointerEvents="none" style={[modalStyles.sliderFill, { width: `${(slider.value / 10) * 100}%` }]} />
                         <View pointerEvents="none" style={[modalStyles.sliderThumb, { left: `${(slider.value / 10) * 100}%`, marginLeft: -8 }]} />
-                      </TouchableOpacity>
+                      </View>
                     </View>
                     <Text style={modalStyles.sliderVal}>+{slider.value - 5} dB</Text>
                   </View>
