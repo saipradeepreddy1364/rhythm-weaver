@@ -1266,6 +1266,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     let active = true;
     let queueEndedListener: any;
     let playbackErrorListener: any;
+    let activeTrackChangedListener: any;
 
     const init = async () => {
       try {
@@ -1295,6 +1296,33 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             async (event) => {
               console.log("[PlayerContext] Playback queue ended, triggering nextSong/radio mode");
               await nextSongInternal();
+            }
+          );
+
+          activeTrackChangedListener = TrackPlayer.addEventListener(
+            Event.PlaybackActiveTrackChanged,
+            async (event) => {
+              if (event.index === undefined || event.index === null) return;
+              try {
+                const nextIndex = event.index + 1;
+                const nativeQueue = await TrackPlayer.getQueue();
+                if (nextIndex < nativeQueue.length) {
+                  const nextTrack = nativeQueue[nextIndex];
+                  if (nextTrack && nextTrack.url && nextTrack.url.startsWith("youtube://")) {
+                    const videoId = nextTrack.url.replace("youtube://", "");
+                    console.log(`[PlayerContext] Pre-resolving next YouTube track in queue: ${videoId}`);
+                    const directUrl = await resolvePipedAudioUrl(videoId);
+                    if (directUrl) {
+                      nextTrack.url = directUrl;
+                      await TrackPlayer.remove(nextIndex);
+                      await TrackPlayer.add(nextTrack, nextIndex);
+                      console.log(`[PlayerContext] Successfully pre-resolved next track in queue at index ${nextIndex}`);
+                    }
+                  }
+                }
+              } catch (e) {
+                console.warn("[PlayerContext] Failed to pre-resolve next track:", e);
+              }
             }
           );
 
@@ -1377,6 +1405,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
       if (playbackErrorListener) {
         playbackErrorListener.remove();
+      }
+      if (activeTrackChangedListener) {
+        activeTrackChangedListener.remove();
       }
     };
   }, [nextSongInternal]);
