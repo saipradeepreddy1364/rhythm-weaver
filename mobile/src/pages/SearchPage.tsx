@@ -786,6 +786,52 @@ function firstSuccessArray(promises: Promise<Song[] | null>[]): Promise<Song[] |
   });
 }
 
+async function searchInvidious(query: string): Promise<Song[]> {
+  const INVIDIOUS_INSTANCES = [
+    "https://iv.melmac.space",
+    "https://invidious.flokinet.to",
+    "https://invidious.privacydev.net",
+    "https://invidious.nerdvpn.de",
+    "https://invidious.slipfox.xyz",
+    "https://inv.tux.pizza"
+  ];
+
+  const fetchPromises = INVIDIOUS_INSTANCES.map(async (instance) => {
+    try {
+      const res = await Promise.race([
+        fetch(`${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video`),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 2500))
+      ]);
+      if (res.ok) {
+        const items = await res.json();
+        if (Array.isArray(items) && items.length > 0) {
+          return items.slice(0, 30).map((item: any) => ({
+            id: `yt-${item.videoId}`,
+            title: decodeHtml(item.title || "Unknown Title"),
+            artist: decodeHtml(item.author || "YouTube"),
+            duration: item.lengthSeconds || 0,
+            albumArt: item.videoThumbnails?.[0]?.url || "",
+            audioUrl: `youtube://${item.videoId}`,
+            album: "YouTube Web",
+            movie: "YouTube Web"
+          }));
+        }
+      }
+    } catch (err) {
+      // Ignore
+    }
+    return null;
+  });
+
+  try {
+    const results = await firstSuccessArray(fetchPromises);
+    return results || [];
+  } catch (err) {
+    console.warn("[SearchPage] Invidious search failed:", err);
+  }
+  return [];
+}
+
 async function searchPiped(query: string): Promise<Song[]> {
   const PIPED_INSTANCES = [
     "https://pipedapi.adminforge.de",
@@ -831,11 +877,14 @@ async function searchPiped(query: string): Promise<Song[]> {
 
   try {
     const results = await firstSuccessArray(fetchPromises);
-    return results || [];
+    if (results && results.length > 0) return results;
   } catch (err) {
     console.warn("[SearchPage] Parallel searchPiped failed:", err);
   }
-  return [];
+
+  // Fallback to Invidious search
+  console.log("[SearchPage] Piped search failed. Trying Invidious search...");
+  return await searchInvidious(query);
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────

@@ -137,6 +137,47 @@ function firstSuccess(promises: Promise<string | null>[]): Promise<string | null
   });
 }
 
+async function resolveInvidiousAudioUrl(videoId: string): Promise<string | null> {
+  const INVIDIOUS_INSTANCES = [
+    "https://iv.melmac.space",
+    "https://invidious.flokinet.to",
+    "https://invidious.privacydev.net",
+    "https://invidious.nerdvpn.de",
+    "https://invidious.slipfox.xyz",
+    "https://inv.tux.pizza"
+  ];
+
+  const fetchPromises = INVIDIOUS_INSTANCES.map(async (instance) => {
+    try {
+      const res = await Promise.race([
+        fetch(`${instance}/api/v1/videos/${videoId}`),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3000))
+      ]);
+      if (res.ok) {
+        const data = await res.json();
+        const adaptiveFormats = data.adaptiveFormats || [];
+        const audioStreams = adaptiveFormats.filter((f: any) => f.type && f.type.startsWith("audio/"));
+        if (audioStreams.length > 0) {
+          const best = audioStreams[0];
+          if (best && best.url) {
+            return best.url as string;
+          }
+        }
+      }
+    } catch (err) {
+      // Ignore
+    }
+    return null;
+  });
+
+  try {
+    return await firstSuccess(fetchPromises);
+  } catch (err) {
+    console.warn("[PlayerContext] Parallel Invidious resolve failed:", err);
+  }
+  return null;
+}
+
 async function resolvePipedAudioUrl(videoId: string): Promise<string | null> {
   const PIPED_INSTANCES = [
     "https://pipedapi.adminforge.de",
@@ -175,11 +216,15 @@ async function resolvePipedAudioUrl(videoId: string): Promise<string | null> {
   });
 
   try {
-    return await firstSuccess(fetchPromises);
+    const res = await firstSuccess(fetchPromises);
+    if (res) return res;
   } catch (err) {
     console.warn("[PlayerContext] Parallel Piped resolve failed:", err);
   }
-  return null;
+
+  // Fallback to Invidious resolve
+  console.log("[PlayerContext] Piped resolve failed. Trying Invidious resolve fallback...");
+  return await resolveInvidiousAudioUrl(videoId);
 }
 
 async function getDirectAudioUrl(url: string): Promise<string> {
