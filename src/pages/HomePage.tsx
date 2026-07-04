@@ -1565,7 +1565,7 @@ class HomePagePrefetcher {
       let res: any = null;
       try {
         const raw = await fetch(
-          "https://musicbackend-7a1o.onrender.com/api/music/home",
+          "https://musicbackend-xg4u.onrender.com/api/music/home",
           { signal: controller.signal }
         );
         clearTimeout(timeoutId);

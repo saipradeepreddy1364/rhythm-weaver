@@ -39,7 +39,7 @@ async function resolveVideoStreams(song: Song): Promise<VideoStream[]> {
   // 2. If it's a JioSaavn song, try the backend's video-url matching first
   try {
     const res = await Promise.race([
-      fetch(`https://musicbackend-7a1o.onrender.com/api/songs/${songId}/video-url`),
+      fetch(`https://musicbackend-xg4u.onrender.com/api/songs/${songId}/video-url`),
       new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
     ]);
     if (res.ok) {
@@ -148,7 +148,7 @@ function hasIndicCharacters(text: string): boolean {
 
 async function fetchLyrics(songId: string): Promise<string | null> {
   try {
-    const res = await fetch(`https://musicbackend-7a1o.onrender.com/api/songs/${songId}/lyrics`);
+    const res = await fetch(`https://musicbackend-xg4u.onrender.com/api/songs/${songId}/lyrics`);
     if (res.status === 404) return null;
     if (!res.ok) return null;
     const data = await res.json();

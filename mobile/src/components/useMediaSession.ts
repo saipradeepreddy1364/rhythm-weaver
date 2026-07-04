@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 
-const BACKEND_URL = "https://musicbackend-7a1o.onrender.com/api";
+const BACKEND_URL = "https://musicbackend-xg4u.onrender.com/api";
 
 interface Song {
   id: string;

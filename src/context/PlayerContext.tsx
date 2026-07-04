@@ -101,7 +101,7 @@ function resolveTrack(s: Song) {
   } else if (s.id.startsWith("yt-")) {
     trackUrl = `youtube://${s.id.replace("yt-", "")}`;
   } else {
-    trackUrl = `https://musicbackend-7a1o.onrender.com/api/songs/${s.id}/stream`;
+    trackUrl = `https://musicbackend-xg4u.onrender.com/api/songs/${s.id}/stream`;
   }
 
   return {
@@ -1443,20 +1443,20 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
                         }
                       } else if (track.url.includes("saavncdn.com") || track.url.includes("oasth.me")) {
                         console.log(`[PlayerContext] Playback error on direct JioSaavn CDN track. Falling back to proxy.`);
-                        track.url = `https://musicbackend-7a1o.onrender.com/api/songs/${track.id}/stream`;
+                        track.url = `https://musicbackend-xg4u.onrender.com/api/songs/${track.id}/stream`;
                         await TrackPlayer.remove(activeIndex);
                         await TrackPlayer.add(track, activeIndex);
                         await TrackPlayer.skip(activeIndex);
                         await TrackPlayer.play();
                         return;
-                      } else if (track.url.includes("musicbackend-7a1o.onrender.com")) {
+                      } else if (track.url.includes("musicbackend-xg4u.onrender.com")) {
                         console.log(`[PlayerContext] Playback error on backend stream proxy URL. Attempting to resolve direct JioSaavn CDN URL for track: ${track.id}`);
                         try {
                           const details = await api.getSongById(track.id);
                           const dataList = details?.data;
                           if (Array.isArray(dataList) && dataList.length > 0) {
                             const mapped = mapApiSong(dataList[0]);
-                            if (mapped && mapped.audioUrl && !mapped.audioUrl.includes("musicbackend-7a1o.onrender.com") && !mapped.audioUrl.includes("oasth.me")) {
+                            if (mapped && mapped.audioUrl && !mapped.audioUrl.includes("musicbackend-xg4u.onrender.com") && !mapped.audioUrl.includes("oasth.me")) {
                               console.log(`[PlayerContext] Successfully resolved direct CDN URL for proxy fallback: ${mapped.audioUrl.substring(0, 50)}...`);
                               track.url = mapped.audioUrl;
                               await TrackPlayer.remove(activeIndex);

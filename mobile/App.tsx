@@ -413,7 +413,7 @@ export default function App() {
     const prepareApp = async () => {
       try {
         // Proactively wake up Render backend in the background to prevent cold starts
-        fetch("https://musicbackend-7a1o.onrender.com/api/songs/health").catch(() => {});
+        fetch("https://musicbackend-xg4u.onrender.com/api/songs/health").catch(() => {});
 
         await localStorage.ensureInitialized();
       } catch (e) {
