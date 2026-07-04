@@ -267,6 +267,9 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   const [selectedStream, setSelectedStream] = useState<VideoStream | null>(null);
   const [videoLoading, setVideoLoading] = useState(false);
   const [videoError, setVideoError] = useState<string | null>(null);
+  const videoRef = useRef<any>(null);
+  const lastVideoSyncRef = useRef<number>(-1);
+  const videoReadyRef = useRef(false);
 
   // Lyrics scrolling refs & states
   const lyricsScrollRef = useRef<ScrollView>(null);
@@ -381,17 +384,16 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
     setVideoError(null);
   }, [currentSong?.id]);
 
-  // Load video streams when Video tab is active; pause TrackPlayer to avoid double-audio
-  const wasPlayingBeforeVideoRef = useRef(false);
-
+  // Load video streams when Video tab is active — keep audio playing, video is muted and synced
   useEffect(() => {
     if (activeTab === "video") {
-      // Pause TrackPlayer audio so only the video's audio plays
-      wasPlayingBeforeVideoRef.current = isPlaying;
-      if (isPlaying) togglePlay();
-
+      // Do NOT pause TrackPlayer — audio keeps playing, video is muted & synced
       if (!currentSong || !showPlayer) return;
-      if (videoStreams.length > 0) return;
+      if (videoStreams.length > 0) {
+        // Re-sync video position on tab entry
+        videoReadyRef.current = false;
+        return;
+      }
       setVideoLoading(true);
       setVideoError(null);
       resolveVideoStreams(currentSong)
@@ -405,14 +407,19 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         })
         .catch(() => setVideoError("Failed to load video."))
         .finally(() => setVideoLoading(false));
-    } else {
-      // Leaving Video tab: restore audio playback if it was playing before
-      setSelectedStream(null);
-      if (wasPlayingBeforeVideoRef.current && !isPlaying) {
-        togglePlay();
-      }
     }
   }, [activeTab]);
+
+  // Sync video position to song progress every ~2 seconds
+  useEffect(() => {
+    if (activeTab !== "video" || !videoRef.current || !videoReadyRef.current) return;
+    const diff = Math.abs(progress - lastVideoSyncRef.current);
+    // Seek if drift > 2s to keep in sync
+    if (diff > 2) {
+      lastVideoSyncRef.current = progress;
+      videoRef.current.setPositionAsync(Math.floor(progress * 1000)).catch(() => {});
+    }
+  }, [progress, activeTab]);
 
   // Load lyrics
   useEffect(() => {
@@ -658,18 +665,42 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
                 ) : selectedStream ? (
                   <View style={styles.videoPlayerContainer}>
                     <Video
+                      ref={videoRef}
                       source={{
                         uri: selectedStream.url,
                         overrideFileExtensionAndroid: selectedStream.quality.includes("HLS") ? "m3u8" : undefined
                       }}
                       rate={1.0}
-                      volume={1.0}
-                      isMuted={false}
+                      volume={0}
+                      isMuted={true}
                       resizeMode={ResizeMode.CONTAIN}
-                      shouldPlay={true}
-                      useNativeControls
+                      shouldPlay={isPlaying}
                       style={styles.nativeVideo}
+                      onReadyForDisplay={() => {
+                        videoReadyRef.current = true;
+                        // Seek video to current song position on load
+                        if (videoRef.current && progress > 0) {
+                          lastVideoSyncRef.current = progress;
+                          videoRef.current.setPositionAsync(Math.floor(progress * 1000)).catch(() => {});
+                        }
+                      }}
+                      onPlaybackStatusUpdate={(status: any) => {
+                        if (!status.isLoaded) return;
+                        // Keep video play-state in sync with audio player
+                        if (status.isPlaying !== isPlaying) {
+                          if (isPlaying) {
+                            videoRef.current?.playAsync().catch(() => {});
+                          } else {
+                            videoRef.current?.pauseAsync().catch(() => {});
+                          }
+                        }
+                      }}
                     />
+                    {/* Sync indicator badge */}
+                    <View style={styles.syncBadge}>
+                      <MaterialCommunityIcons name="headphones" size={13} color="rgba(255,255,255,0.7)" />
+                      <Text style={styles.syncBadgeText}>Audio from player • Video synced</Text>
+                    </View>
                     {/* Quality selector */}
                     {videoStreams.length > 1 && (
                       <ScrollView horizontal style={styles.qualityList} contentContainerStyle={styles.qualityListContent} showsHorizontalScrollIndicator={false}>
@@ -678,7 +709,10 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
                           return (
                             <TouchableOpacity
                               key={stream.quality}
-                              onPress={() => setSelectedStream(stream)}
+                              onPress={() => {
+                                setSelectedStream(stream);
+                                videoReadyRef.current = false;
+                              }}
                               style={[styles.qualityPill, isSel && styles.activeQualityPill]}
                               activeOpacity={0.7}
                             >
@@ -1004,6 +1038,20 @@ const styles = StyleSheet.create({
   activeQualityText: {
     color: "#000",
     fontWeight: "bold",
+  },
+  syncBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    gap: 5,
+  },
+  syncBadgeText: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 11,
+    fontStyle: "italic",
   },
   // Meta block
   songMeta: {
