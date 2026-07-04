@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image, AppState } from 'react-native'
 import React, {
   createContext,
   useContext,
@@ -11,6 +11,7 @@ import type { Song } from "../data/songs";
 import { useAuth } from "./AuthContext";
 import { localStorage } from "../lib/storage";
 import * as FileSystem from "expo-file-system";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // ─── Types ────────────────=====================================================
 
@@ -267,8 +268,10 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const loadLikedSongs = useCallback(async () => {
     try {
-      await localStorage.ensureInitialized();
-      const raw = localStorage.getItem("rw_liked_songs") || localStorage.getItem("rw_guest_liked");
+      // Always read directly from AsyncStorage (not just in-memory cache)
+      // to ensure data written in a previous session is picked up correctly
+      const raw = await (AsyncStorage as any).getItem("rw_liked_songs")
+        ?? await (AsyncStorage as any).getItem("rw_guest_liked");
       if (raw) {
         setLikedSongs(JSON.parse(raw));
         return;
@@ -312,6 +315,19 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     loadPlaylists();
     loadLikedAlbums();
   }, [loadLikedSongs, loadRecentlyPlayed, loadPlaylists, loadLikedAlbums]);
+
+  // Re-read liked songs from AsyncStorage when app comes back to foreground
+  // This ensures data saved in a previous session is always current
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") {
+        loadLikedSongs();
+        loadLikedAlbums();
+        loadPlaylists();
+      }
+    });
+    return () => sub.remove();
+  }, [loadLikedSongs, loadLikedAlbums, loadPlaylists]);
 
   // ── Derived playlists ─────────────────────────────────────────────────────────
 
