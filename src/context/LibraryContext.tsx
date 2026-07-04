@@ -7,9 +7,10 @@ import React, {
   useCallback,
   ReactNode,
 } from "react";
-import type { Song } from "@/data/songs";
+import type { Song } from "../data/songs";
 import { useAuth } from "./AuthContext";
 import { localStorage } from "../lib/storage";
+import * as FileSystem from "expo-file-system";
 
 // ─── Types ────────────────=====================================================
 
@@ -38,6 +39,8 @@ interface LibraryContextType {
   likedSongs: Song[];
   recentlyPlayed: Song[];
   playlists: Playlist[];
+  downloadedSongs: Song[];
+  downloadingIds: string[];
   toggleLike: (song: Song) => Promise<void>;
   isLiked: (song: Song) => boolean;
   addToRecentlyPlayed: (song: Song) => void;
@@ -49,6 +52,9 @@ interface LibraryContextType {
   getPlaylist: (playlistId: string) => Promise<Song[]>;
   loadLikedSongs: () => void;
   loadPlaylists: () => void;
+  downloadSong: (song: Song) => Promise<void>;
+  deleteDownloadedSong: (songId: string) => Promise<void>;
+  isDownloaded: (songId: string) => boolean;
   likedAlbums: AlbumData[];
   toggleLikeAlbum: (album: AlbumData) => Promise<void>;
   isAlbumLiked: (album: AlbumData) => boolean;
@@ -97,12 +103,154 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const [likedSongs, setLikedSongs]           = useState<Song[]>([]);
   const [recentlyPlayed, setRecentlyPlayed]   = useState<Song[]>([]);
   const [storedPlaylists, setStoredPlaylists] = useState<StoredPlaylist[]>([]);
+  const [downloadedSongs, setDownloadedSongs] = useState<Song[]>([]);
+  const [downloadingIds, setDownloadingIds]   = useState<string[]>([]);
   const [likedAlbums, setLikedAlbums]         = useState<AlbumData[]>([]);
+
+  // Load downloads from localStorage after initialization
+  useEffect(() => {
+    const loadDownloads = async () => {
+      try {
+        await localStorage.ensureInitialized();
+        const raw = localStorage.getItem("rw_downloads");
+        if (raw) {
+          const songs: Song[] = JSON.parse(raw);
+          const mapped = songs.map((s) => {
+            let audioUrl = s.audioUrl;
+            if (audioUrl && !audioUrl.startsWith("http") && !audioUrl.startsWith("file://")) {
+              audioUrl = (FileSystem.documentDirectory || "") + audioUrl;
+            }
+            let albumArt = s.albumArt;
+            if (albumArt && !albumArt.startsWith("http") && !albumArt.startsWith("file://")) {
+              albumArt = (FileSystem.documentDirectory || "") + albumArt;
+            }
+            return {
+              ...s,
+              audioUrl,
+              albumArt,
+            };
+          });
+          setDownloadedSongs(mapped);
+        }
+      } catch (err) {
+        console.warn("Failed to load downloaded songs:", err);
+      }
+    };
+    loadDownloads();
+  }, []);
+
+  const isDownloaded = useCallback(
+    (songId: string) => downloadedSongs.some((s) => s.id === songId),
+    [downloadedSongs]
+  );
+
+  const downloadSong = useCallback(
+    async (song: Song) => {
+      if (downloadedSongs.some((s) => s.id === song.id)) return;
+      setDownloadingIds((prev) => [...prev, song.id]);
+
+      try {
+        const audioUrl = song.audioUrl || `https://musicbackend-xg4u.onrender.com/api/songs/${song.id}/stream`;
+        const audioLocalUri = FileSystem.documentDirectory + song.id + ".mp3";
+
+        // Download audio file
+        const audioResult = await FileSystem.downloadAsync(audioUrl, audioLocalUri);
+
+        // Download album art if present
+        let artLocalUri = "";
+        if (song.albumArt) {
+          try {
+            const artResult = await FileSystem.downloadAsync(
+              song.albumArt,
+              FileSystem.documentDirectory + song.id + "_art.jpg"
+            );
+            artLocalUri = artResult.uri;
+          } catch {
+            // Fallback to online image
+          }
+        }
+
+        const downloadedSong: Song = {
+          ...song,
+          audioUrl: `${song.id}.mp3`,
+          albumArt: artLocalUri ? `${song.id}_art.jpg` : song.albumArt,
+        };
+
+        setDownloadedSongs((prev) => {
+          const inMemorySong = {
+            ...downloadedSong,
+            audioUrl: (FileSystem.documentDirectory || "") + downloadedSong.audioUrl,
+            albumArt: downloadedSong.albumArt.endsWith("_art.jpg")
+              ? (FileSystem.documentDirectory || "") + downloadedSong.albumArt
+              : downloadedSong.albumArt,
+          };
+          const next = [...prev, inMemorySong];
+          
+          const stripped = next.map((s) => {
+            let aUrl = s.audioUrl || "";
+            if (FileSystem.documentDirectory && aUrl.startsWith(FileSystem.documentDirectory)) {
+              aUrl = aUrl.replace(FileSystem.documentDirectory, "");
+            }
+            let aArt = s.albumArt || "";
+            if (FileSystem.documentDirectory && aArt.startsWith(FileSystem.documentDirectory)) {
+              aArt = aArt.replace(FileSystem.documentDirectory, "");
+            }
+            return {
+              ...s,
+              audioUrl: aUrl,
+              albumArt: aArt,
+            };
+          });
+          localStorage.setItem("rw_downloads", JSON.stringify(stripped));
+          return next;
+        });
+      } catch (err) {
+        console.error("Failed to download song:", err);
+      } finally {
+        setDownloadingIds((prev) => prev.filter((id) => id !== song.id));
+      }
+    },
+    [downloadedSongs]
+  );
+
+  const deleteDownloadedSong = useCallback(async (songId: string) => {
+    try {
+      const audioLocalUri = (FileSystem.documentDirectory || "") + songId + ".mp3";
+      const artLocalUri = (FileSystem.documentDirectory || "") + songId + "_art.jpg";
+
+      await FileSystem.deleteAsync(audioLocalUri, { idempotent: true });
+      await FileSystem.deleteAsync(artLocalUri, { idempotent: true });
+
+      setDownloadedSongs((prev) => {
+        const next = prev.filter((s) => s.id !== songId);
+        const stripped = next.map((s) => {
+          let aUrl = s.audioUrl || "";
+          if (FileSystem.documentDirectory && aUrl.startsWith(FileSystem.documentDirectory)) {
+            aUrl = aUrl.replace(FileSystem.documentDirectory, "");
+          }
+          let aArt = s.albumArt || "";
+          if (FileSystem.documentDirectory && aArt.startsWith(FileSystem.documentDirectory)) {
+            aArt = aArt.replace(FileSystem.documentDirectory, "");
+          }
+          return {
+            ...s,
+            audioUrl: aUrl,
+            albumArt: aArt,
+          };
+        });
+        localStorage.setItem("rw_downloads", JSON.stringify(stripped));
+        return next;
+      });
+    } catch (err) {
+      console.error("Failed to delete downloaded song:", err);
+    }
+  }, []);
 
   // ── Load liked albums ────────────────────────────────────────────────────────
 
   const loadLikedAlbums = useCallback(async () => {
     try {
+      await localStorage.ensureInitialized();
       const rawAlbums = localStorage.getItem("rw_liked_albums") || localStorage.getItem("rw_guest_liked_albums");
       if (rawAlbums) {
         setLikedAlbums(JSON.parse(rawAlbums));
@@ -119,6 +267,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const loadLikedSongs = useCallback(async () => {
     try {
+      await localStorage.ensureInitialized();
       const raw = localStorage.getItem("rw_liked_songs") || localStorage.getItem("rw_guest_liked");
       if (raw) {
         setLikedSongs(JSON.parse(raw));
@@ -132,6 +281,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const loadRecentlyPlayed = useCallback(async () => {
     try {
+      await localStorage.ensureInitialized();
       const raw = localStorage.getItem("rw_recently_played");
       if (raw) {
         setRecentlyPlayed(JSON.parse(raw));
@@ -145,6 +295,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const loadPlaylists = useCallback(async () => {
     try {
+      await localStorage.ensureInitialized();
       const raw = localStorage.getItem("rw_playlists");
       if (raw) {
         setStoredPlaylists(JSON.parse(raw));
@@ -375,6 +526,8 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         likedSongs,
         recentlyPlayed,
         playlists,
+        downloadedSongs,
+        downloadingIds,
         toggleLike,
         isLiked,
         addToRecentlyPlayed,
@@ -386,6 +539,9 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         getPlaylist,
         loadLikedSongs,
         loadPlaylists,
+        downloadSong,
+        deleteDownloadedSong,
+        isDownloaded,
         likedAlbums,
         toggleLikeAlbum,
         isAlbumLiked,

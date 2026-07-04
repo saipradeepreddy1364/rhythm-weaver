@@ -114,7 +114,23 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         await localStorage.ensureInitialized();
         const raw = localStorage.getItem("rw_downloads");
         if (raw) {
-          setDownloadedSongs(JSON.parse(raw));
+          const songs: Song[] = JSON.parse(raw);
+          const mapped = songs.map((s) => {
+            let audioUrl = s.audioUrl;
+            if (audioUrl && !audioUrl.startsWith("http") && !audioUrl.startsWith("file://")) {
+              audioUrl = (FileSystem.documentDirectory || "") + audioUrl;
+            }
+            let albumArt = s.albumArt;
+            if (albumArt && !albumArt.startsWith("http") && !albumArt.startsWith("file://")) {
+              albumArt = (FileSystem.documentDirectory || "") + albumArt;
+            }
+            return {
+              ...s,
+              audioUrl,
+              albumArt,
+            };
+          });
+          setDownloadedSongs(mapped);
         }
       } catch (err) {
         console.warn("Failed to load downloaded songs:", err);
@@ -156,13 +172,36 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
         const downloadedSong: Song = {
           ...song,
-          audioUrl: audioResult.uri,
-          albumArt: artLocalUri || song.albumArt,
+          audioUrl: `${song.id}.mp3`,
+          albumArt: artLocalUri ? `${song.id}_art.jpg` : song.albumArt,
         };
 
         setDownloadedSongs((prev) => {
-          const next = [...prev, downloadedSong];
-          localStorage.setItem("rw_downloads", JSON.stringify(next));
+          const inMemorySong = {
+            ...downloadedSong,
+            audioUrl: (FileSystem.documentDirectory || "") + downloadedSong.audioUrl,
+            albumArt: downloadedSong.albumArt.endsWith("_art.jpg")
+              ? (FileSystem.documentDirectory || "") + downloadedSong.albumArt
+              : downloadedSong.albumArt,
+          };
+          const next = [...prev, inMemorySong];
+          
+          const stripped = next.map((s) => {
+            let aUrl = s.audioUrl || "";
+            if (FileSystem.documentDirectory && aUrl.startsWith(FileSystem.documentDirectory)) {
+              aUrl = aUrl.replace(FileSystem.documentDirectory, "");
+            }
+            let aArt = s.albumArt || "";
+            if (FileSystem.documentDirectory && aArt.startsWith(FileSystem.documentDirectory)) {
+              aArt = aArt.replace(FileSystem.documentDirectory, "");
+            }
+            return {
+              ...s,
+              audioUrl: aUrl,
+              albumArt: aArt,
+            };
+          });
+          localStorage.setItem("rw_downloads", JSON.stringify(stripped));
           return next;
         });
       } catch (err) {
@@ -176,15 +215,30 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const deleteDownloadedSong = useCallback(async (songId: string) => {
     try {
-      const audioLocalUri = FileSystem.documentDirectory + songId + ".mp3";
-      const artLocalUri = FileSystem.documentDirectory + songId + "_art.jpg";
+      const audioLocalUri = (FileSystem.documentDirectory || "") + songId + ".mp3";
+      const artLocalUri = (FileSystem.documentDirectory || "") + songId + "_art.jpg";
 
       await FileSystem.deleteAsync(audioLocalUri, { idempotent: true });
       await FileSystem.deleteAsync(artLocalUri, { idempotent: true });
 
       setDownloadedSongs((prev) => {
         const next = prev.filter((s) => s.id !== songId);
-        localStorage.setItem("rw_downloads", JSON.stringify(next));
+        const stripped = next.map((s) => {
+          let aUrl = s.audioUrl || "";
+          if (FileSystem.documentDirectory && aUrl.startsWith(FileSystem.documentDirectory)) {
+            aUrl = aUrl.replace(FileSystem.documentDirectory, "");
+          }
+          let aArt = s.albumArt || "";
+          if (FileSystem.documentDirectory && aArt.startsWith(FileSystem.documentDirectory)) {
+            aArt = aArt.replace(FileSystem.documentDirectory, "");
+          }
+          return {
+            ...s,
+            audioUrl: aUrl,
+            albumArt: aArt,
+          };
+        });
+        localStorage.setItem("rw_downloads", JSON.stringify(stripped));
         return next;
       });
     } catch (err) {

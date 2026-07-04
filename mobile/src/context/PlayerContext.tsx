@@ -678,6 +678,37 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
   }, [favorites]);
 
+  // Background task to try to fetch a high-res original movie/album cover image for YouTube tracks
+  useEffect(() => {
+    if (currentSong && currentSong.id.startsWith("yt-") && (!currentSong.albumArt || currentSong.albumArt.includes("ytimg.com") || currentSong.albumArt.includes("i.ytimg"))) {
+      const cleanTitle = currentSong.title
+        .replace(/\s*\(?(Official|Video|Audio|Lyrical|HD|4K|Lofi|Slowed|Reverb|Remix|Cover|Full Video|Song)\)?/gi, "")
+        .trim();
+      
+      api.searchSongs(`${cleanTitle} ${currentSong.artist}`)
+        .then((res: any) => {
+          const results = res.data?.results ?? res.data ?? [];
+          if (Array.isArray(results) && results.length > 0) {
+            const mapped = mapApiSong(results[0]);
+            if (mapped.albumArt && mapped.albumArt.includes("http")) {
+              setCurrentSong((prev) => {
+                if (prev && prev.id === currentSong.id) {
+                  return {
+                    ...prev,
+                    albumArt: mapped.albumArt,
+                    album: mapped.album || prev.album,
+                    movie: mapped.movie || prev.movie,
+                  };
+                }
+                return prev;
+              });
+            }
+          }
+        })
+        .catch(() => {});
+    }
+  }, [currentSong?.id]);
+
   // TrackPlayer Hooks
   const playbackState = usePlaybackState();
   const activeTrack = useActiveTrack();

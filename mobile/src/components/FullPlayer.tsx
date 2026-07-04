@@ -2,6 +2,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Modal, Act
 import React, { useState, useEffect, useRef } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Video, ResizeMode } from "expo-av";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { usePlayer } from "../context/PlayerContext";
 import { formatDuration, Song } from "../data/songs";
 import { LikeButton } from "./LikeButton";
@@ -11,7 +12,7 @@ interface FullPlayerProps {
   onRequireAuth?: () => void;
 }
 
-type TabType = "cover" | "lyrics" | "video";
+type TabType = "cover" | "lyrics" | "video" | "equalizer";
 
 interface VideoStream {
   url: string;
@@ -27,13 +28,24 @@ const PIPED_INSTANCES = [
   "https://api.looleh.xyz"
 ];
 
+const INVIDIOUS_INSTANCES = [
+  "https://iv.melmac.space",
+  "https://invidious.flokinet.to",
+  "https://invidious.privacydev.net",
+  "https://invidious.projectsegfau.lt",
+  "https://invidious.lunar.host",
+  "https://inv.tux.pizza"
+];
+
 async function resolveVideoStreams(song: Song): Promise<VideoStream[]> {
   const songId = song.id;
   
   // 1. If it's a YouTube song, resolve streams directly
   if (songId.startsWith("yt-")) {
     const videoId = songId.replace("yt-", "");
-    return fetchPipedStreams(videoId);
+    const piped = await fetchPipedStreams(videoId);
+    if (piped.length > 0) return piped;
+    return await fetchInvidiousStreams(videoId);
   }
 
   // 2. If it's a JioSaavn song, try the backend's video-url matching first
@@ -53,7 +65,7 @@ async function resolveVideoStreams(song: Song): Promise<VideoStream[]> {
     console.log("[FullPlayer] Backend video-url resolve failed, falling back to Piped search:", err);
   }
 
-  // 3. Fallback: Search YouTube via Piped to match the song
+  // 3. Fallback: Search YouTube via Piped/Invidious to match the song
   const query = `${song.title} ${song.artist} official video`;
   for (const instance of PIPED_INSTANCES) {
     try {
@@ -69,8 +81,28 @@ async function resolveVideoStreams(song: Song): Promise<VideoStream[]> {
         console.log(`[FullPlayer] Piped search resolved video ID: ${firstVideoId}`);
         const streams = await fetchPipedStreams(firstVideoId, instance);
         if (streams.length > 0) return streams;
+        const invidiousStreams = await fetchInvidiousStreams(firstVideoId);
+        if (invidiousStreams.length > 0) return invidiousStreams;
       }
     } catch { /* try next instance */ }
+  }
+
+  for (const instance of INVIDIOUS_INSTANCES) {
+    try {
+      const searchRes = await Promise.race([
+        fetch(`${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video`),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
+      ]);
+      if (!searchRes.ok) continue;
+      const searchData = await searchRes.json();
+      const items = Array.isArray(searchData) ? searchData : [];
+      const firstVideoId = items[0]?.videoId;
+      if (firstVideoId) {
+        console.log(`[FullPlayer] Invidious search resolved video ID: ${firstVideoId}`);
+        const streams = await fetchInvidiousStreams(firstVideoId);
+        if (streams.length > 0) return streams;
+      }
+    } catch { /* try next */ }
   }
 
   return [];
@@ -97,6 +129,41 @@ async function fetchPipedStreams(videoId: string, preferredInstance?: string): P
         return vs.map((s) => ({ url: s.url, quality: s.quality }));
       }
     } catch { /* try next */ }
+  }
+  return [];
+}
+
+async function fetchInvidiousStreams(videoId: string): Promise<VideoStream[]> {
+  for (const instance of INVIDIOUS_INSTANCES) {
+    try {
+      const res = await Promise.race([
+        fetch(`${instance}/api/v1/videos/${videoId}`),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
+      ]);
+      if (!res.ok) continue;
+      const data = await res.json();
+      
+      const streams: VideoStream[] = [];
+      if (data.hlsUrl) {
+        streams.push({ url: data.hlsUrl, quality: "Auto (HLS)" });
+      }
+      
+      const formatStreams = data.formatStreams || [];
+      if (formatStreams.length > 0) {
+        formatStreams.forEach((s: any) => {
+          if (s.url) {
+            streams.push({ url: s.url, quality: `${s.qualityLabel || s.quality} (${s.container || "mp4"})` });
+          }
+        });
+      }
+      
+      if (streams.length > 0) {
+        console.log(`[FullPlayer] Resolved video streams from Invidious instance ${instance}`);
+        return streams;
+      }
+    } catch (err) {
+      console.warn(`[FullPlayer] Invidious streams failed on ${instance}:`, err);
+    }
   }
   return [];
 }
@@ -181,6 +248,16 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   const downloaded = currentSong ? isDownloaded(currentSong.id) : false;
   const downloading = currentSong ? downloadingIds.includes(currentSong.id) : false;
 
+  const [dragProgress, setDragProgress] = useState<number | null>(null);
+  const trackLeftRef = useRef(0);
+  const isDraggingRef = useRef(false);
+  const lastSeekTimeRef = useRef(0);
+
+  const totalDuration =
+    duration && isFinite(duration) && duration > 1
+      ? duration
+      : ((currentSong && currentSong.duration && currentSong.duration > 1) ? currentSong.duration : 0);
+
   const [activeTab, setActiveTab] = useState<TabType>("cover");
   const [lyrics, setLyrics] = useState<string | null>(null);
   const [lyricsLoading, setLyricsLoading] = useState(false);
@@ -190,6 +267,67 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   const [selectedStream, setSelectedStream] = useState<VideoStream | null>(null);
   const [videoLoading, setVideoLoading] = useState(false);
   const [videoError, setVideoError] = useState<string | null>(null);
+
+  // Equalizer states
+  const [eqBass, setEqBass] = useState(5);
+  const [eqTreble, setEqTreble] = useState(5);
+  const [eqVocal, setEqVocal] = useState(5);
+  const [eqPreset, setEqPreset] = useState<"normal" | "bass" | "treble" | "vocal" | "electronic">("normal");
+
+  // Lyrics scrolling refs & states
+  const lyricsScrollRef = useRef<ScrollView>(null);
+  const [lyricsContentHeight, setLyricsContentHeight] = useState(0);
+  const [userIsScrollingLyrics, setUserIsScrollingLyrics] = useState(false);
+  const userScrollTimeoutRef = useRef<any>(null);
+
+  const handlePresetSelect = (preset: "normal" | "bass" | "treble" | "vocal" | "electronic") => {
+    setEqPreset(preset);
+    if (preset === "normal") {
+      setEqBass(5); setEqTreble(5); setEqVocal(5);
+    } else if (preset === "bass") {
+      setEqBass(9); setEqTreble(4); setEqVocal(5);
+    } else if (preset === "treble") {
+      setEqBass(3); setEqTreble(9); setEqVocal(6);
+    } else if (preset === "vocal") {
+      setEqBass(4); setEqTreble(5); setEqVocal(9);
+    } else if (preset === "electronic") {
+      setEqBass(8); setEqTreble(7); setEqVocal(4);
+    }
+  };
+
+  useEffect(() => {
+    AsyncStorage.getItem("rw_eq_settings").then((saved) => {
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          setEqBass(parsed.bass ?? 5);
+          setEqTreble(parsed.treble ?? 5);
+          setEqVocal(parsed.vocal ?? 5);
+          setEqPreset(parsed.preset ?? "normal");
+        } catch {}
+      }
+    });
+  }, []);
+
+  const saveEqSettings = (bass: number, treble: number, vocal: number, preset: string) => {
+    AsyncStorage.setItem("rw_eq_settings", JSON.stringify({ bass, treble, vocal, preset })).catch(() => {});
+  };
+
+  const handleUserScroll = () => {
+    setUserIsScrollingLyrics(true);
+    if (userScrollTimeoutRef.current) clearTimeout(userScrollTimeoutRef.current);
+    userScrollTimeoutRef.current = setTimeout(() => {
+      setUserIsScrollingLyrics(false);
+    }, 4000);
+  };
+
+  useEffect(() => {
+    if (activeTab === "lyrics" && lyricsScrollRef.current && lyricsContentHeight > 0 && totalDuration > 0 && !userIsScrollingLyrics) {
+      const pct = (progress / totalDuration);
+      const targetOffset = pct * (lyricsContentHeight - 200);
+      lyricsScrollRef.current.scrollTo({ y: Math.max(0, targetOffset), animated: true });
+    }
+  }, [progress, totalDuration, activeTab, lyricsContentHeight, userIsScrollingLyrics]);
 
   const [translationLang, setTranslationLang] = useState<"original" | "en">("original");
   const [translatedLyrics, setTranslatedLyrics] = useState<Record<string, string>>({});
@@ -313,11 +451,6 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
 
   if (!currentSong || !showPlayer) return null;
 
-  const totalDuration =
-    duration && isFinite(duration) && duration > 1
-      ? duration
-      : (currentSong.duration && currentSong.duration > 1 ? currentSong.duration : 0);
-
   const handleAddToQueue = () => {
     addToQueue(currentSong);
     setQueuedFlash(true);
@@ -333,10 +466,15 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
     }
   };
 
-  const trackLeftRef = useRef(0);
-  const isDraggingRef = useRef(false);
-  const lastSeekTimeRef = useRef(0);
-  const [dragProgress, setDragProgress] = useState<number | null>(null);
+  // Synchronize/clear dragProgress when real progress catches up to target position
+  useEffect(() => {
+    if (dragProgress !== null) {
+      const diff = Math.abs(progress - dragProgress);
+      if (diff < 2.5) {
+        setDragProgress(null);
+      }
+    }
+  }, [progress, dragProgress]);
 
   const panResponder = useRef(
     PanResponder.create({
@@ -376,13 +514,14 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         }
         
         setProgress(finalProgress);
-        // Lock the visual seek progress to the final position during buffering
         setDragProgress(finalProgress);
         
-        setTimeout(() => {
+        // Safety timeout to reset drag lock
+        if (lastSeekTimeRef.current) clearTimeout(lastSeekTimeRef.current);
+        lastSeekTimeRef.current = setTimeout(() => {
           setDragProgress(null);
           isDraggingRef.current = false;
-        }, 800);
+        }, 4000) as any;
       },
       onPanResponderTerminate: () => {
         isDraggingRef.current = false;
@@ -434,7 +573,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
 
           {/* Tab Switcher - always show Video; show Lyrics only when available */}
           <View style={styles.tabBar}>
-            {(["cover", ...((!lyricsLoading && lyrics && lyrics.trim().length > 0) ? ["lyrics"] : []), "video"] as TabType[]).map((tab) => {
+            {(["cover", ...((!lyricsLoading && lyrics && lyrics.trim().length > 0) ? ["lyrics"] : []), "video", "equalizer"] as TabType[]).map((tab) => {
               const isActive = activeTab === tab;
               return (
                 <TouchableOpacity delayPressIn={0} key={tab} onPress={() => setActiveTab(tab)} style={[styles.tabButton, isActive && styles.activeTabButton]} activeOpacity={0.7}>
@@ -494,7 +633,14 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
                     })}
                   </View>
                 )}
-                <ScrollView style={styles.lyricsScroll} contentContainerStyle={styles.lyricsScrollContent}>
+                <ScrollView 
+                  ref={lyricsScrollRef}
+                  style={styles.lyricsScroll} 
+                  contentContainerStyle={styles.lyricsScrollContent}
+                  onScroll={handleUserScroll}
+                  scrollEventThrottle={16}
+                  onContentSizeChange={(w, h) => setLyricsContentHeight(h)}
+                >
                   {lyricsLoading ? (
                     <ActivityIndicator size="large" color="#1DB954" style={{ marginTop: 60 }} />
                   ) : lyrics && lyrics.length > 0 ? (
@@ -575,6 +721,94 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
                     )}
                   </View>
                 ) : null}
+              </View>
+            )}
+
+            {/* Equalizer Tab */}
+            {activeTab === "equalizer" && (
+              <View style={styles.eqWrapper}>
+                <Text style={styles.eqTitle}>Equalizer</Text>
+                
+                {/* Visual EQ animations */}
+                <View style={styles.eqVisualizerContainer}>
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((bar) => {
+                    const minH = 8;
+                    const maxH = 48;
+                    const val = isPlaying ? Math.floor(Math.random() * (maxH - minH) + minH) : minH;
+                    return (
+                      <View
+                        key={bar}
+                        style={[
+                          styles.eqVisualizerBar,
+                          {
+                            height: val,
+                            backgroundColor: isPlaying ? "#1DB954" : "rgba(255,255,255,0.2)",
+                          },
+                        ]}
+                      />
+                    );
+                  })}
+                </View>
+
+                {/* Preset List */}
+                <Text style={styles.eqSectionTitle}>Presets</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.presetsList}>
+                  {([
+                    { id: "normal", label: "Normal" },
+                    { id: "bass", label: "Bass Booster" },
+                    { id: "treble", label: "Treble Booster" },
+                    { id: "vocal", label: "Vocal Focus" },
+                    { id: "electronic", label: "Electronic" },
+                  ] as const).map((p) => {
+                    const isSel = eqPreset === p.id;
+                    return (
+                      <TouchableOpacity
+                        key={p.id}
+                        onPress={() => handlePresetSelect(p.id)}
+                        style={[styles.presetCard, isSel && styles.presetCardActive]}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[styles.presetText, isSel && styles.presetTextActive]}>
+                          {p.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+
+                {/* Custom Sliders */}
+                <Text style={styles.eqSectionTitle}>Adjustments</Text>
+                {[
+                  { label: "Bass", value: eqBass, setter: setEqBass, type: "bass" },
+                  { label: "Treble", value: eqTreble, setter: setEqTreble, type: "treble" },
+                  { label: "Vocals", value: eqVocal, setter: setEqVocal, type: "vocals" },
+                ].map((slider) => (
+                  <View key={slider.label} style={styles.sliderRow}>
+                    <Text style={styles.sliderLabel}>{slider.label}</Text>
+                    <View style={styles.sliderTrackContainer}>
+                      <TouchableOpacity
+                        activeOpacity={1}
+                        onPress={(e) => {
+                          const { locationX } = e.nativeEvent;
+                          const newVal = Math.max(0, Math.min(10, Math.round((locationX / 160) * 10)));
+                          slider.setter(newVal);
+                          setEqPreset("normal");
+                          saveEqSettings(
+                            slider.type === "bass" ? newVal : eqBass,
+                            slider.type === "treble" ? newVal : eqTreble,
+                            slider.type === "vocals" ? newVal : eqVocal,
+                            "normal"
+                          );
+                        }}
+                        style={styles.sliderTrack}
+                      >
+                        <View pointerEvents="none" style={[styles.sliderFill, { width: `${(slider.value / 10) * 100}%` }]} />
+                        <View pointerEvents="none" style={[styles.sliderThumb, { left: `${(slider.value / 10) * 100}%`, marginLeft: -8 }]} />
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={styles.sliderValueText}>+{slider.value - 5} dB</Text>
+                  </View>
+                ))}
               </View>
             )}
           </View>
@@ -1047,5 +1281,109 @@ const styles = StyleSheet.create({
   translatingText: {
     fontSize: 13,
     color: "rgba(255,255,255,0.4)",
+  },
+  eqWrapper: {
+    padding: 16,
+    width: "100%",
+    backgroundColor: "rgba(255,255,255,0.03)",
+    borderRadius: 16,
+    marginVertical: 10,
+    alignItems: "center",
+  },
+  eqTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#fff",
+    marginBottom: 16,
+  },
+  eqVisualizerContainer: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "center",
+    height: 48,
+    width: "100%",
+    marginBottom: 20,
+  },
+  eqVisualizerBar: {
+    width: 6,
+    marginHorizontal: 3,
+    borderRadius: 3,
+  },
+  eqSectionTitle: {
+    alignSelf: "flex-start",
+    fontSize: 12,
+    fontWeight: "700",
+    color: "rgba(255,255,255,0.5)",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginTop: 16,
+    marginBottom: 10,
+  },
+  presetsList: {
+    flexDirection: "row",
+    width: "100%",
+    marginBottom: 16,
+  },
+  presetCard: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 20,
+    marginRight: 10,
+  },
+  presetCardActive: {
+    backgroundColor: "#1DB954",
+  },
+  presetText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "rgba(255,255,255,0.6)",
+  },
+  presetTextActive: {
+    color: "#000",
+  },
+  sliderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    width: "100%",
+    marginVertical: 10,
+  },
+  sliderLabel: {
+    width: 60,
+    fontSize: 14,
+    color: "#fff",
+    fontWeight: "500",
+  },
+  sliderTrackContainer: {
+    flex: 1,
+    height: 30,
+    justifyContent: "center",
+    marginHorizontal: 12,
+  },
+  sliderTrack: {
+    height: 4,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderRadius: 2,
+    position: "relative",
+  },
+  sliderFill: {
+    height: "100%",
+    backgroundColor: "#1DB954",
+    borderRadius: 2,
+  },
+  sliderThumb: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: "#fff",
+    position: "absolute",
+    top: -6,
+  },
+  sliderValueText: {
+    width: 50,
+    fontSize: 12,
+    color: "rgba(255,255,255,0.6)",
+    textAlign: "right",
   },
 });

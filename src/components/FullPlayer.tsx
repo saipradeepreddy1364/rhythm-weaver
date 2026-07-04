@@ -1,16 +1,172 @@
-import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Modal, ActivityIndicator, Linking, Platform, Dimensions } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Modal, ActivityIndicator, Linking, Platform, PanResponder } from 'react-native'
 import React, { useState, useEffect, useRef } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { Video, ResizeMode } from "expo-av";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { usePlayer } from "../context/PlayerContext";
-import { formatDuration } from "../data/songs";
+import { formatDuration, Song } from "../data/songs";
 import { LikeButton } from "./LikeButton";
-import { WebView } from "react-native-webview";
+import { useLibrary } from "../context/LibraryContext";
 
 interface FullPlayerProps {
   onRequireAuth?: () => void;
 }
 
-type TabType = "cover" | "lyrics" | "video";
+type TabType = "cover" | "lyrics" | "video" | "equalizer";
+
+interface VideoStream {
+  url: string;
+  quality: string;
+}
+
+const PIPED_INSTANCES = [
+  "https://pipedapi.adminforge.de",
+  "https://pipedapi.projectsegfau.lt",
+  "https://pipedapi.kavin.rocks",
+  "https://pipedapi-libre.kavin.rocks",
+  "https://pipedapi.leptons.xyz",
+  "https://api.looleh.xyz"
+];
+
+const INVIDIOUS_INSTANCES = [
+  "https://iv.melmac.space",
+  "https://invidious.flokinet.to",
+  "https://invidious.privacydev.net",
+  "https://invidious.projectsegfau.lt",
+  "https://invidious.lunar.host",
+  "https://inv.tux.pizza"
+];
+
+async function resolveVideoStreams(song: Song): Promise<VideoStream[]> {
+  const songId = song.id;
+  
+  // 1. If it's a YouTube song, resolve streams directly
+  if (songId.startsWith("yt-")) {
+    const videoId = songId.replace("yt-", "");
+    const piped = await fetchPipedStreams(videoId);
+    if (piped.length > 0) return piped;
+    return await fetchInvidiousStreams(videoId);
+  }
+
+  // 2. If it's a JioSaavn song, try the backend's video-url matching first
+  try {
+    const res = await Promise.race([
+      fetch(`https://musicbackend-xg4u.onrender.com/api/songs/${songId}/video-url`),
+      new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
+    ]);
+    if (res.ok) {
+      const data = await res.json();
+      const streams: VideoStream[] = data.streams ?? data.data?.streams ?? (Array.isArray(data) ? data : []);
+      if (Array.isArray(streams) && streams.length > 0) {
+        return streams.map(s => ({ url: s.url, quality: s.quality }));
+      }
+    }
+  } catch (err) {
+    console.log("[FullPlayer] Backend video-url resolve failed, falling back to Piped search:", err);
+  }
+
+  // 3. Fallback: Search YouTube via Piped/Invidious to match the song
+  const query = `${song.title} ${song.artist} official video`;
+  for (const instance of PIPED_INSTANCES) {
+    try {
+      const searchRes = await Promise.race([
+        fetch(`${instance}/search?q=${encodeURIComponent(query)}&filter=videos`),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
+      ]);
+      if (!searchRes.ok) continue;
+      const searchData = await searchRes.json();
+      const items = searchData.items || [];
+      const firstVideoId = items[0]?.videoId;
+      if (firstVideoId) {
+        console.log(`[FullPlayer] Piped search resolved video ID: ${firstVideoId}`);
+        const streams = await fetchPipedStreams(firstVideoId, instance);
+        if (streams.length > 0) return streams;
+        const invidiousStreams = await fetchInvidiousStreams(firstVideoId);
+        if (invidiousStreams.length > 0) return invidiousStreams;
+      }
+    } catch { /* try next instance */ }
+  }
+
+  for (const instance of INVIDIOUS_INSTANCES) {
+    try {
+      const searchRes = await Promise.race([
+        fetch(`${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video`),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
+      ]);
+      if (!searchRes.ok) continue;
+      const searchData = await searchRes.json();
+      const items = Array.isArray(searchData) ? searchData : [];
+      const firstVideoId = items[0]?.videoId;
+      if (firstVideoId) {
+        console.log(`[FullPlayer] Invidious search resolved video ID: ${firstVideoId}`);
+        const streams = await fetchInvidiousStreams(firstVideoId);
+        if (streams.length > 0) return streams;
+      }
+    } catch { /* try next */ }
+  }
+
+  return [];
+}
+
+async function fetchPipedStreams(videoId: string, preferredInstance?: string): Promise<VideoStream[]> {
+  const instances = preferredInstance ? [preferredInstance, ...PIPED_INSTANCES] : PIPED_INSTANCES;
+  for (const instance of instances) {
+    try {
+      const res = await Promise.race([
+        fetch(`${instance}/streams/${videoId}`),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
+      ]);
+      if (!res.ok) continue;
+      const data = await res.json();
+
+      // If HLS streaming playlist is available, use it as first choice since it is proxied and bypasses YouTube IP lock!
+      if (data.hls) {
+        return [{ url: data.hls, quality: "Auto (HLS)" }];
+      }
+
+      const vs: any[] = data.videoStreams || [];
+      if (vs.length > 0) {
+        return vs.map((s) => ({ url: s.url, quality: s.quality }));
+      }
+    } catch { /* try next */ }
+  }
+  return [];
+}
+
+async function fetchInvidiousStreams(videoId: string): Promise<VideoStream[]> {
+  for (const instance of INVIDIOUS_INSTANCES) {
+    try {
+      const res = await Promise.race([
+        fetch(`${instance}/api/v1/videos/${videoId}`),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
+      ]);
+      if (!res.ok) continue;
+      const data = await res.json();
+      
+      const streams: VideoStream[] = [];
+      if (data.hlsUrl) {
+        streams.push({ url: data.hlsUrl, quality: "Auto (HLS)" });
+      }
+      
+      const formatStreams = data.formatStreams || [];
+      if (formatStreams.length > 0) {
+        formatStreams.forEach((s: any) => {
+          if (s.url) {
+            streams.push({ url: s.url, quality: `${s.qualityLabel || s.quality} (${s.container || "mp4"})` });
+          }
+        });
+      }
+      
+      if (streams.length > 0) {
+        console.log(`[FullPlayer] Resolved video streams from Invidious instance ${instance}`);
+        return streams;
+      }
+    } catch (err) {
+      console.warn(`[FullPlayer] Invidious streams failed on ${instance}:`, err);
+    }
+  }
+  return [];
+}
 
 // Clean lyrics utility matching web app regex cleaning
 function cleanLyricsHtml(raw: string): string {
@@ -53,6 +209,10 @@ function extractLyricsText(data: any): string | null {
   return null;
 }
 
+function hasIndicCharacters(text: string): boolean {
+  return /[\u0900-\u0DFF]/.test(text);
+}
+
 async function fetchLyrics(songId: string): Promise<string | null> {
   try {
     const res = await fetch(`https://musicbackend-xg4u.onrender.com/api/songs/${songId}/lyrics`);
@@ -84,54 +244,166 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
     cycleRepeat,
   } = usePlayer();
 
+  const { downloadSong, deleteDownloadedSong, isDownloaded, downloadingIds } = useLibrary();
+  const downloaded = currentSong ? isDownloaded(currentSong.id) : false;
+  const downloading = currentSong ? downloadingIds.includes(currentSong.id) : false;
+
+  const [dragProgress, setDragProgress] = useState<number | null>(null);
+  const trackLeftRef = useRef(0);
+  const isDraggingRef = useRef(false);
+  const lastSeekTimeRef = useRef(0);
+
+  const totalDuration =
+    duration && isFinite(duration) && duration > 1
+      ? duration
+      : ((currentSong && currentSong.duration && currentSong.duration > 1) ? currentSong.duration : 0);
+
   const [activeTab, setActiveTab] = useState<TabType>("cover");
   const [lyrics, setLyrics] = useState<string | null>(null);
   const [lyricsLoading, setLyricsLoading] = useState(false);
-  const [youtubeVideoId, setYoutubeVideoId] = useState<string | null>(null);
-  const [videoLoading, setVideoLoading] = useState(false);
-  const [videoError, setVideoError] = useState<string | null>(null);
   const [queuedFlash, setQueuedFlash] = useState(false);
   const [progressBarWidth, setProgressBarWidth] = useState(0);
-  const progressBarRef = useRef<any>(null);
+  const [videoStreams, setVideoStreams] = useState<VideoStream[]>([]);
+  const [selectedStream, setSelectedStream] = useState<VideoStream | null>(null);
+  const [videoLoading, setVideoLoading] = useState(false);
+  const [videoError, setVideoError] = useState<string | null>(null);
 
-  const [translationLang, setTranslationLang] = useState<"original" | "hi" | "te" | "en">("original");
+  // Equalizer states
+  const [eqBass, setEqBass] = useState(5);
+  const [eqTreble, setEqTreble] = useState(5);
+  const [eqVocal, setEqVocal] = useState(5);
+  const [eqPreset, setEqPreset] = useState<"normal" | "bass" | "treble" | "vocal" | "electronic">("normal");
+
+  // Lyrics scrolling refs & states
+  const lyricsScrollRef = useRef<ScrollView>(null);
+  const [lyricsContentHeight, setLyricsContentHeight] = useState(0);
+  const [userIsScrollingLyrics, setUserIsScrollingLyrics] = useState(false);
+  const userScrollTimeoutRef = useRef<any>(null);
+
+  const handlePresetSelect = (preset: "normal" | "bass" | "treble" | "vocal" | "electronic") => {
+    setEqPreset(preset);
+    if (preset === "normal") {
+      setEqBass(5); setEqTreble(5); setEqVocal(5);
+    } else if (preset === "bass") {
+      setEqBass(9); setEqTreble(4); setEqVocal(5);
+    } else if (preset === "treble") {
+      setEqBass(3); setEqTreble(9); setEqVocal(6);
+    } else if (preset === "vocal") {
+      setEqBass(4); setEqTreble(5); setEqVocal(9);
+    } else if (preset === "electronic") {
+      setEqBass(8); setEqTreble(7); setEqVocal(4);
+    }
+  };
+
+  useEffect(() => {
+    AsyncStorage.getItem("rw_eq_settings").then((saved) => {
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          setEqBass(parsed.bass ?? 5);
+          setEqTreble(parsed.treble ?? 5);
+          setEqVocal(parsed.vocal ?? 5);
+          setEqPreset(parsed.preset ?? "normal");
+        } catch {}
+      }
+    });
+  }, []);
+
+  const saveEqSettings = (bass: number, treble: number, vocal: number, preset: string) => {
+    AsyncStorage.setItem("rw_eq_settings", JSON.stringify({ bass, treble, vocal, preset })).catch(() => {});
+  };
+
+  const handleUserScroll = () => {
+    setUserIsScrollingLyrics(true);
+    if (userScrollTimeoutRef.current) clearTimeout(userScrollTimeoutRef.current);
+    userScrollTimeoutRef.current = setTimeout(() => {
+      setUserIsScrollingLyrics(false);
+    }, 4000);
+  };
+
+  useEffect(() => {
+    if (activeTab === "lyrics" && lyricsScrollRef.current && lyricsContentHeight > 0 && totalDuration > 0 && !userIsScrollingLyrics) {
+      const pct = (progress / totalDuration);
+      const targetOffset = pct * (lyricsContentHeight - 200);
+      lyricsScrollRef.current.scrollTo({ y: Math.max(0, targetOffset), animated: true });
+    }
+  }, [progress, totalDuration, activeTab, lyricsContentHeight, userIsScrollingLyrics]);
+
+  const [translationLang, setTranslationLang] = useState<"original" | "en">("original");
   const [translatedLyrics, setTranslatedLyrics] = useState<Record<string, string>>({});
   const [translating, setTranslating] = useState(false);
 
-  const translateLyrics = async (targetLang: "hi" | "te" | "en") => {
+  const translateLyrics = async (targetLang: "en") => {
     if (!lyrics || !currentSong) return;
     const cacheKey = `${currentSong.id}_${targetLang}`;
     if (translatedLyrics[cacheKey]) return;
 
     setTranslating(true);
     try {
-      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(lyrics)}`;
-      const res = await fetch(url);
-      if (res.ok) {
-        const data = await res.json();
-        let translatedText = "";
-        if (data && data[0]) {
-          for (const item of data[0]) {
-            if (item && item[0]) {
-              translatedText += item[0];
+      const hasIndic = hasIndicCharacters(lyrics);
+      let resolvedText = "";
+
+      const romanizeChunk = async (chunk: string): Promise<string> => {
+        if (!chunk.trim()) return chunk;
+
+        try {
+          const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=rm&q=${encodeURIComponent(chunk)}`;
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = await res.json();
+            let roman = "";
+            if (data && Array.isArray(data[0])) {
+              for (const item of data[0]) {
+                if (item) {
+                  if (typeof item[3] === "string" && item[3].trim()) {
+                    roman += item[3];
+                  } else if (typeof item[0] === "string" && item[0].trim()) {
+                    roman += item[0];
+                  }
+                }
+              }
             }
+            if (roman.trim()) return roman.trim();
           }
+        } catch (err) {
+          console.warn("Romanization API failed:", err);
         }
-        if (translatedText.trim()) {
-          setTranslatedLyrics((prev) => ({
-            ...prev,
-            [cacheKey]: translatedText,
-          }));
+
+        return chunk;
+      };
+
+      if (hasIndic) {
+        // Process in batches of 15 lines to avoid URL size limit
+        const lines = lyrics.split("\n");
+        const romanLines: string[] = [];
+        for (let i = 0; i < lines.length; i += 15) {
+          const batch = lines.slice(i, i + 15).join("\n");
+          const romanBatch = await romanizeChunk(batch);
+          romanLines.push(romanBatch);
         }
+        resolvedText = romanLines.join("\n");
+      } else {
+        resolvedText = lyrics;
       }
+
+      setTranslatedLyrics((prev) => ({
+        ...prev,
+        [cacheKey]: resolvedText.trim() || lyrics,
+      }));
     } catch (err) {
-      console.warn("Translation failed:", err);
+      console.warn("Transliteration failed:", err);
+      if (currentSong) {
+        setTranslatedLyrics((prev) => ({
+          ...prev,
+          [`${currentSong.id}_${targetLang}`]: lyrics,
+        }));
+      }
     } finally {
       setTranslating(false);
     }
   };
 
-  const handleLangSelect = (lang: "original" | "hi" | "te" | "en") => {
+  const handleLangSelect = (lang: "original" | "en") => {
     setTranslationLang(lang);
     if (lang !== "original") {
       translateLyrics(lang);
@@ -142,10 +414,30 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   useEffect(() => {
     setActiveTab("cover");
     setLyrics(null);
-    setYoutubeVideoId(null);
-    setVideoError(null);
     setTranslationLang("original");
+    setVideoStreams([]);
+    setSelectedStream(null);
+    setVideoError(null);
   }, [currentSong?.id]);
+
+  // Load video streams when Video tab is active
+  useEffect(() => {
+    if (activeTab !== "video" || !currentSong || !showPlayer) return;
+    if (videoStreams.length > 0) return;
+    setVideoLoading(true);
+    setVideoError(null);
+    resolveVideoStreams(currentSong)
+      .then((streams) => {
+        if (streams.length > 0) {
+          setVideoStreams(streams);
+          setSelectedStream(streams[0]);
+        } else {
+          setVideoError("No video available for this song.");
+        }
+      })
+      .catch(() => setVideoError("Failed to load video."))
+      .finally(() => setVideoLoading(false));
+  }, [activeTab, currentSong?.id, showPlayer]);
 
   // Load lyrics
   useEffect(() => {
@@ -157,66 +449,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
     });
   }, [currentSong?.id, showPlayer]);
 
-  // Search YouTube via multiple fallback methods to get video ID
-  useEffect(() => {
-    if (activeTab !== "video" || !currentSong || !showPlayer) return;
-    if (youtubeVideoId) return;
-
-    setVideoLoading(true);
-    setVideoError(null);
-
-    const PIPED_INSTANCES = [
-      "https://pipedapi.adminforge.de",
-      "https://pipedapi.projectsegfau.lt",
-      "https://pipedapi.kavin.rocks",
-      "https://pipedapi-libre.kavin.rocks",
-      "https://pipedapi.leptons.xyz",
-      "https://api.looleh.xyz",
-      "https://piapi.ggtyler.dev",
-      "https://piped.video/api",
-    ];
-
-    const query = `${currentSong.title} ${currentSong.artist} ${currentSong.movie || currentSong.album || ""} official video`;
-
-    const tryInstances = async () => {
-      for (const instance of PIPED_INSTANCES) {
-        try {
-          const res = await Promise.race([
-            fetch(`${instance}/search?q=${encodeURIComponent(query)}&filter=videos`),
-            new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
-          ]);
-          if (!res.ok) continue;
-          const data = await res.json();
-          const items: any[] = data.items || [];
-          if (items.length === 0) continue;
-          const vid = items[0]?.videoId || items[0]?.url?.replace("/watch?v=", "");
-          if (vid) {
-            setYoutubeVideoId(vid);
-            setVideoLoading(false);
-            return;
-          }
-        } catch {
-          // try next instance
-        }
-      }
-      // Fallback: use YouTube's noembed oEmbed approach - search directly via YouTube
-      // Show a search-based embed instead
-      const fallbackSearchQuery = encodeURIComponent(`${currentSong.title} ${currentSong.artist}`);
-      setYoutubeVideoId(`__search__${fallbackSearchQuery}`);
-      setVideoLoading(false);
-    };
-
-    tryInstances();
-  }, [activeTab, currentSong?.id, showPlayer]);
-
   if (!currentSong || !showPlayer) return null;
-
-  const totalDuration =
-    duration && isFinite(duration) && duration > 1
-      ? duration
-      : (currentSong.duration && currentSong.duration > 1 ? currentSong.duration : 0);
-
-  const pct = totalDuration > 0 ? Math.min(100, (progress / totalDuration) * 100) : 0;
 
   const handleAddToQueue = () => {
     addToQueue(currentSong);
@@ -225,31 +458,80 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   };
 
   const handleDownload = () => {
-    const downloadUrl = `https://musicbackend-xg4u.onrender.com/api/downloads/${currentSong.id}/audio`;
-    Linking.openURL(downloadUrl).catch((err: any) => {
-      console.warn("Failed to open download link:", err);
-    });
-  };
-
-  const handleProgressBarPress = (event: any) => {
-    if (totalDuration <= 0) return;
-    // Try to get accurate position using ref.measure first
-    if (progressBarRef.current && typeof progressBarRef.current.measure === "function") {
-      progressBarRef.current.measure((_x: number, _y: number, width: number, _height: number, pageX: number) => {
-        if (width <= 0) return;
-        const touchX = event.nativeEvent.pageX ?? event.nativeEvent.locationX ?? 0;
-        const relX = Math.max(0, touchX - pageX);
-        const ratio = Math.max(0, Math.min(1, relX / width));
-        setProgress(Math.floor(ratio * totalDuration));
-      });
+    if (!currentSong || downloading) return;
+    if (downloaded) {
+      deleteDownloadedSong(currentSong.id);
     } else {
-      // Fallback: use locationX with stored progressBarWidth
-      if (progressBarWidth <= 0) return;
-      const locationX = event.nativeEvent.pageX ?? event.nativeEvent.locationX ?? 0;
-      const ratio = Math.max(0, Math.min(1, locationX / progressBarWidth));
-      setProgress(Math.floor(ratio * totalDuration));
+      downloadSong(currentSong);
     }
   };
+
+  // Synchronize/clear dragProgress when real progress catches up to target position
+  useEffect(() => {
+    if (dragProgress !== null) {
+      const diff = Math.abs(progress - dragProgress);
+      if (diff < 2.5) {
+        setDragProgress(null);
+      }
+    }
+  }, [progress, dragProgress]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt, gestureState) => {
+        isDraggingRef.current = true;
+        const { locationX } = evt.nativeEvent;
+        // Track the absolute coordinate on the screen where the track starts using gestureState.x0
+        trackLeftRef.current = gestureState.x0 - locationX;
+        const ratio = Math.max(0, Math.min(1, locationX / progressBarWidth));
+        setDragProgress(ratio * totalDuration);
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        if (progressBarWidth <= 0 || totalDuration <= 0) return;
+        const currentX = gestureState.moveX - trackLeftRef.current;
+        const ratio = Math.max(0, Math.min(1, currentX / progressBarWidth));
+        const currentVal = ratio * totalDuration;
+        setDragProgress(currentVal);
+      },
+      onPanResponderRelease: (evt, gestureState) => {
+        if (progressBarWidth <= 0 || totalDuration <= 0) {
+          isDraggingRef.current = false;
+          setDragProgress(null);
+          return;
+        }
+        
+        let finalProgress = 0;
+        if (Math.abs(gestureState.dx) > 2) {
+          const currentX = gestureState.moveX - trackLeftRef.current;
+          const ratio = Math.max(0, Math.min(1, currentX / progressBarWidth));
+          finalProgress = Math.floor(ratio * totalDuration);
+        } else {
+          const { locationX } = evt.nativeEvent;
+          const ratio = Math.max(0, Math.min(1, locationX / progressBarWidth));
+          finalProgress = Math.floor(ratio * totalDuration);
+        }
+        
+        setProgress(finalProgress);
+        setDragProgress(finalProgress);
+        
+        // Safety timeout to reset drag lock
+        if (lastSeekTimeRef.current) clearTimeout(lastSeekTimeRef.current);
+        lastSeekTimeRef.current = setTimeout(() => {
+          setDragProgress(null);
+          isDraggingRef.current = false;
+        }, 4000) as any;
+      },
+      onPanResponderTerminate: () => {
+        isDraggingRef.current = false;
+        setDragProgress(null);
+      }
+    })
+  );
+
+  const displayProgress = dragProgress !== null ? dragProgress : progress;
+  const pct = totalDuration > 0 ? Math.min(100, (displayProgress / totalDuration) * 100) : 0;
 
   return (
     <Modal
@@ -274,21 +556,13 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         <View style={styles.contentContainer}>
           {/* Header */}
           <View style={styles.header}>
-            <TouchableOpacity
-              onPress={() => setShowPlayer(false)}
-              style={styles.headerButton}
-              activeOpacity={0.7}
-            >
+            <TouchableOpacity delayPressIn={0} onPress={() => setShowPlayer(false)} style={styles.headerButton} activeOpacity={0.7}>
               <MaterialCommunityIcons name="chevron-down" size={24} color="#fff" />
             </TouchableOpacity>
 
             <Text style={styles.headerTitle}>Now Playing</Text>
 
-            <TouchableOpacity
-              onPress={handleAddToQueue}
-              style={styles.headerButton}
-              activeOpacity={0.7}
-            >
+            <TouchableOpacity delayPressIn={0} onPress={handleAddToQueue} style={styles.headerButton} activeOpacity={0.7}>
               <MaterialCommunityIcons
                 name="playlist-play"
                 size={22}
@@ -297,25 +571,19 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             </TouchableOpacity>
           </View>
 
-          {/* Tab Switcher */}
+          {/* Tab Switcher - always show Video; show Lyrics only when available */}
           <View style={styles.tabBar}>
-            {(["cover", "lyrics", "video"] as TabType[])
-              .filter((tab) => tab !== "lyrics" || (lyrics !== null && lyrics.trim().length > 0))
-              .map((tab) => {
-                const isActive = activeTab === tab;
-                return (
-                  <TouchableOpacity
-                    key={tab}
-                    onPress={() => setActiveTab(tab)}
-                    style={[styles.tabButton, isActive && styles.activeTabButton]}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={[styles.tabButtonText, isActive && styles.activeTabButtonText]}>
-                      {tab.charAt(0).toUpperCase() + tab.slice(1)}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
+            {(["cover", ...((!lyricsLoading && lyrics && lyrics.trim().length > 0) ? ["lyrics"] : []), "video", "equalizer"] as TabType[]).map((tab) => {
+              const isActive = activeTab === tab;
+              return (
+                <TouchableOpacity delayPressIn={0} key={tab} onPress={() => setActiveTab(tab)} style={[styles.tabButton, isActive && styles.activeTabButton]} activeOpacity={0.7}>
+                  <Text style={[styles.tabButtonText, isActive && styles.activeTabButtonText]}>
+                    {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                    {tab === "lyrics" && lyricsLoading ? " ●" : ""}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
 
           {/* Body content based on tab selection */}
@@ -344,12 +612,10 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
               <View style={styles.lyricsWrapper}>
                 {lyrics && lyrics.length > 0 && (
                   <View style={styles.translationContainer}>
-                    {(["original", "en", "hi", "te"] as const).map((lang) => {
+                    {(["original", "en"] as const).map((lang) => {
                       const labelMap = {
                         original: "Original",
-                        en: "English",
-                        hi: "Hindi",
-                        te: "Telugu",
+                        en: "English Script",
                       };
                       const isActive = translationLang === lang;
                       return (
@@ -367,7 +633,14 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
                     })}
                   </View>
                 )}
-                <ScrollView style={styles.lyricsScroll} contentContainerStyle={styles.lyricsScrollContent}>
+                <ScrollView 
+                  ref={lyricsScrollRef}
+                  style={styles.lyricsScroll} 
+                  contentContainerStyle={styles.lyricsScrollContent}
+                  onScroll={handleUserScroll}
+                  scrollEventThrottle={16}
+                  onContentSizeChange={(w, h) => setLyricsContentHeight(h)}
+                >
                   {lyricsLoading ? (
                     <ActivityIndicator size="large" color="#1DB954" style={{ marginTop: 60 }} />
                   ) : lyrics && lyrics.length > 0 ? (
@@ -393,73 +666,149 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
               </View>
             )}
 
-            {/* Video Tab — YouTube embed via WebView */}
+            {/* Video Tab */}
             {activeTab === "video" && (
               <View style={styles.videoWrapper}>
                 {videoLoading ? (
-                  <View style={styles.videoLoadingContainer}>
-                    <ActivityIndicator size="large" color="#FF0000" />
-                    <Text style={styles.videoLoadingText}>Loading YouTube video…</Text>
+                  <View style={styles.videoCenter}>
+                    <ActivityIndicator size="large" color="#1DB954" />
+                    <Text style={styles.videoStatusText}>Loading video...</Text>
                   </View>
                 ) : videoError ? (
-                  <View style={styles.videoErrorContainer}>
-                    <MaterialCommunityIcons name="youtube" size={52} color="rgba(255,255,255,0.2)" />
+                  <View style={styles.videoCenter}>
+                    <MaterialCommunityIcons name="video-off-outline" size={52} color="rgba(255,255,255,0.2)" />
                     <Text style={styles.videoErrorText}>{videoError}</Text>
-                    <TouchableOpacity
-                      style={styles.youtubeSearchBtn}
-                      activeOpacity={0.8}
-                      onPress={() => {
-                        const q = `${currentSong.title} ${currentSong.artist} official video`;
-                        Linking.openURL(`https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`);
-                      }}
-                    >
-                      <MaterialCommunityIcons name="youtube" size={18} color="#fff" />
-                      <Text style={styles.youtubeSearchBtnText}>Search on YouTube</Text>
-                    </TouchableOpacity>
                   </View>
-                ) : youtubeVideoId?.startsWith("__search__") ? (
+                ) : selectedStream ? (
                   <View style={styles.videoPlayerContainer}>
-                    <WebView
-                      style={styles.youtubeWebView}
+                    <Video
                       source={{
-                        uri: `https://www.youtube.com/results?search_query=${youtubeVideoId.replace("__search__", "")}`
+                        uri: selectedStream.url,
+                        overrideFileExtensionAndroid: selectedStream.quality.includes("HLS") ? "m3u8" : undefined
                       }}
-                      allowsFullscreenVideo
-                      javaScriptEnabled
-                      domStorageEnabled
-                      allowsInlineMediaPlayback
-                    />
-                    <Text style={{ color: "rgba(255,255,255,0.5)", textAlign: "center", fontSize: 12, marginTop: 8 }}>
-                      Showing YouTube search — tap a video to play
-                    </Text>
-                  </View>
-                ) : youtubeVideoId ? (
-                  <View style={styles.videoPlayerContainer}>
-                    <WebView
-                      style={styles.youtubeWebView}
-                      source={{
-                        uri: `https://www.youtube-nocookie.com/embed/${youtubeVideoId}?autoplay=1&rel=0&modestbranding=1&playsinline=1`
-                      }}
-                      allowsFullscreenVideo
-                      mediaPlaybackRequiresUserAction={false}
-                      javaScriptEnabled
-                      domStorageEnabled
-                      allowsInlineMediaPlayback
-                      onLoad={() => {
-                        // Pause audio player when video loads
-                        if (isPlaying) togglePlay();
+                      rate={1.0}
+                      volume={1.0}
+                      isMuted={false}
+                      resizeMode={ResizeMode.CONTAIN}
+                      shouldPlay={true}
+                      useNativeControls
+                      style={styles.nativeVideo}
+                      onPlaybackStatusUpdate={(status: any) => {
+                        if (status.isLoaded && status.isPlaying && isPlaying) {
+                          togglePlay();
+                        }
                       }}
                     />
-                    <TouchableOpacity
-                      style={styles.openYoutubeBtn}
-                      activeOpacity={0.8}
-                      onPress={() => Linking.openURL(`https://www.youtube.com/watch?v=${youtubeVideoId}`)}
-                    >
-                      <MaterialCommunityIcons name="open-in-new" size={14} color="rgba(255,255,255,0.6)" />
-                      <Text style={styles.openYoutubeBtnText}>Open in YouTube</Text>
-                    </TouchableOpacity>
+                    {/* Quality selector */}
+                    {videoStreams.length > 1 && (
+                      <ScrollView horizontal style={styles.qualityList} contentContainerStyle={styles.qualityListContent} showsHorizontalScrollIndicator={false}>
+                        {videoStreams.map((stream) => {
+                          const isSel = selectedStream.quality === stream.quality;
+                          return (
+                            <TouchableOpacity
+                              key={stream.quality}
+                              onPress={() => setSelectedStream(stream)}
+                              style={[styles.qualityPill, isSel && styles.activeQualityPill]}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={[styles.qualityText, isSel && styles.activeQualityText]}>
+                                {stream.quality}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </ScrollView>
+                    )}
                   </View>
                 ) : null}
+              </View>
+            )}
+
+            {/* Equalizer Tab */}
+            {activeTab === "equalizer" && (
+              <View style={styles.eqWrapper}>
+                <Text style={styles.eqTitle}>Equalizer</Text>
+                
+                {/* Visual EQ animations */}
+                <View style={styles.eqVisualizerContainer}>
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((bar) => {
+                    const minH = 8;
+                    const maxH = 48;
+                    const val = isPlaying ? Math.floor(Math.random() * (maxH - minH) + minH) : minH;
+                    return (
+                      <View
+                        key={bar}
+                        style={[
+                          styles.eqVisualizerBar,
+                          {
+                            height: val,
+                            backgroundColor: isPlaying ? "#1DB954" : "rgba(255,255,255,0.2)",
+                          },
+                        ]}
+                      />
+                    );
+                  })}
+                </View>
+
+                {/* Preset List */}
+                <Text style={styles.eqSectionTitle}>Presets</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.presetsList}>
+                  {([
+                    { id: "normal", label: "Normal" },
+                    { id: "bass", label: "Bass Booster" },
+                    { id: "treble", label: "Treble Booster" },
+                    { id: "vocal", label: "Vocal Focus" },
+                    { id: "electronic", label: "Electronic" },
+                  ] as const).map((p) => {
+                    const isSel = eqPreset === p.id;
+                    return (
+                      <TouchableOpacity
+                        key={p.id}
+                        onPress={() => handlePresetSelect(p.id)}
+                        style={[styles.presetCard, isSel && styles.presetCardActive]}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[styles.presetText, isSel && styles.presetTextActive]}>
+                          {p.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+
+                {/* Custom Sliders */}
+                <Text style={styles.eqSectionTitle}>Adjustments</Text>
+                {[
+                  { label: "Bass", value: eqBass, setter: setEqBass, type: "bass" },
+                  { label: "Treble", value: eqTreble, setter: setEqTreble, type: "treble" },
+                  { label: "Vocals", value: eqVocal, setter: setEqVocal, type: "vocals" },
+                ].map((slider) => (
+                  <View key={slider.label} style={styles.sliderRow}>
+                    <Text style={styles.sliderLabel}>{slider.label}</Text>
+                    <View style={styles.sliderTrackContainer}>
+                      <TouchableOpacity
+                        activeOpacity={1}
+                        onPress={(e) => {
+                          const { locationX } = e.nativeEvent;
+                          const newVal = Math.max(0, Math.min(10, Math.round((locationX / 160) * 10)));
+                          slider.setter(newVal);
+                          setEqPreset("normal");
+                          saveEqSettings(
+                            slider.type === "bass" ? newVal : eqBass,
+                            slider.type === "treble" ? newVal : eqTreble,
+                            slider.type === "vocals" ? newVal : eqVocal,
+                            "normal"
+                          );
+                        }}
+                        style={styles.sliderTrack}
+                      >
+                        <View pointerEvents="none" style={[styles.sliderFill, { width: `${(slider.value / 10) * 100}%` }]} />
+                        <View pointerEvents="none" style={[styles.sliderThumb, { left: `${(slider.value / 10) * 100}%`, marginLeft: -8 }]} />
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={styles.sliderValueText}>+{slider.value - 5} dB</Text>
+                  </View>
+                ))}
               </View>
             )}
           </View>
@@ -475,8 +824,16 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             </View>
 
             <View style={styles.metaActions}>
-              <TouchableOpacity onPress={handleDownload} style={styles.metaButton} activeOpacity={0.7}>
-                <MaterialCommunityIcons name="download" size={20} color="#fff" />
+              <TouchableOpacity delayPressIn={0} onPress={handleDownload} style={styles.metaButton} activeOpacity={0.7} disabled={downloading}>
+                {downloading ? (
+                  <ActivityIndicator size="small" color="#1DB954" />
+                ) : (
+                  <MaterialCommunityIcons
+                    name={downloaded ? "check-circle" : "download"}
+                    size={20}
+                    color={downloaded ? "#1DB954" : "#fff"}
+                  />
+                )}
               </TouchableOpacity>
 
               <View style={styles.metaLikeWrapper}>
@@ -487,20 +844,18 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
 
           {/* Progress Seek Bar */}
           <View style={styles.progressSection}>
-            <TouchableOpacity
-              ref={progressBarRef}
+            <View
               style={styles.progressBarTrack}
               onLayout={(e: any) => setProgressBarWidth(e.nativeEvent.layout.width)}
-              onPress={handleProgressBarPress}
-              activeOpacity={1}
+              {...panResponder.current.panHandlers}
             >
-              <View style={[styles.progressBarFill, { width: `${pct}%` }]} />
-              <View style={[styles.progressBarThumb, { left: `${pct}%`, marginLeft: -6 }]} />
-            </TouchableOpacity>
+              <View pointerEvents="none" style={[styles.progressBarFill, { width: `${pct}%` }]} />
+              <View pointerEvents="none" style={[styles.progressBarThumb, { left: `${pct}%`, marginLeft: -6 }]} />
+            </View>
 
             <View style={styles.timeLabels}>
               <Text style={styles.timeText}>
-                {totalDuration > 0 ? formatDuration(Math.floor(progress)) : "0:00"}
+                {totalDuration > 0 ? formatDuration(Math.floor(displayProgress)) : "0:00"}
               </Text>
               <Text style={styles.percentageText}>
                 {totalDuration > 0 ? `${Math.round(pct)}%` : "--"}
@@ -513,7 +868,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
 
           {/* Playback controls */}
           <View style={styles.controlsSection}>
-            <TouchableOpacity onPress={toggleShuffle} style={styles.controlBtn} activeOpacity={0.7}>
+            <TouchableOpacity delayPressIn={0} onPress={toggleShuffle} style={styles.controlBtn} activeOpacity={0.7}>
               <MaterialCommunityIcons
                 name="shuffle"
                 size={22}
@@ -522,15 +877,11 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
               {shuffle && <View style={styles.dotIndicator} />}
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={prevSong} style={styles.controlBtn} activeOpacity={0.7}>
+            <TouchableOpacity delayPressIn={0} onPress={prevSong} style={styles.controlBtn} activeOpacity={0.7}>
               <MaterialCommunityIcons name="skip-previous" size={36} color="#fff" />
             </TouchableOpacity>
 
-            <TouchableOpacity
-              onPress={togglePlay}
-              style={styles.playPauseBtn}
-              activeOpacity={0.8}
-            >
+            <TouchableOpacity delayPressIn={0} onPress={togglePlay} style={styles.playPauseBtn} activeOpacity={0.8}>
               <MaterialCommunityIcons
                 name={isPlaying ? "pause" : "play"}
                 size={36}
@@ -538,11 +889,11 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
               />
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={nextSong} style={styles.controlBtn} activeOpacity={0.7}>
+            <TouchableOpacity delayPressIn={0} onPress={nextSong} style={styles.controlBtn} activeOpacity={0.7}>
               <MaterialCommunityIcons name="skip-next" size={36} color="#fff" />
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={cycleRepeat} style={styles.controlBtn} activeOpacity={0.7}>
+            <TouchableOpacity delayPressIn={0} onPress={cycleRepeat} style={styles.controlBtn} activeOpacity={0.7}>
               <View style={{ position: "relative" }}>
                 <MaterialCommunityIcons
                   name="repeat"
@@ -694,80 +1045,56 @@ const styles = StyleSheet.create({
   },
   // Video View
   videoWrapper: {
-    width: "100%",
-    height: "100%",
-    alignItems: "center",
-    justifyContent: "center",
+    flex: 1,
     backgroundColor: "#000",
-    borderRadius: 12,
+    borderRadius: 16,
     overflow: "hidden",
-  },
-  videoLoadingContainer: {
     alignItems: "center",
     justifyContent: "center",
-    gap: 12,
   },
-  videoLoadingText: {
-    fontSize: 13,
+  videoCenter: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  videoStatusText: {
     color: "rgba(255,255,255,0.5)",
-    marginTop: 10,
-  },
-  videoErrorContainer: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 24,
-    gap: 12,
+    fontSize: 13,
+    marginTop: 8,
   },
   videoErrorText: {
     fontSize: 13,
-    color: "rgba(255,255,255,0.45)",
-    marginTop: 6,
+    color: "rgba(255,255,255,0.4)",
     textAlign: "center",
-  },
-  youtubeSearchBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FF0000",
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    gap: 6,
-    marginTop: 6,
-  },
-  youtubeSearchBtnText: {
-    fontSize: 13,
-    color: "#fff",
-    fontWeight: "600",
+    marginTop: 8,
+    paddingHorizontal: 24,
   },
   videoPlayerContainer: {
+    flex: 1,
     width: "100%",
-    height: "100%",
-    backgroundColor: "#000",
   },
-  youtubeWebView: {
+  nativeVideo: {
     flex: 1,
     width: "100%",
     backgroundColor: "#000",
   },
-  openYoutubeBtn: {
+  qualityList: {
+    maxHeight: 44,
+    backgroundColor: "rgba(0,0,0,0.6)",
+  },
+  qualityListContent: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 8,
-    gap: 5,
-    backgroundColor: "rgba(0,0,0,0.7)",
-  },
-  openYoutubeBtnText: {
-    fontSize: 11,
-    color: "rgba(255,255,255,0.6)",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
   qualityPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
     borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.06)",
+    backgroundColor: "rgba(255,255,255,0.1)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
+    borderColor: "rgba(255,255,255,0.15)",
     marginHorizontal: 4,
   },
   activeQualityPill: {
@@ -775,12 +1102,13 @@ const styles = StyleSheet.create({
     borderColor: "#1DB954",
   },
   qualityText: {
-    fontSize: 10,
-    fontWeight: "bold",
-    color: "rgba(255,255,255,0.6)",
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 12,
+    fontWeight: "600",
   },
   activeQualityText: {
     color: "#000",
+    fontWeight: "bold",
   },
   // Meta block
   songMeta: {
@@ -953,5 +1281,109 @@ const styles = StyleSheet.create({
   translatingText: {
     fontSize: 13,
     color: "rgba(255,255,255,0.4)",
+  },
+  eqWrapper: {
+    padding: 16,
+    width: "100%",
+    backgroundColor: "rgba(255,255,255,0.03)",
+    borderRadius: 16,
+    marginVertical: 10,
+    alignItems: "center",
+  },
+  eqTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#fff",
+    marginBottom: 16,
+  },
+  eqVisualizerContainer: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "center",
+    height: 48,
+    width: "100%",
+    marginBottom: 20,
+  },
+  eqVisualizerBar: {
+    width: 6,
+    marginHorizontal: 3,
+    borderRadius: 3,
+  },
+  eqSectionTitle: {
+    alignSelf: "flex-start",
+    fontSize: 12,
+    fontWeight: "700",
+    color: "rgba(255,255,255,0.5)",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginTop: 16,
+    marginBottom: 10,
+  },
+  presetsList: {
+    flexDirection: "row",
+    width: "100%",
+    marginBottom: 16,
+  },
+  presetCard: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 20,
+    marginRight: 10,
+  },
+  presetCardActive: {
+    backgroundColor: "#1DB954",
+  },
+  presetText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "rgba(255,255,255,0.6)",
+  },
+  presetTextActive: {
+    color: "#000",
+  },
+  sliderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    width: "100%",
+    marginVertical: 10,
+  },
+  sliderLabel: {
+    width: 60,
+    fontSize: 14,
+    color: "#fff",
+    fontWeight: "500",
+  },
+  sliderTrackContainer: {
+    flex: 1,
+    height: 30,
+    justifyContent: "center",
+    marginHorizontal: 12,
+  },
+  sliderTrack: {
+    height: 4,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderRadius: 2,
+    position: "relative",
+  },
+  sliderFill: {
+    height: "100%",
+    backgroundColor: "#1DB954",
+    borderRadius: 2,
+  },
+  sliderThumb: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: "#fff",
+    position: "absolute",
+    top: -6,
+  },
+  sliderValueText: {
+    width: 50,
+    fontSize: 12,
+    color: "rgba(255,255,255,0.6)",
+    textAlign: "right",
   },
 });
