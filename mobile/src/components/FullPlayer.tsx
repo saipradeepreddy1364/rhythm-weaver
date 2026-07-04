@@ -2,7 +2,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Modal, Act
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Animated } from 'react-native';
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { WebView } from "react-native-webview";
+import { Video, ResizeMode } from "expo-av";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { usePlayer } from "../context/PlayerContext";
 import { formatDuration, Song } from "../data/songs";
@@ -15,57 +15,158 @@ interface FullPlayerProps {
 
 type TabType = "cover" | "lyrics" | "video";
 
-// ─── YouTube Video ID Resolver ────────────────────────────────────────────────
-// Resolves a YouTube video ID for a given song using backend first, then
-// falls back to YouTube search query (which the WebView embed can handle)
-async function resolveYouTubeVideoId(song: Song): Promise<string | null> {
+interface VideoStream {
+  url: string;
+  quality: string;
+}
+
+const PIPED_INSTANCES = [
+  "https://pipedapi.adminforge.de",
+  "https://pipedapi.projectsegfau.lt",
+  "https://pipedapi.kavin.rocks",
+  "https://pipedapi-libre.kavin.rocks",
+  "https://pipedapi.leptons.xyz",
+  "https://api.looleh.xyz"
+];
+
+const INVIDIOUS_INSTANCES = [
+  "https://iv.melmac.space",
+  "https://invidious.flokinet.to",
+  "https://invidious.privacydev.net",
+  "https://invidious.projectsegfau.lt",
+  "https://invidious.lunar.host",
+  "https://inv.tux.pizza"
+];
+
+async function resolveVideoStreams(song: Song): Promise<VideoStream[]> {
   const songId = song.id;
   
-  // 1. Direct YouTube song → strip prefix
+  // 1. If it's a YouTube song, resolve streams directly
   if (songId.startsWith("yt-")) {
-    return songId.replace("yt-", "");
+    const videoId = songId.replace("yt-", "");
+    const piped = await fetchPipedStreams(videoId);
+    if (piped.length > 0) return piped;
+    return await fetchInvidiousStreams(videoId);
   }
 
-  // 2. Ask backend for a video-url that may contain a videoId
+  // 2. If it's a JioSaavn song, try the backend's video-url matching first
   try {
     const res = await Promise.race([
       fetch(`https://musicbackend-xg4u.onrender.com/api/songs/${songId}/video-url`),
-      new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 6000))
+      new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
     ]);
     if (res.ok) {
       const data = await res.json();
-      // Backend may return { videoId: "...", url: "https://youtube.com/watch?v=..." }
-      const videoId: string | undefined =
-        data.videoId ??
-        data.data?.videoId ??
-        (() => {
-          const urlStr: string | undefined = data.url ?? data.data?.url;
-          if (urlStr) {
-            const m = urlStr.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]{11})/);
-            return m?.[1];
-          }
-          return undefined;
-        })();
-      if (videoId && videoId.length >= 11) {
-        console.log("[FullPlayer] Got videoId from backend:", videoId);
-        return videoId;
+      const streams: VideoStream[] = data.streams ?? data.data?.streams ?? (Array.isArray(data) ? data : []);
+      if (Array.isArray(streams) && streams.length > 0) {
+        return streams.map(s => ({ url: s.url, quality: s.quality }));
       }
     }
   } catch (err) {
-    console.log("[FullPlayer] Backend video-url failed:", err);
+    console.log("[FullPlayer] Backend video-url resolve failed, falling back to Piped search:", err);
   }
 
-  // 3. Return null — WebView will use search query fallback embed
-  return null;
+  // 3. Fallback: Search YouTube via Piped/Invidious to match the song
+  const query = `${song.title} ${song.artist} official video`;
+  for (const instance of PIPED_INSTANCES) {
+    try {
+      const searchRes = await Promise.race([
+        fetch(`${instance}/search?q=${encodeURIComponent(query)}&filter=videos`),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
+      ]);
+      if (!searchRes.ok) continue;
+      const searchData = await searchRes.json();
+      const items = searchData.items || [];
+      const firstVideoId = items[0]?.videoId;
+      if (firstVideoId) {
+        console.log(`[FullPlayer] Piped search resolved video ID: ${firstVideoId}`);
+        const streams = await fetchPipedStreams(firstVideoId, instance);
+        if (streams.length > 0) return streams;
+        const invidiousStreams = await fetchInvidiousStreams(firstVideoId);
+        if (invidiousStreams.length > 0) return invidiousStreams;
+      }
+    } catch { /* try next instance */ }
+  }
+
+  for (const instance of INVIDIOUS_INSTANCES) {
+    try {
+      const searchRes = await Promise.race([
+        fetch(`${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video`),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
+      ]);
+      if (!searchRes.ok) continue;
+      const searchData = await searchRes.json();
+      const items = Array.isArray(searchData) ? searchData : [];
+      const firstVideoId = items[0]?.videoId;
+      if (firstVideoId) {
+        console.log(`[FullPlayer] Invidious search resolved video ID: ${firstVideoId}`);
+        const streams = await fetchInvidiousStreams(firstVideoId);
+        if (streams.length > 0) return streams;
+      }
+    } catch { /* try next */ }
+  }
+
+  return [];
 }
 
-// Build a YouTube embed URL that works reliably in WebView
-function buildYouTubeEmbedUrl(videoIdOrQuery: string, isQuery: boolean, startSeconds = 0): string {
-  if (isQuery) {
-    // Use YouTube search embed - opens YouTube search in the webview
-    return `https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(videoIdOrQuery)}&autoplay=1&mute=1&modestbranding=1&rel=0&start=${Math.floor(startSeconds)}`;
+async function fetchPipedStreams(videoId: string, preferredInstance?: string): Promise<VideoStream[]> {
+  const instances = preferredInstance ? [preferredInstance, ...PIPED_INSTANCES] : PIPED_INSTANCES;
+  for (const instance of instances) {
+    try {
+      const res = await Promise.race([
+        fetch(`${instance}/streams/${videoId}`),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
+      ]);
+      if (!res.ok) continue;
+      const data = await res.json();
+
+      // If HLS streaming playlist is available, use it as first choice since it is proxied and bypasses YouTube IP lock!
+      if (data.hls) {
+        return [{ url: data.hls, quality: "Auto (HLS)" }];
+      }
+
+      const vs: any[] = data.videoStreams || [];
+      if (vs.length > 0) {
+        return vs.map((s) => ({ url: s.url, quality: s.quality }));
+      }
+    } catch { /* try next */ }
   }
-  return `https://www.youtube.com/embed/${videoIdOrQuery}?autoplay=1&mute=1&modestbranding=1&rel=0&playsinline=1&start=${Math.floor(startSeconds)}`;
+  return [];
+}
+
+async function fetchInvidiousStreams(videoId: string): Promise<VideoStream[]> {
+  for (const instance of INVIDIOUS_INSTANCES) {
+    try {
+      const res = await Promise.race([
+        fetch(`${instance}/api/v1/videos/${videoId}`),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
+      ]);
+      if (!res.ok) continue;
+      const data = await res.json();
+      
+      const streams: VideoStream[] = [];
+      if (data.hlsUrl) {
+        streams.push({ url: data.hlsUrl, quality: "Auto (HLS)" });
+      }
+      
+      const formatStreams = data.formatStreams || [];
+      if (formatStreams.length > 0) {
+        formatStreams.forEach((s: any) => {
+          if (s.url) {
+            streams.push({ url: s.url, quality: `${s.qualityLabel || s.quality} (${s.container || "mp4"})` });
+          }
+        });
+      }
+      
+      if (streams.length > 0) {
+        console.log(`[FullPlayer] Resolved video streams from Invidious instance ${instance}`);
+        return streams;
+      }
+    } catch (err) {
+      console.warn(`[FullPlayer] Invidious streams failed on ${instance}:`, err);
+    }
+  }
+  return [];
 }
 
 // Clean lyrics utility matching web app regex cleaning
@@ -167,10 +268,13 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   const [lyricsLoading, setLyricsLoading] = useState(false);
   const [queuedFlash, setQueuedFlash] = useState(false);
   const [progressBarWidth, setProgressBarWidth] = useState(0);
-  const [youtubeVideoId, setYoutubeVideoId] = useState<string | null>(null);
-  const [youtubeQuery, setYoutubeQuery] = useState<string>("");
+  const [videoStreams, setVideoStreams] = useState<VideoStream[]>([]);
+  const [selectedStream, setSelectedStream] = useState<VideoStream | null>(null);
   const [videoLoading, setVideoLoading] = useState(false);
   const [videoError, setVideoError] = useState<string | null>(null);
+  const videoRef = useRef<any>(null);
+  const lastVideoSyncRef = useRef<number>(-1);
+  const videoReadyRef = useRef(false);
 
   // Lyrics scrolling refs & states
   const lyricsScrollRef = useRef<ScrollView>(null);
@@ -280,45 +384,56 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
     setActiveTab("cover");
     setLyrics(null);
     setTranslationLang("original");
-    setYoutubeVideoId(null);
-    setYoutubeQuery("");
+    setVideoStreams([]);
+    setSelectedStream(null);
     setVideoError(null);
   }, [currentSong?.id]);
 
-  // Load YouTube video when Video tab is active
-  const videoLoadIdRef = useRef(0);
+  // Load video streams when Video tab is active — keep audio playing, video is muted and synced
+  const videoLoadIdRef = useRef(0); // cancel stale fetches when song changes mid-load
 
   useEffect(() => {
     if (activeTab !== "video" || !currentSong || !showPlayer) return;
 
+    // Reset and re-fetch whenever song changes or tab becomes active
     const loadId = ++videoLoadIdRef.current;
-    setYoutubeVideoId(null);
-    setYoutubeQuery("");
+    videoReadyRef.current = false;
+    lastVideoSyncRef.current = -1;
+    setSelectedStream(null);
+    setVideoStreams([]);
     setVideoLoading(true);
     setVideoError(null);
 
-    // Build search query as fallback
-    const searchQuery = `${currentSong.title} ${currentSong.artist} official video`;
-
-    resolveYouTubeVideoId(currentSong)
-      .then((videoId) => {
-        if (loadId !== videoLoadIdRef.current) return;
-        if (videoId) {
-          setYoutubeVideoId(videoId);
+    resolveVideoStreams(currentSong)
+      .then((streams) => {
+        if (loadId !== videoLoadIdRef.current) return; // stale, song changed
+        if (streams.length > 0) {
+          setVideoStreams(streams);
+          setSelectedStream(streams[0]);
         } else {
-          // Use search query fallback — YouTube embed search
-          setYoutubeQuery(searchQuery);
+          setVideoError("No video available for this song.");
         }
       })
       .catch(() => {
         if (loadId !== videoLoadIdRef.current) return;
-        setYoutubeQuery(searchQuery);
+        setVideoError("Failed to load video.");
       })
       .finally(() => {
         if (loadId !== videoLoadIdRef.current) return;
         setVideoLoading(false);
       });
   }, [activeTab, currentSong?.id, showPlayer]);
+
+  // Sync video position to song progress every ~2 seconds
+  useEffect(() => {
+    if (activeTab !== "video" || !videoRef.current || !videoReadyRef.current) return;
+    const diff = Math.abs(progress - lastVideoSyncRef.current);
+    // Seek if drift > 2s to keep in sync
+    if (diff > 2) {
+      lastVideoSyncRef.current = progress;
+      videoRef.current.setPositionAsync(Math.floor(progress * 1000)).catch(() => {});
+    }
+  }, [progress, activeTab]);
 
   // Load lyrics
   useEffect(() => {
@@ -566,51 +681,83 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
               </View>
             )}
 
-            {/* Video Tab — YouTube WebView embed */}
+            {/* Video Tab */}
             {activeTab === "video" && (
               <View style={styles.videoWrapper}>
                 {videoLoading ? (
                   <View style={styles.videoCenter}>
                     <ActivityIndicator size="large" color="#1DB954" />
-                    <Text style={styles.videoStatusText}>Finding video...</Text>
+                    <Text style={styles.videoStatusText}>Loading video...</Text>
                   </View>
-                ) : (youtubeVideoId || youtubeQuery) ? (
-                  <View style={styles.videoPlayerContainer}>
-                    <WebView
-                      key={youtubeVideoId ?? youtubeQuery}
-                      style={styles.nativeVideo}
-                      source={{
-                        uri: buildYouTubeEmbedUrl(
-                          youtubeVideoId ?? youtubeQuery,
-                          !youtubeVideoId,
-                          progress > 2 ? progress : 0
-                        )
-                      }}
-                      allowsInlineMediaPlayback={true}
-                      mediaPlaybackRequiresUserAction={false}
-                      allowsFullscreenVideo={true}
-                      javaScriptEnabled={true}
-                      domStorageEnabled={true}
-                      startInLoadingState={true}
-                      renderLoading={() => (
-                        <View style={[styles.nativeVideo, styles.videoCenter, { backgroundColor: "#000" }]}>
-                          <ActivityIndicator size="large" color="#1DB954" />
-                          <Text style={styles.videoStatusText}>Loading player...</Text>
-                        </View>
-                      )}
-                    />
-                    {/* Badge */}
-                    <View style={styles.syncBadge}>
-                      <MaterialCommunityIcons name="headphones" size={13} color="rgba(255,255,255,0.7)" />
-                      <Text style={styles.syncBadgeText}>Audio from Medley • Video via YouTube</Text>
-                    </View>
-                  </View>
-                ) : (
+                ) : videoError ? (
                   <View style={styles.videoCenter}>
                     <MaterialCommunityIcons name="video-off-outline" size={52} color="rgba(255,255,255,0.2)" />
-                    <Text style={styles.videoErrorText}>No video found for this song</Text>
+                    <Text style={styles.videoErrorText}>{videoError}</Text>
                   </View>
-                )}
+                ) : selectedStream ? (
+                  <View style={styles.videoPlayerContainer}>
+                    <Video
+                      ref={videoRef}
+                      source={{
+                        uri: selectedStream.url,
+                        overrideFileExtensionAndroid: selectedStream.quality.includes("HLS") ? "m3u8" : undefined
+                      }}
+                      rate={1.0}
+                      volume={0}
+                      isMuted={true}
+                      resizeMode={ResizeMode.CONTAIN}
+                      shouldPlay={isPlaying}
+                      style={styles.nativeVideo}
+                      onReadyForDisplay={() => {
+                        videoReadyRef.current = true;
+                        // Seek video to current song position on load
+                        if (videoRef.current && progress > 0) {
+                          lastVideoSyncRef.current = progress;
+                          videoRef.current.setPositionAsync(Math.floor(progress * 1000)).catch(() => {});
+                        }
+                      }}
+                      onPlaybackStatusUpdate={(status: any) => {
+                        if (!status.isLoaded) return;
+                        // Keep video play-state in sync with audio player
+                        if (status.isPlaying !== isPlaying) {
+                          if (isPlaying) {
+                            videoRef.current?.playAsync().catch(() => {});
+                          } else {
+                            videoRef.current?.pauseAsync().catch(() => {});
+                          }
+                        }
+                      }}
+                    />
+                    {/* Sync indicator badge */}
+                    <View style={styles.syncBadge}>
+                      <MaterialCommunityIcons name="headphones" size={13} color="rgba(255,255,255,0.7)" />
+                      <Text style={styles.syncBadgeText}>Audio from player • Video synced</Text>
+                    </View>
+                    {/* Quality selector */}
+                    {videoStreams.length > 1 && (
+                      <ScrollView horizontal style={styles.qualityList} contentContainerStyle={styles.qualityListContent} showsHorizontalScrollIndicator={false}>
+                        {videoStreams.map((stream) => {
+                          const isSel = selectedStream.quality === stream.quality;
+                          return (
+                            <TouchableOpacity
+                              key={stream.quality}
+                              onPress={() => {
+                                setSelectedStream(stream);
+                                videoReadyRef.current = false;
+                              }}
+                              style={[styles.qualityPill, isSel && styles.activeQualityPill]}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={[styles.qualityText, isSel && styles.activeQualityText]}>
+                                {stream.quality}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </ScrollView>
+                    )}
+                  </View>
+                ) : null}
               </View>
             )}
 

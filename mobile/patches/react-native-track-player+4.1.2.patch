@@ -1,5 +1,5 @@
 diff --git a/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/module/MusicModule.kt b/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/module/MusicModule.kt
-index b2409a0..42efd37 100644
+index b2409a0..0675a51 100644
 --- a/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/module/MusicModule.kt
 +++ b/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/module/MusicModule.kt
 @@ -545,7 +545,7 @@ class MusicModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
@@ -22,5 +22,115 @@ index b2409a0..42efd37 100644
 +                Arguments.fromBundle(it)
 +            }
          )
+     }
+ 
+@@ -626,4 +626,15 @@ class MusicModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
+         if (verifyServiceBoundOrReject(callback)) return@launch
+         callback.resolve(Arguments.fromBundle(musicService.getPlayerStateBundle(musicService.state)))
+     }
++
++    @ReactMethod
++    fun setEqualizerBands(bass: Int, treble: Int, vocal: Int, callback: Promise) = scope.launch {
++        if (verifyServiceBoundOrReject(callback)) return@launch
++        try {
++            musicService.applyEqualizer(bass, treble, vocal)
++            callback.resolve(null)
++        } catch (e: Exception) {
++            callback.reject("equalizer_error", e.message, e)
++        }
++    }
+ }
+diff --git a/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt b/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
+index afa6b0f..ce7c267 100644
+--- a/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
++++ b/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
+@@ -38,6 +38,8 @@ import kotlinx.coroutines.*
+ import kotlinx.coroutines.flow.flow
+ import java.util.concurrent.TimeUnit
+ import kotlin.system.exitProcess
++import android.media.audiofx.Equalizer
++import android.media.audiofx.AudioEffect
+ import timber.log.Timber
+ 
+ @MainThread
+@@ -47,6 +49,57 @@ class MusicService : HeadlessJsTaskService() {
+     private val scope = MainScope()
+     private var progressUpdateJob: Job? = null
+ 
++    // Real-time Android Equalizer instance
++    private var nativeEqualizer: Equalizer? = null
++    private var lastBass: Int = 5
++    private var lastTreble: Int = 5
++    private var lastVocal: Int = 5
++
++    fun applyEqualizer(bass: Int, treble: Int, vocal: Int) {
++        lastBass = bass
++        lastTreble = treble
++        lastVocal = vocal
++
++        if (!::player.isInitialized) return
++        
++        try {
++            val sessionId = player.exoPlayer.audioSessionId
++            if (sessionId == AudioEffect.ERROR_INVALID_AUDIO_SESSION || sessionId == 0) return
++
++            if (nativeEqualizer == null || nativeEqualizer?.audioSession != sessionId) {
++                nativeEqualizer?.release()
++                nativeEqualizer = Equalizer(0, sessionId)
++                nativeEqualizer?.enabled = true
++            }
++
++            val eq = nativeEqualizer ?: return
++            val numBands = eq.numberOfBands.toInt()
++            if (numBands == 0) return
++
++            val minRange = eq.bandLevelRange[0] // e.g. -1500 (-15dB)
++            val maxRange = eq.bandLevelRange[1] // e.g. 1500 (+15dB)
++            val step = (maxRange - minRange) / 10
++
++            // Bass: Bands 0 and 1
++            val bassVal = (minRange + bass * step).toShort()
++            if (numBands > 0) eq.setBandLevel(0, bassVal)
++            if (numBands > 1) eq.setBandLevel(1, bassVal)
++
++            // Vocals (Mid-range): Band 2
++            val vocalVal = (minRange + vocal * step).toShort()
++            if (numBands > 2) eq.setBandLevel(2, vocalVal)
++
++            // Treble: Bands 3 and 4
++            val trebleVal = (minRange + treble * step).toShort()
++            if (numBands > 3) eq.setBandLevel(3, trebleVal)
++            if (numBands > 4) eq.setBandLevel(4, trebleVal)
++
++        } catch (e: Exception) {
++            Timber.e(e, "Failed to apply native equalizer parameters")
++        }
++    }
++
++
+     /**
+      * Use [appKilledPlaybackBehavior] instead.
+      */
+@@ -606,6 +659,10 @@ class MusicService : HeadlessJsTaskService() {
+             event.stateChange.collect {
+                 emit(MusicEvents.PLAYBACK_STATE, getPlayerStateBundle(it))
+ 
++                if (it == AudioPlayerState.READY || it == AudioPlayerState.PLAYING) {
++                    applyEqualizer(lastBass, lastTreble, lastVocal)
++                }
++
+                 if (it == AudioPlayerState.ENDED && player.nextItem == null) {
+                     emitQueueEndedEvent()
+                 }
+@@ -803,6 +860,11 @@ class MusicService : HeadlessJsTaskService() {
+             player.destroy()
+         }
+ 
++        try {
++            nativeEqualizer?.release()
++            nativeEqualizer = null
++        } catch (e: Exception) {}
++
+         progressUpdateJob?.cancel()
      }
  
