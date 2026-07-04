@@ -408,10 +408,14 @@ function isDevotionalSong(song: Song): boolean {
   const keywords = [
     "bhajan", "aarti", "chalisa", "devotional", "bhakti", "mantra", 
     "stotram", "dhun", "stotra", "shlok", "shloka", "kirtan", 
-    "hanuman", "ram", "shri ram", "krishna", "ganesha",
+    "hanuman", "ram", "shri ram", "krishna", "ganesha", "ganesh",
     "shiv bhajan", "sai baba", "spiritual", "durga", "prayer", 
     "chants", "suprabhatam", "namam", "keerthana", "slokam", 
-    "ayyappa", "tirupati", "govinda", "god", "temple", "divine"
+    "ayyappa", "tirupati", "govinda", "god", "temple", "divine",
+    "harati", "harathi", "stothram", "stothra", "suprabhatham", 
+    "sharanu", "sharanam", "namavali", "sloka", "ashtakam",
+    "mahadevi", "shiva", "rama", "venkateswara", "venkatesh",
+    "narayana", "lakshmi", "saraswati", "vigneshwara"
   ];
   
   return keywords.some(kw => title.includes(kw) || album.includes(kw) || genre.includes(kw));

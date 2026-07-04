@@ -428,15 +428,22 @@ function decodeHtml(str: string): string {
 function isDevotionalSong(song: Song): boolean {
   const title = (song.title || "").toLowerCase();
   const album = (song.album || song.movie || "").toLowerCase();
+  const genre = (song.genre || "").toLowerCase();
   
   const keywords = [
     "bhajan", "aarti", "chalisa", "devotional", "bhakti", "mantra", 
     "stotram", "dhun", "stotra", "shlok", "shloka", "kirtan", 
-    "hanuman chalisa", "shri ram", "krishna bhajan", "ganesha bhajan",
-    "shiv bhajan", "sai baba", "spiritual", "durga chalisa"
+    "hanuman", "ram", "shri ram", "krishna", "ganesha", "ganesh",
+    "shiv bhajan", "sai baba", "spiritual", "durga", "prayer", 
+    "chants", "suprabhatam", "namam", "keerthana", "slokam", 
+    "ayyappa", "tirupati", "govinda", "god", "temple", "divine",
+    "harati", "harathi", "stothram", "stothra", "suprabhatham", 
+    "sharanu", "sharanam", "namavali", "sloka", "ashtakam",
+    "mahadevi", "shiva", "rama", "venkateswara", "venkatesh",
+    "narayana", "lakshmi", "saraswati", "vigneshwara"
   ];
   
-  return keywords.some(kw => title.includes(kw) || album.includes(kw));
+  return keywords.some(kw => title.includes(kw) || album.includes(kw) || genre.includes(kw));
 }
 
 
