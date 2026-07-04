@@ -363,14 +363,26 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           setDragProgress(null);
           return;
         }
-        if (dragProgress !== null) {
-          const finalProgress = Math.floor(Math.max(0, Math.min(totalDuration, dragProgress)));
-          setProgress(finalProgress);
+        
+        let finalProgress = 0;
+        if (Math.abs(gestureState.dx) > 2) {
+          const currentX = gestureState.moveX - trackLeftRef.current;
+          const ratio = Math.max(0, Math.min(1, currentX / progressBarWidth));
+          finalProgress = Math.floor(ratio * totalDuration);
+        } else {
+          const { locationX } = evt.nativeEvent;
+          const ratio = Math.max(0, Math.min(1, locationX / progressBarWidth));
+          finalProgress = Math.floor(ratio * totalDuration);
         }
-        setDragProgress(null);
+        
+        setProgress(finalProgress);
+        // Lock the visual seek progress to the final position during buffering
+        setDragProgress(finalProgress);
+        
         setTimeout(() => {
+          setDragProgress(null);
           isDraggingRef.current = false;
-        }, 100);
+        }, 800);
       },
       onPanResponderTerminate: () => {
         isDraggingRef.current = false;
