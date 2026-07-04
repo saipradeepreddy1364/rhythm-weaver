@@ -390,30 +390,39 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   }, [currentSong?.id]);
 
   // Load video streams when Video tab is active — keep audio playing, video is muted and synced
+  const videoLoadIdRef = useRef(0); // cancel stale fetches when song changes mid-load
+
   useEffect(() => {
-    if (activeTab === "video") {
-      // Do NOT pause TrackPlayer — audio keeps playing, video is muted & synced
-      if (!currentSong || !showPlayer) return;
-      if (videoStreams.length > 0) {
-        // Re-sync video position on tab entry
-        videoReadyRef.current = false;
-        return;
-      }
-      setVideoLoading(true);
-      setVideoError(null);
-      resolveVideoStreams(currentSong)
-        .then((streams) => {
-          if (streams.length > 0) {
-            setVideoStreams(streams);
-            setSelectedStream(streams[0]);
-          } else {
-            setVideoError("No video available for this song.");
-          }
-        })
-        .catch(() => setVideoError("Failed to load video."))
-        .finally(() => setVideoLoading(false));
-    }
-  }, [activeTab]);
+    if (activeTab !== "video" || !currentSong || !showPlayer) return;
+
+    // Reset and re-fetch whenever song changes or tab becomes active
+    const loadId = ++videoLoadIdRef.current;
+    videoReadyRef.current = false;
+    lastVideoSyncRef.current = -1;
+    setSelectedStream(null);
+    setVideoStreams([]);
+    setVideoLoading(true);
+    setVideoError(null);
+
+    resolveVideoStreams(currentSong)
+      .then((streams) => {
+        if (loadId !== videoLoadIdRef.current) return; // stale, song changed
+        if (streams.length > 0) {
+          setVideoStreams(streams);
+          setSelectedStream(streams[0]);
+        } else {
+          setVideoError("No video available for this song.");
+        }
+      })
+      .catch(() => {
+        if (loadId !== videoLoadIdRef.current) return;
+        setVideoError("Failed to load video.");
+      })
+      .finally(() => {
+        if (loadId !== videoLoadIdRef.current) return;
+        setVideoLoading(false);
+      });
+  }, [activeTab, currentSong?.id, showPlayer]);
 
   // Sync video position to song progress every ~2 seconds
   useEffect(() => {
