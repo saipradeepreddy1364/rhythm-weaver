@@ -1334,13 +1334,27 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
     if (quickPickSongs.length > 0) return;
     const pool = sections.flatMap((s) => s.songs);
     if (pool.length === 0) return;
-    const filteredPool = pool.filter((song) => {
-      if (!song.language) return false;
-      const lang = song.language.toLowerCase().trim();
-      return lang === "telugu" || lang === "hindi";
+
+    // Filter out devotional songs and separate by language
+    const teluguSongs = pool.filter((song) => {
+      if (!song.language || isDevotionalSong(song)) return false;
+      return song.language.toLowerCase().trim() === "telugu";
     });
-    if (filteredPool.length >= 12) {
-      setQuickPickSongs(seededShuffle(filteredPool, todaysSeed()).slice(0, 12));
+
+    const hindiSongs = pool.filter((song) => {
+      if (!song.language || isDevotionalSong(song)) return false;
+      return song.language.toLowerCase().trim() === "hindi";
+    });
+
+    // Populate only when we have at least 6 of each language to ensure equal representation
+    if (teluguSongs.length >= 6 && hindiSongs.length >= 6) {
+      const selectedTelugu = seededShuffle(teluguSongs, todaysSeed()).slice(0, 6);
+      const selectedHindi = seededShuffle(hindiSongs, todaysSeed()).slice(0, 6);
+      
+      // Combine and mix the final 12 songs with a stable seed
+      const combined = [...selectedTelugu, ...selectedHindi];
+      const mixed = seededShuffle(combined, todaysSeed() + 9);
+      setQuickPickSongs(mixed);
     }
   }, [sections, quickPickSongs.length]);
 
