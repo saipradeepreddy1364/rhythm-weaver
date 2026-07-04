@@ -791,8 +791,14 @@ async function searchPiped(query: string): Promise<Song[]> {
     "https://pipedapi.adminforge.de",
     "https://pipedapi.projectsegfau.lt",
     "https://pipedapi.kavin.rocks",
+    "https://pipedapi-libre.kavin.rocks",
     "https://pipedapi.leptons.xyz",
-    "https://api.looleh.xyz"
+    "https://api.looleh.xyz",
+    "https://piapi.ggtyler.dev",
+    "https://pipedapi.moomoo.me",
+    "https://pipedapi.ox.am",
+    "https://piped-api.garudalinux.org",
+    "https://pipedapi.tokhmi.xyz"
   ];
 
   const fetchPromises = PIPED_INSTANCES.map(async (instance) => {
@@ -850,6 +856,50 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
   const [activeLangAlbum, setActiveLangAlbum] = useState<string | null>(null);
   const [activeAlbum, setActiveAlbum]       = useState<Album | null>(null);
   const [activeArtist, setActiveArtist]     = useState<Artist | null>(null);
+
+  // Load and dynamically resolve generic stock category cover art with correct album arts
+  const [categoryCovers, setCategoryCovers] = useState<Record<string, string>>(() => {
+    const initial: Record<string, string> = {};
+    BROWSE_CATEGORIES.forEach((cat) => {
+      const cache = getCategoryCache(cat.label);
+      initial[cat.label] = cache.coverArt || cat.cover;
+    });
+    return initial;
+  });
+
+  useEffect(() => {
+    let unmounted = false;
+    const resolveCovers = async () => {
+      for (const cat of BROWSE_CATEGORIES) {
+        if (unmounted) break;
+        const cache = getCategoryCache(cat.label);
+        if (cache.coverArt) continue;
+
+        try {
+          const res = await api.searchSongs(cat.query, 1, 1);
+          const raw = extractResults(res);
+          if (raw.length > 0) {
+            const mapped = mapApiSong(raw[0]);
+            if (mapped.albumArt) {
+              if (!unmounted) {
+                setCategoryCovers((prev) => ({ ...prev, [cat.label]: mapped.albumArt! }));
+              }
+              saveCategoryCache(cat.label, [], mapped.albumArt!);
+            }
+          }
+        } catch {
+          // continue
+        }
+        await sleep(400);
+      }
+    };
+    
+    const timer = setTimeout(resolveCovers, 1500);
+    return () => {
+      unmounted = true;
+      clearTimeout(timer);
+    };
+  }, []);
 
   // Debounce query
   useEffect(() => {
@@ -922,6 +972,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
     const cache = getCategoryCache(label);
     if (cache.songs.length > 0) {
       setCategorySongs(cache.songs);
+      setActiveCategory({ label, coverArt: cache.coverArt || coverArt });
       setCategoryLoading(false);
       return;
     }
@@ -950,8 +1001,12 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
         }
       }
 
+      const resolvedCover = allSongs[0]?.albumArt || coverArt;
       setCategorySongs(allSongs);
-      saveCategoryCache(label, allSongs, coverArt);
+      setActiveCategory({ label, coverArt: resolvedCover });
+      saveCategoryCache(label, allSongs, resolvedCover);
+      
+      setCategoryCovers((prev) => ({ ...prev, [label]: resolvedCover }));
     } catch (err) {
       console.warn("[SearchPage] Failed to load category songs:", err);
     } finally {
@@ -984,7 +1039,38 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
           />
         </View>
 
-        {/* Search Results filter tabs removed as requested */}
+        {/* Search Results filter tabs restored */}
+        {query.trim().length > 0 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.filterTabs}
+            contentContainerStyle={{ paddingBottom: 8 }}
+          >
+            {(["all", "songs", "albums", "artists", "youtube"] as const).map((tab) => {
+              const isActive = activeTab === tab;
+              const labelMap = {
+                all: "All",
+                songs: "Songs",
+                albums: "Albums",
+                artists: "Artists",
+                youtube: "YouTube"
+              };
+              return (
+                <TouchableOpacity
+                  key={tab}
+                  onPress={() => setActiveTab(tab)}
+                  style={[styles.filterTabBtn, isActive && styles.activeFilterTabBtn]}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.filterTabText, isActive && styles.activeFilterTabText]}>
+                    {labelMap[tab]}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        )}
       </View>
 
       <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
@@ -998,7 +1084,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                   <CategoryCard
                     label={cat.label}
                     query={cat.query}
-                    coverArt={cat.cover}
+                    coverArt={categoryCovers[cat.label] || cat.cover}
                     onSelect={handleCategorySelect}
                   />
                 </View>

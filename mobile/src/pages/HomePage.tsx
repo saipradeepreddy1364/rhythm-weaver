@@ -1659,6 +1659,20 @@ class HomePagePrefetcher {
       this._notify();
     }
 
+    // Fallback: Fetch film albums and artist albums directly on frontend
+    const fakeRef = { current: false };
+    fetchCurrentYearFilmAlbums(fakeRef as any).then((films) => {
+      if (films.length > 0) {
+        this._filmAlbums = films;
+        this._notify();
+      }
+    }).catch(err => console.warn("Fallback film albums fetch failed:", err));
+
+    loadArtistAlbums(fakeRef as any, (artAlbum) => {
+      this._artistAlbums = [...this._artistAlbums.filter(a => a.title !== artAlbum.title), artAlbum];
+      this._notify();
+    }).catch(err => console.warn("Fallback artist albums fetch failed:", err));
+
     // Then fetch remaining sections one at a time
     for (const def of restDefs) {
       try {
@@ -1674,6 +1688,9 @@ class HomePagePrefetcher {
     // Cache what we got
     if (this._sections.length > 0) {
       cacheSet(this.secKey, this._sections);
+    }
+    if (this._filmAlbums.length > 0 || this._artistAlbums.length > 0) {
+      cacheSet(this.albKey, { film: this._filmAlbums, artist: this._artistAlbums });
     }
   }
 }
