@@ -1,5 +1,6 @@
 import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Modal, ActivityIndicator, Linking, Platform, PanResponder, Dimensions } from 'react-native'
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { Animated } from 'react-native';
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Video, ResizeMode } from "expo-av";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -248,10 +249,14 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   const downloaded = currentSong ? isDownloaded(currentSong.id) : false;
   const downloading = currentSong ? downloadingIds.includes(currentSong.id) : false;
 
+  const dragProgressRef = useRef<number | null>(null);
   const [dragProgress, setDragProgress] = useState<number | null>(null);
   const trackLeftRef = useRef(0);
   const isDraggingRef = useRef(false);
-  const lastSeekTimeRef = useRef(0);
+  const lastSeekTimeRef = useRef<any>(0);
+
+  // Animated value drives fill + thumb on native thread — no JS re-render lag
+  const animPct = useRef(new Animated.Value(0)).current;
 
   const totalDuration =
     duration && isFinite(duration) && duration > 1
@@ -448,15 +453,32 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
     }
   };
 
+  // Keep animPct in sync with progress (and drag overrides)
+  useEffect(() => {
+    const displayPct = totalDuration > 0
+      ? Math.min(100, ((dragProgress !== null ? dragProgress : progress) / totalDuration) * 100)
+      : 0;
+    animPct.setValue(displayPct);
+  }, [progress, dragProgress, totalDuration]);
+
   // Synchronize/clear dragProgress when real progress catches up to target position
   useEffect(() => {
     if (dragProgress !== null) {
       const diff = Math.abs(progress - dragProgress);
       if (diff < 2.5) {
+        dragProgressRef.current = null;
         setDragProgress(null);
       }
     }
   }, [progress, dragProgress]);
+
+  // Update drag progress immediately during pan (bypasses render cycle for animPct)
+  const updateDragImmediate = useCallback((value: number) => {
+    dragProgressRef.current = value;
+    const pct = totalDuration > 0 ? Math.min(100, (value / totalDuration) * 100) : 0;
+    animPct.setValue(pct);
+    setDragProgress(value);
+  }, [totalDuration, animPct]);
 
   const panResponder = useRef(
     PanResponder.create({
@@ -468,19 +490,19 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         trackLeftRef.current = gestureState.x0 - locationX;
         const activeWidth = progressBarWidth > 0 ? progressBarWidth : (Dimensions.get("window").width - 48);
         const ratio = Math.max(0, Math.min(1, locationX / activeWidth));
-        setDragProgress(ratio * totalDuration);
+        updateDragImmediate(ratio * totalDuration);
       },
       onPanResponderMove: (evt, gestureState) => {
         if (totalDuration <= 0) return;
         const activeWidth = progressBarWidth > 0 ? progressBarWidth : (Dimensions.get("window").width - 48);
         const currentX = gestureState.moveX - trackLeftRef.current;
         const ratio = Math.max(0, Math.min(1, currentX / activeWidth));
-        const currentVal = ratio * totalDuration;
-        setDragProgress(currentVal);
+        updateDragImmediate(ratio * totalDuration);
       },
       onPanResponderRelease: (evt, gestureState) => {
         if (totalDuration <= 0) {
           isDraggingRef.current = false;
+          dragProgressRef.current = null;
           setDragProgress(null);
           return;
         }
@@ -498,23 +520,24 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
         }
         
         setProgress(finalProgress);
-        setDragProgress(finalProgress);
+        updateDragImmediate(finalProgress);
         
         if (lastSeekTimeRef.current) clearTimeout(lastSeekTimeRef.current);
         lastSeekTimeRef.current = setTimeout(() => {
+          dragProgressRef.current = null;
           setDragProgress(null);
           isDraggingRef.current = false;
         }, 4000) as any;
       },
       onPanResponderTerminate: () => {
         isDraggingRef.current = false;
+        dragProgressRef.current = null;
         setDragProgress(null);
       }
     })
   );
 
   const displayProgress = dragProgress !== null ? dragProgress : progress;
-  const pct = totalDuration > 0 ? Math.min(100, (displayProgress / totalDuration) * 100) : 0;
 
   return (
     <Modal
@@ -772,14 +795,41 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
                   const ratio = Math.max(0, Math.min(1, locationX / activeWidth));
                   const finalProgress = Math.floor(ratio * totalDuration);
                   setProgress(finalProgress);
+                  updateDragImmediate(finalProgress);
                 }
               }}
               style={styles.progressBarTrack}
               onLayout={(e: any) => setProgressBarWidth(e.nativeEvent.layout.width)}
               {...panResponder.current.panHandlers}
             >
-              <View pointerEvents="none" style={[styles.progressBarFill, { width: `${pct}%` }]} />
-              <View pointerEvents="none" style={[styles.progressBarThumb, { left: `${pct}%`, marginLeft: -6 }]} />
+              {/* Animated fill and thumb driven on native thread */}
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  styles.progressBarFill,
+                  {
+                    width: animPct.interpolate({
+                      inputRange: [0, 100],
+                      outputRange: ["0%", "100%"],
+                      extrapolate: "clamp",
+                    }),
+                  },
+                ]}
+              />
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  styles.progressBarThumb,
+                  {
+                    left: animPct.interpolate({
+                      inputRange: [0, 100],
+                      outputRange: ["0%", "100%"],
+                      extrapolate: "clamp",
+                    }),
+                    marginLeft: -6,
+                  },
+                ]}
+              />
             </TouchableOpacity>
 
             <View style={styles.timeLabels}>
@@ -787,7 +837,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
                 {totalDuration > 0 ? formatDuration(Math.floor(displayProgress)) : "0:00"}
               </Text>
               <Text style={styles.percentageText}>
-                {totalDuration > 0 ? `${Math.round(pct)}%` : "--"}
+                {totalDuration > 0 ? `${Math.round(Math.min(100, (displayProgress / totalDuration) * 100))}%` : "--"}
               </Text>
               <Text style={styles.timeText}>
                 {totalDuration > 0 ? formatDuration(Math.floor(totalDuration)) : "0:00"}
