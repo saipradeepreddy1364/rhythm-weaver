@@ -381,24 +381,38 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
     setVideoError(null);
   }, [currentSong?.id]);
 
-  // Load video streams when Video tab is active
+  // Load video streams when Video tab is active; pause TrackPlayer to avoid double-audio
+  const wasPlayingBeforeVideoRef = useRef(false);
+
   useEffect(() => {
-    if (activeTab !== "video" || !currentSong || !showPlayer) return;
-    if (videoStreams.length > 0) return;
-    setVideoLoading(true);
-    setVideoError(null);
-    resolveVideoStreams(currentSong)
-      .then((streams) => {
-        if (streams.length > 0) {
-          setVideoStreams(streams);
-          setSelectedStream(streams[0]);
-        } else {
-          setVideoError("No video available for this song.");
-        }
-      })
-      .catch(() => setVideoError("Failed to load video."))
-      .finally(() => setVideoLoading(false));
-  }, [activeTab, currentSong?.id, showPlayer]);
+    if (activeTab === "video") {
+      // Pause TrackPlayer audio so only the video's audio plays
+      wasPlayingBeforeVideoRef.current = isPlaying;
+      if (isPlaying) togglePlay();
+
+      if (!currentSong || !showPlayer) return;
+      if (videoStreams.length > 0) return;
+      setVideoLoading(true);
+      setVideoError(null);
+      resolveVideoStreams(currentSong)
+        .then((streams) => {
+          if (streams.length > 0) {
+            setVideoStreams(streams);
+            setSelectedStream(streams[0]);
+          } else {
+            setVideoError("No video available for this song.");
+          }
+        })
+        .catch(() => setVideoError("Failed to load video."))
+        .finally(() => setVideoLoading(false));
+    } else {
+      // Leaving Video tab: restore audio playback if it was playing before
+      setSelectedStream(null);
+      if (wasPlayingBeforeVideoRef.current && !isPlaying) {
+        togglePlay();
+      }
+    }
+  }, [activeTab]);
 
   // Load lyrics
   useEffect(() => {
@@ -550,25 +564,11 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
 
           {/* Body content based on tab selection */}
           <View style={styles.mainContent}>
-            {/* Cover Tab */}
+            {/* Cover Tab - album art only, no video */}
             {activeTab === "cover" && (
               <View style={styles.coverWrapper}>
                 <View style={styles.largeArtShadow}>
-                  {selectedStream ? (
-                    <Video
-                      source={{
-                        uri: selectedStream.url,
-                        overrideFileExtensionAndroid: selectedStream.quality.includes("HLS") ? "m3u8" : undefined
-                      }}
-                      rate={1.0}
-                      volume={1.0}
-                      isMuted={false}
-                      resizeMode={ResizeMode.CONTAIN}
-                      shouldPlay={isPlaying}
-                      useNativeControls
-                      style={styles.largeArt}
-                    />
-                  ) : currentSong.albumArt ? (
+                  {currentSong.albumArt ? (
                     <Image
                       source={{ uri: currentSong.albumArt }}
                       style={styles.largeArt}
@@ -580,29 +580,6 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
                     </View>
                   )}
                 </View>
-                
-                {/* Quality Selector if video is playing in cover tab */}
-                {selectedStream && videoStreams.length > 1 && (
-                  <View style={{ marginTop: 12, width: "100%", alignItems: "center" }}>
-                    <ScrollView horizontal style={styles.qualityList} contentContainerStyle={styles.qualityListContent} showsHorizontalScrollIndicator={false}>
-                      {videoStreams.map((stream) => {
-                        const isSel = selectedStream.quality === stream.quality;
-                        return (
-                          <TouchableOpacity
-                            key={stream.quality}
-                            onPress={() => setSelectedStream(stream)}
-                            style={[styles.qualityPill, isSel && styles.activeQualityPill]}
-                            activeOpacity={0.7}
-                          >
-                            <Text style={[styles.qualityText, isSel && styles.activeQualityText]}>
-                              {stream.quality}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </ScrollView>
-                  </View>
-                )}
               </View>
             )}
 
@@ -692,11 +669,6 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
                       shouldPlay={true}
                       useNativeControls
                       style={styles.nativeVideo}
-                      onPlaybackStatusUpdate={(status: any) => {
-                        if (status.isLoaded && status.isPlaying && isPlaying) {
-                          togglePlay();
-                        }
-                      }}
                     />
                     {/* Quality selector */}
                     {videoStreams.length > 1 && (

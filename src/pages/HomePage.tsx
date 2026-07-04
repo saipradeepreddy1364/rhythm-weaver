@@ -1608,6 +1608,12 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
             <ScrollView style={{ width: "100%" }}>
               <View style={modalStyles.eqContainer}>
                 <Text style={modalStyles.sectionTitle}>Audio Equalizer</Text>
+                <View style={{ backgroundColor: 'rgba(255,193,7,0.12)', borderRadius: 8, padding: 10, marginBottom: 10, flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+                  <MaterialCommunityIcons name="information-outline" size={18} color="#FFC107" style={{ marginTop: 1 }} />
+                  <Text style={{ color: '#FFC107', fontSize: 12, flex: 1, lineHeight: 18 }}>
+                    Real-time audio DSP requires native Android/iOS integration. Presets below are saved and will be applied once native EQ support is added in a future update. For now, your preference is remembered.
+                  </Text>
+                </View>
                 
                 <Text style={modalStyles.eqLabel}>Select Preset</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={modalStyles.presetsRow}>
