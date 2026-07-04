@@ -1081,6 +1081,13 @@ function AlbumRow({
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.horizontalScrollPadding}
+          onScrollBeginDrag={() => setParentScrollEnabled?.(false)}
+          onScrollEndDrag={() => setParentScrollEnabled?.(true)}
+          onMomentumScrollBegin={() => setParentScrollEnabled?.(false)}
+          onMomentumScrollEnd={() => setParentScrollEnabled?.(true)}
+          onTouchStart={() => setParentScrollEnabled?.(false)}
+          onTouchEnd={() => setParentScrollEnabled?.(true)}
+          nestedScrollEnabled={true}
         >
           {Array.from({ length: 6 }).map((_, i) => (
             <View key={i} style={styles.albumLoaderItem}>
@@ -1099,6 +1106,13 @@ function AlbumRow({
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.horizontalScrollPadding}
+          onScrollBeginDrag={() => setParentScrollEnabled?.(false)}
+          onScrollEndDrag={() => setParentScrollEnabled?.(true)}
+          onMomentumScrollBegin={() => setParentScrollEnabled?.(false)}
+          onMomentumScrollEnd={() => setParentScrollEnabled?.(true)}
+          onTouchStart={() => setParentScrollEnabled?.(false)}
+          onTouchEnd={() => setParentScrollEnabled?.(true)}
+          nestedScrollEnabled={true}
         >
           {albums.map((album) => {
             const { playSong } = usePlayer();

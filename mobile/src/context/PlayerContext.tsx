@@ -138,7 +138,7 @@ function firstSuccess(promises: Promise<string | null>[]): Promise<string | null
 }
 
 async function resolveInvidiousAudioUrl(videoId: string): Promise<string | null> {
-  const INVIDIOUS_INSTANCES = [
+  const INVOLUNTARY_INSTANCES = [
     "https://iv.melmac.space",
     "https://invidious.flokinet.to",
     "https://invidious.privacydev.net",
@@ -147,10 +147,15 @@ async function resolveInvidiousAudioUrl(videoId: string): Promise<string | null>
     "https://inv.tux.pizza"
   ];
 
-  const fetchPromises = INVIDIOUS_INSTANCES.map(async (instance) => {
+  const fetchPromises = INVOLUNTARY_INSTANCES.map(async (instance) => {
     try {
       const res = await Promise.race([
-        fetch(`${instance}/api/v1/videos/${videoId}`),
+        fetch(`${instance}/api/v1/videos/${videoId}`, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+            "Accept": "application/json"
+          }
+        }),
         new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3000))
       ]);
       if (res.ok) {
@@ -196,7 +201,12 @@ async function resolvePipedAudioUrl(videoId: string): Promise<string | null> {
   const fetchPromises = PIPED_INSTANCES.map(async (instance) => {
     try {
       const res = await Promise.race([
-        fetch(`${instance}/streams/${videoId}`),
+        fetch(`${instance}/streams/${videoId}`, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+            "Accept": "application/json"
+          }
+        }),
         new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 2500))
       ]);
       if (res.ok) {

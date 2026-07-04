@@ -799,7 +799,12 @@ async function searchInvidious(query: string): Promise<Song[]> {
   const fetchPromises = INVIDIOUS_INSTANCES.map(async (instance) => {
     try {
       const res = await Promise.race([
-        fetch(`${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video`),
+        fetch(`${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video`, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+            "Accept": "application/json"
+          }
+        }),
         new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 2500))
       ]);
       if (res.ok) {
@@ -850,7 +855,12 @@ async function searchPiped(query: string): Promise<Song[]> {
   const fetchPromises = PIPED_INSTANCES.map(async (instance) => {
     try {
       const res = await Promise.race([
-        fetch(`${instance}/search?q=${encodeURIComponent(query)}&filter=videos`),
+        fetch(`${instance}/search?q=${encodeURIComponent(query)}&filter=videos`, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+            "Accept": "application/json"
+          }
+        }),
         new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 2500))
       ]);
       if (res.ok) {
@@ -1188,6 +1198,15 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                 {ytSongs.map((song) => (
                   <SongRow key={song.id} song={song} queue={ytSongs} onRequireAuth={handleRequireAuth} />
                 ))}
+              </View>
+            ) : null}
+
+            {/* YouTube Tab - Empty State */}
+            {activeTab === "youtube" && ytSongs.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <MaterialCommunityIcons name="video-off-outline" size={48} color="rgba(255,255,255,0.15)" />
+                <Text style={styles.emptyTitle}>No YouTube videos found</Text>
+                <Text style={styles.emptySubtitle}>We couldn't retrieve video results for this search query.</Text>
               </View>
             ) : null}
 
