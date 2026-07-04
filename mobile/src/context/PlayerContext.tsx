@@ -142,8 +142,14 @@ async function resolvePipedAudioUrl(videoId: string): Promise<string | null> {
     "https://pipedapi.adminforge.de",
     "https://pipedapi.projectsegfau.lt",
     "https://pipedapi.kavin.rocks",
+    "https://pipedapi-libre.kavin.rocks",
     "https://pipedapi.leptons.xyz",
-    "https://api.looleh.xyz"
+    "https://api.looleh.xyz",
+    "https://piapi.ggtyler.dev",
+    "https://pipedapi.moomoo.me",
+    "https://pipedapi.ox.am",
+    "https://piped-api.garudalinux.org",
+    "https://pipedapi.tokhmi.xyz"
   ];
 
   const fetchPromises = PIPED_INSTANCES.map(async (instance) => {

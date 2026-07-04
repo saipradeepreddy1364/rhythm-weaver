@@ -1314,22 +1314,21 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
     try { sessionStorage.removeItem("rw_open_album"); } catch { /**/ }
   };
 
-  const [minuteTick, setMinuteTick] = useState(oneMinSeed());
-  useEffect(() => {
-    const id = setInterval(() => setMinuteTick(prev => prev + 1), 60_000);
-    return () => clearInterval(id);
-  }, []);
+  const [quickPickSongs, setQuickPickSongs] = useState<Song[]>([]);
 
-  const quickPickSongs = (() => {
+  useEffect(() => {
+    if (quickPickSongs.length > 0) return;
     const pool = sections.flatMap((s) => s.songs);
-    if (pool.length === 0) return [];
+    if (pool.length === 0) return;
     const filteredPool = pool.filter((song) => {
       if (!song.language) return false;
       const lang = song.language.toLowerCase().trim();
       return lang === "telugu" || lang === "hindi";
     });
-    return seededShuffle(filteredPool, minuteTick).slice(0, 12);
-  })();
+    if (filteredPool.length >= 12) {
+      setQuickPickSongs(seededShuffle(filteredPool, todaysSeed()).slice(0, 12));
+    }
+  }, [sections, quickPickSongs.length]);
 
   if (isOffline) {
     return (

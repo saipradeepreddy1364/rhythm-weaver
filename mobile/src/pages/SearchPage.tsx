@@ -1047,13 +1047,10 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
             style={styles.filterTabs}
             contentContainerStyle={{ paddingBottom: 8 }}
           >
-            {(["all", "songs", "albums", "artists", "youtube"] as const).map((tab) => {
+            {(["all", "youtube"] as const).map((tab) => {
               const isActive = activeTab === tab;
               const labelMap = {
                 all: "All",
-                songs: "Songs",
-                albums: "Albums",
-                artists: "Artists",
                 youtube: "YouTube"
               };
               return (
