@@ -1081,9 +1081,6 @@ function AlbumRow({
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.horizontalScrollPadding}
-          onTouchStart={() => setParentScrollEnabled?.(false)}
-          onTouchEnd={() => setParentScrollEnabled?.(true)}
-          onMomentumScrollEnd={() => setParentScrollEnabled?.(true)}
         >
           {Array.from({ length: 6 }).map((_, i) => (
             <View key={i} style={styles.albumLoaderItem}>
@@ -1102,9 +1099,6 @@ function AlbumRow({
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.horizontalScrollPadding}
-          onTouchStart={() => setParentScrollEnabled?.(false)}
-          onTouchEnd={() => setParentScrollEnabled?.(true)}
-          onMomentumScrollEnd={() => setParentScrollEnabled?.(true)}
         >
           {albums.map((album) => {
             const { playSong } = usePlayer();
@@ -1142,12 +1136,6 @@ function AlbumRow({
                       <Text style={styles.countBadgeText}>
                         {album.fullyLoaded ? album.songs.length : `${album.songs.length}+`}
                       </Text>
-                    </View>
-                  ) : null}
-
-                  {roundCovers && !album.fullyLoaded ? (
-                    <View style={styles.loadingSpinnerBadge}>
-                      <ActivityIndicator size="small" color="#fff" />
                     </View>
                   ) : null}
                 </TouchableOpacity>
