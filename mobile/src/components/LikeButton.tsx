@@ -56,9 +56,10 @@ export function LikeButton({
     lg: 24,
   };
 
-  const handlePress = () => {
+  const handlePress = async () => {
     if (!user) {
-      onRequireAuth?.();
+      // Guest/offline user: toggle general like directly without showing folder or login modal
+      await toggleLike(song);
       return;
     }
     setModalOpen(true);

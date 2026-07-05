@@ -368,33 +368,33 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const toggleLike = useCallback(
     async (song: Song) => {
       if (!song) return;
+      await localStorage.ensureInitialized();
       
       const queryNorm = normalizeSongTitle(song.title, song.movie || song.album);
-      const matched = likedSongs.filter((s) => {
-        if (s.id === song.id) return true;
-        const sNorm = normalizeSongTitle(s.title, s.movie || s.album);
-        return sNorm && queryNorm && sNorm === queryNorm;
-      });
       
-      const liked = matched.length > 0;
-      try {
+      setLikedSongs((prev) => {
+        const matched = prev.filter((s) => {
+          if (s.id === song.id) return true;
+          const sNorm = normalizeSongTitle(s.title, s.movie || s.album);
+          return sNorm && queryNorm && sNorm === queryNorm;
+        });
+        
+        const liked = matched.length > 0;
         let nextLiked: Song[];
         if (liked) {
-          nextLiked = likedSongs.filter((s) => {
+          nextLiked = prev.filter((s) => {
             if (s.id === song.id) return false;
             const sNorm = normalizeSongTitle(s.title, s.movie || s.album);
             return !(sNorm && queryNorm && sNorm === queryNorm);
           });
         } else {
-          nextLiked = [song, ...likedSongs];
+          nextLiked = [song, ...prev];
         }
-        setLikedSongs(nextLiked);
         localStorage.setItem("rw_liked_songs", JSON.stringify(nextLiked));
-      } catch (err) {
-        console.error("Failed to toggle like song:", err);
-      }
+        return nextLiked;
+      });
     },
-    [likedSongs]
+    []
   );
 
   // ── Playlist CRUD (100% localStorage-backed) ─────────────────────────────────

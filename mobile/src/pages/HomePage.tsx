@@ -1283,29 +1283,43 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
 
   useEffect(() => {
     AsyncStorage.getItem("rw_eq_settings").then((saved) => {
+      let preset: "normal" | "bass" | "treble" | "vocal" | "electronic" = "normal";
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
-          const b = parsed.bass ?? 5;
-          const t = parsed.treble ?? 5;
-          const v = parsed.vocal ?? 5;
-          setEqBass(b);
-          setEqTreble(t);
-          setEqVocal(v);
-          setEqPreset(parsed.preset ?? "normal");
-          applyNativeEqualizer(b, t, v);
+          preset = parsed.preset ?? "normal";
         } catch {}
       }
+      setEqPreset(preset);
+
+      // Look up correct default preset values on mount
+      let b = 5, t = 5, v = 5;
+      if (preset === "normal") {
+        b = 5; t = 5; v = 5;
+      } else if (preset === "bass") {
+        b = 9; t = 6; v = 5; // +4 bass, +1 treble, +0 vocals
+      } else if (preset === "treble") {
+        b = 9; t = 8; v = 6; // +4 bass, +3 treble, +1 vocals
+      } else if (preset === "vocal") {
+        b = 7; t = 6; v = 9; // +2 bass, +1 treble, +4 vocals
+      } else if (preset === "electronic") {
+        b = 8; t = 7; v = 4; // unchanged electronic preset
+      }
+
+      setEqBass(b);
+      setEqTreble(t);
+      setEqVocal(v);
+      applyNativeEqualizer(b, t, v);
     });
   }, [showSettingsModal]);
 
   const saveTimeoutRef = useRef<any>(null);
 
-  const saveEqSettingsDebounced = (bass: number, treble: number, vocal: number, preset: string) => {
+  const applyEqSettingsTemporary = (bass: number, treble: number, vocal: number) => {
     applyNativeEqualizer(bass, treble, vocal);
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => {
-      AsyncStorage.setItem("rw_eq_settings", JSON.stringify({ bass, treble, vocal, preset })).catch(() => {});
+      AsyncStorage.setItem("rw_eq_settings", JSON.stringify({ preset: "normal" })).catch(() => {});
     }, 400);
   };
 
@@ -1313,21 +1327,23 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
     setEqPreset(preset);
     let b = 5, t = 5, v = 5;
     if (preset === "normal") {
-      // normal EQs
+      b = 5; t = 5; v = 5;
     } else if (preset === "bass") {
-      b = 9; t = 4; v = 5;
+      b = 9; t = 6; v = 5; // +4 bass, +1 treble, +0 vocals
     } else if (preset === "treble") {
-      b = 3; t = 9; v = 6;
+      b = 9; t = 8; v = 6; // +4 bass, +3 treble, +1 vocals
     } else if (preset === "vocal") {
-      b = 4; t = 5; v = 9;
+      b = 7; t = 6; v = 9; // +2 bass, +1 treble, +4 vocals
     } else if (preset === "electronic") {
-      b = 8; t = 7; v = 4;
+      b = 8; t = 7; v = 4; // unchanged electronic preset
     }
     setEqBass(b);
     setEqTreble(t);
     setEqVocal(v);
     applyNativeEqualizer(b, t, v);
-    saveEqSettingsDebounced(b, t, v, preset);
+    
+    // Save only preset type identifier to ensure default values reload on restart
+    AsyncStorage.setItem("rw_eq_settings", JSON.stringify({ preset })).catch(() => {});
   };
 
   const [sections,     setSections]     = useState<SectionData[]>(() => homePagePrefetcher.sections);
@@ -1676,7 +1692,7 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
                         const nextBass = slider.type === "bass" ? newVal : eqBass;
                         const nextTreble = slider.type === "treble" ? newVal : eqTreble;
                         const nextVocal = slider.type === "vocals" ? newVal : eqVocal;
-                        saveEqSettingsDebounced(nextBass, nextTreble, nextVocal, "normal");
+                        applyEqSettingsTemporary(nextBass, nextTreble, nextVocal);
                       }}
                       onResponderMove={(e) => {
                         const { locationX } = e.nativeEvent;
@@ -1689,7 +1705,7 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
                         const nextBass = slider.type === "bass" ? newVal : eqBass;
                         const nextTreble = slider.type === "treble" ? newVal : eqTreble;
                         const nextVocal = slider.type === "vocals" ? newVal : eqVocal;
-                        saveEqSettingsDebounced(nextBass, nextTreble, nextVocal, "normal");
+                        applyEqSettingsTemporary(nextBass, nextTreble, nextVocal);
                       }}
                     >
                       <View style={modalStyles.sliderTrack}>

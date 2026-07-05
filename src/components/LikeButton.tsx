@@ -56,9 +56,10 @@ export function LikeButton({
     lg: 24,
   };
 
-  const handlePress = () => {
+  const handlePress = async () => {
     if (!user) {
-      onRequireAuth?.();
+      // Guest/offline user: toggle general like directly without showing folder or login modal
+      await toggleLike(song);
       return;
     }
     setModalOpen(true);
@@ -111,7 +112,7 @@ export function LikeButton({
 
   return (
     <View style={styles.wrapper}>
-      <TouchableOpacity
+      <TouchableOpacity delayPressIn={0}
         onPress={handlePress}
         activeOpacity={0.7}
         style={styles.button}
@@ -129,19 +130,19 @@ export function LikeButton({
         animationType="fade"
         onRequestClose={() => setModalOpen(false)}
       >
-        <TouchableOpacity
+        <TouchableOpacity delayPressIn={0}
           style={styles.modalBackdrop}
           activeOpacity={1}
           onPress={() => setModalOpen(false)}
         >
-          <TouchableOpacity
+          <TouchableOpacity delayPressIn={0}
             style={styles.dialog}
             activeOpacity={1}
           >
             {/* Header */}
             <View style={styles.dialogHeader}>
               <Text style={styles.dialogTitle}>Add to Liked Folders</Text>
-              <TouchableOpacity onPress={() => setModalOpen(false)} style={styles.closeBtn} activeOpacity={0.7}>
+              <TouchableOpacity delayPressIn={0} onPress={() => setModalOpen(false)} style={styles.closeBtn} activeOpacity={0.7}>
                 <MaterialCommunityIcons name="close" size={18} color="rgba(255,255,255,0.5)" />
               </TouchableOpacity>
             </View>
@@ -153,7 +154,7 @@ export function LikeButton({
               ) : (
                 <View>
                   {/* General Liked Songs */}
-                  <TouchableOpacity onPress={handleToggleGeneralLike} style={styles.folderRow} activeOpacity={0.7}>
+                  <TouchableOpacity delayPressIn={0} onPress={handleToggleGeneralLike} style={styles.folderRow} activeOpacity={0.7}>
                     <View style={styles.iconWrapper}>
                       <MaterialCommunityIcons name="heart" size={16} color="#f43f5e" />
                     </View>
@@ -173,7 +174,7 @@ export function LikeButton({
                     const hasSong = containingFolderIds.has(p.id);
 
                     return (
-                      <TouchableOpacity key={p.id} onPress={() => handleToggleFolderLike(p.id)} style={styles.folderRow} activeOpacity={0.7}>
+                      <TouchableOpacity delayPressIn={0} key={p.id} onPress={() => handleToggleFolderLike(p.id)} style={styles.folderRow} activeOpacity={0.7}>
                         <View style={styles.iconWrapper}>
                           <MaterialCommunityIcons name="folder-music-outline" size={16} color="rgba(255,255,255,0.6)" />
                         </View>
@@ -195,7 +196,7 @@ export function LikeButton({
             {/* Folder Creator */}
             <View style={styles.creatorSection}>
               {!creating ? (
-                <TouchableOpacity onPress={() => setCreating(true)} style={styles.newFolderBtn} activeOpacity={0.7}>
+                <TouchableOpacity delayPressIn={0} onPress={() => setCreating(true)} style={styles.newFolderBtn} activeOpacity={0.7}>
                   <MaterialCommunityIcons name="plus" size={18} color="#1DB954" style={{ marginRight: 6 }} />
                   <Text style={styles.newFolderText}>Create New Folder</Text>
                 </TouchableOpacity>
@@ -209,14 +210,14 @@ export function LikeButton({
                     placeholderTextColor="rgba(255,255,255,0.3)"
                     style={styles.textInput}
                   />
-                  <TouchableOpacity onPress={handleCreateFolder} disabled={!newFolderName.trim() || loadingId === "new"} style={[styles.saveBtn, (!newFolderName.trim() || loadingId === "new") && styles.disabledSaveBtn]} activeOpacity={0.7}>
+                  <TouchableOpacity delayPressIn={0} onPress={handleCreateFolder} disabled={!newFolderName.trim() || loadingId === "new"} style={[styles.saveBtn, (!newFolderName.trim() || loadingId === "new") && styles.disabledSaveBtn]} activeOpacity={0.7}>
                     {loadingId === "new" ? (
                       <ActivityIndicator size="small" color="#000" />
                     ) : (
                       <MaterialCommunityIcons name="check" size={16} color="#000" />
                     )}
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={() => { setCreating(false); setNewFolderName(""); }} style={styles.cancelBtn} activeOpacity={0.7}>
+                  <TouchableOpacity delayPressIn={0} onPress={() => { setCreating(false); setNewFolderName(""); }} style={styles.cancelBtn} activeOpacity={0.7}>
                     <MaterialCommunityIcons name="close" size={16} color="#fff" />
                   </TouchableOpacity>
                 </View>

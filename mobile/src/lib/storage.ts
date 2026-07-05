@@ -32,7 +32,7 @@ class MemoryStorage {
       if (keys && keys.length > 0) {
         const pairs = await (AsyncStorage as any).multiGet(keys);
         for (const [key, value] of pairs) {
-          if (value !== null) {
+          if (value !== null && this.cache[key] === undefined) {
             this.cache[key] = value;
           }
         }
