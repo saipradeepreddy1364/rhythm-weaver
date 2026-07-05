@@ -21,34 +21,19 @@ export function LikeButton({
   const { user } = useAuth();
   const { isLiked, toggleLike, playlists, createNewPlaylist, addToPlaylist, removeFromPlaylist } = useLibrary();
   const [modalOpen, setModalOpen] = useState(false);
-  const [containingFolderIds, setContainingFolderIds] = useState<Set<string>>(new Set());
-  const [loadingContaining, setLoadingContaining] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [loadingId, setLoadingId] = useState<string | null>(null);
 
+  const containingFolderIds = new Set(
+    playlists
+      .filter((p) => ((p as any).songs || []).some((s: any) => s.id === song.id))
+      .map((p) => p.id)
+  );
+
   const likedGeneral = isLiked(song);
   const isLikedInAnyFolder = likedGeneral || containingFolderIds.size > 0;
-
-  useEffect(() => {
-    if (user && modalOpen) {
-      setLoadingContaining(true);
-      supabase
-        .from("playlist_songs")
-        .select("playlist_id")
-        .eq("song_id", song.id)
-        .then(({ data }: any) => {
-          if (data) {
-            const ids = data.map((d: any) => d.playlist_id);
-            setContainingFolderIds(new Set(ids));
-          }
-          setLoadingContaining(false);
-        })
-        .catch(() => {
-          setLoadingContaining(false);
-        });
-    }
-  }, [user, modalOpen, song.id]);
+  const loadingContaining = false;
 
   const sizeMap = {
     sm: 16,
@@ -77,18 +62,8 @@ export function LikeButton({
     const hasSong = containingFolderIds.has(playlistId);
     if (hasSong) {
       await removeFromPlaylist(playlistId, song.id);
-      setContainingFolderIds((prev) => {
-        const next = new Set(prev);
-        next.delete(playlistId);
-        return next;
-      });
     } else {
       await addToPlaylist(playlistId, song);
-      setContainingFolderIds((prev) => {
-        const next = new Set(prev);
-        next.add(playlistId);
-        return next;
-      });
     }
     setLoadingId(null);
   };
@@ -99,11 +74,6 @@ export function LikeButton({
     const playlist = await createNewPlaylist(newFolderName.trim());
     if (playlist && playlist.id) {
       await addToPlaylist(playlist.id, song);
-      setContainingFolderIds((prev) => {
-        const next = new Set(prev);
-        next.add(playlist.id);
-        return next;
-      });
     }
     setNewFolderName("");
     setCreating(false);

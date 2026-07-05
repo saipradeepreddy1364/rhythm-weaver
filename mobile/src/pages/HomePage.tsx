@@ -1311,7 +1311,7 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
       setEqVocal(v);
       applyNativeEqualizer(b, t, v);
     });
-  }, [showSettingsModal]);
+  }, []);
 
   const saveTimeoutRef = useRef<any>(null);
 
