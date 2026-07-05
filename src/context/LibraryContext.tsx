@@ -268,10 +268,9 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const loadLikedSongs = useCallback(async () => {
     try {
-      // Always read directly from AsyncStorage (not just in-memory cache)
-      // to ensure data written in a previous session is picked up correctly
-      const raw = await (AsyncStorage as any).getItem("rw_liked_songs")
-        ?? await (AsyncStorage as any).getItem("rw_guest_liked");
+      await localStorage.ensureInitialized();
+      const raw = localStorage.getItem("rw_liked_songs")
+        || localStorage.getItem("rw_guest_liked");
       if (raw) {
         setLikedSongs(JSON.parse(raw));
         return;
