@@ -41,7 +41,7 @@ index b2409a0..0675a51 100644
 +    }
  }
 diff --git a/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt b/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
-index afa6b0f..034542b 100644
+index afa6b0f..6f5fbdd 100644
 --- a/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
 +++ b/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
 @@ -38,6 +38,8 @@ import kotlinx.coroutines.*
@@ -88,7 +88,7 @@ index afa6b0f..034542b 100644
 +            val sessionId = exoPlayer?.audioSessionId ?: 0
 +            if (sessionId <= 0) return
 +
-+            if (nativeEqualizer == null || nativeEqualizer?.audioSessionId != sessionId) {
++            if (nativeEqualizer == null || nativeEqualizer?.getAudioSessionId() != sessionId) {
 +                nativeEqualizer?.release()
 +                nativeEqualizer = Equalizer(0, sessionId)
 +                nativeEqualizer?.enabled = true
