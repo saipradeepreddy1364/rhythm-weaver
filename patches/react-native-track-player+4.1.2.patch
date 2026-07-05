@@ -41,7 +41,7 @@ index b2409a0..0675a51 100644
 +    }
  }
 diff --git a/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt b/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
-index afa6b0f..6f5fbdd 100644
+index afa6b0f..c7903d9 100644
 --- a/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
 +++ b/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
 @@ -38,6 +38,8 @@ import kotlinx.coroutines.*
@@ -53,12 +53,13 @@ index afa6b0f..6f5fbdd 100644
  import timber.log.Timber
  
  @MainThread
-@@ -47,6 +49,71 @@ class MusicService : HeadlessJsTaskService() {
+@@ -47,6 +49,73 @@ class MusicService : HeadlessJsTaskService() {
      private val scope = MainScope()
      private var progressUpdateJob: Job? = null
  
 +    // Real-time Android Equalizer instance
 +    private var nativeEqualizer: Equalizer? = null
++    private var nativeEqualizerSessionId: Int = 0
 +    private var lastBass: Int = 5
 +    private var lastTreble: Int = 5
 +    private var lastVocal: Int = 5
@@ -88,9 +89,10 @@ index afa6b0f..6f5fbdd 100644
 +            val sessionId = exoPlayer?.audioSessionId ?: 0
 +            if (sessionId <= 0) return
 +
-+            if (nativeEqualizer == null || nativeEqualizer?.getAudioSessionId() != sessionId) {
++            if (nativeEqualizer == null || nativeEqualizerSessionId != sessionId) {
 +                nativeEqualizer?.release()
 +                nativeEqualizer = Equalizer(0, sessionId)
++                nativeEqualizerSessionId = sessionId
 +                nativeEqualizer?.enabled = true
 +            }
 +
@@ -125,7 +127,7 @@ index afa6b0f..6f5fbdd 100644
      /**
       * Use [appKilledPlaybackBehavior] instead.
       */
-@@ -606,6 +673,10 @@ class MusicService : HeadlessJsTaskService() {
+@@ -606,6 +675,10 @@ class MusicService : HeadlessJsTaskService() {
              event.stateChange.collect {
                  emit(MusicEvents.PLAYBACK_STATE, getPlayerStateBundle(it))
  
@@ -136,7 +138,7 @@ index afa6b0f..6f5fbdd 100644
                  if (it == AudioPlayerState.ENDED && player.nextItem == null) {
                      emitQueueEndedEvent()
                  }
-@@ -803,6 +874,11 @@ class MusicService : HeadlessJsTaskService() {
+@@ -803,6 +876,11 @@ class MusicService : HeadlessJsTaskService() {
              player.destroy()
          }
  
