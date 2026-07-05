@@ -1033,7 +1033,8 @@ const styles = StyleSheet.create({
   },
   // Video View
   videoWrapper: {
-    flex: 1,
+    width: "100%",
+    height: "100%",
     backgroundColor: "#000",
     borderRadius: 16,
     overflow: "hidden",
