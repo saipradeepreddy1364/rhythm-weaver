@@ -73,11 +73,6 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
   }
 }
 
-// Create Memoized versions of the pages to prevent massive re-render lags
-const MemoizedHomePage = React.memo(HomePage);
-const MemoizedSearchPage = React.memo(SearchPage);
-const MemoizedLibraryPage = React.memo(LibraryPage);
-
 function AppContent() {
   const { currentSong, showPlayer } = usePlayer();
   const { user, checkAuth } = useAuth();
@@ -89,8 +84,6 @@ function AppContent() {
   const [updateError, setUpdateError] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<'Home' | 'Search' | 'Library'>('Home');
-  const scrollViewRef = useRef<ScrollView>(null);
-  const { width: screenWidth } = useWindowDimensions();
   const navigationRef = useRef<any>(null);
   const appState = useRef(AppState.currentState);
 
@@ -102,7 +95,6 @@ function AppContent() {
         nextAppState === "active"
       ) {
         setActiveTab("Home");
-        scrollViewRef.current?.scrollTo({ x: 0, animated: false });
       }
       appState.current = nextAppState;
     });
@@ -206,27 +198,19 @@ function AppContent() {
 
   const handleTabPress = useCallback((tabName: 'Home' | 'Search' | 'Library') => {
     setActiveTab(tabName);
-    const index = tabName === 'Home' ? 0 : tabName === 'Search' ? 1 : 2;
-    scrollViewRef.current?.scrollTo({ x: index * screenWidth, animated: false });
-  }, [screenWidth]);
+  }, []);
 
   const handleRequireAuth = useCallback(() => {
     // Guest mode enabled - no auth required
-  }, []);
-
-  const setParentScroll = useCallback((enabled: boolean) => {
-    scrollViewRef.current?.setNativeProps({ scrollEnabled: enabled });
   }, []);
 
   // Listen to global tab navigation requests
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener("NAVIGATE_TO_TAB", (tabName: 'Home' | 'Search' | 'Library') => {
       setActiveTab(tabName);
-      const index = tabName === 'Home' ? 0 : tabName === 'Search' ? 1 : 2;
-      scrollViewRef.current?.scrollTo({ x: index * screenWidth, animated: true });
     });
     return () => sub.remove();
-  }, [screenWidth]);
+  }, []);
 
   // Check auth once on mount
   useEffect(() => {
@@ -256,30 +240,11 @@ function AppContent() {
           <Tab.Screen name="Main">
             {() => (
               <View style={{ flex: 1, backgroundColor: "#121212" }}>
-                <ScrollView
-                  ref={scrollViewRef}
-                  horizontal
-                  pagingEnabled
-                  showsHorizontalScrollIndicator={false}
-                  decelerationRate="fast"
-                  overScrollMode="never"
-                  onMomentumScrollEnd={(e) => {
-                    const index = screenWidth > 0 ? Math.round(e.nativeEvent.contentOffset.x / screenWidth) : 0;
-                    const tabs: ('Home' | 'Search' | 'Library')[] = ['Home', 'Search', 'Library'];
-                    setActiveTab(tabs[index]);
-                  }}
-                  style={{ flex: 1 }}
-                >
-                  <View style={{ width: screenWidth, flex: 1 }}>
-                    <MemoizedHomePage onRequireAuth={handleRequireAuth} setParentScrollEnabled={setParentScroll} />
-                  </View>
-                  <View style={{ width: screenWidth, flex: 1 }}>
-                    <MemoizedSearchPage onRequireAuth={handleRequireAuth} />
-                  </View>
-                  <View style={{ width: screenWidth, flex: 1 }}>
-                    <MemoizedLibraryPage onRequireAuth={handleRequireAuth} />
-                  </View>
-                </ScrollView>
+                <View style={{ flex: 1 }}>
+                  {activeTab === 'Home' && <HomePage onRequireAuth={handleRequireAuth} />}
+                  {activeTab === 'Search' && <SearchPage onRequireAuth={handleRequireAuth} />}
+                  {activeTab === 'Library' && <LibraryPage onRequireAuth={handleRequireAuth} />}
+                </View>
 
                 {/* Bottom Tab Bar */}
                 <View style={styles.tabBarStyle}>
