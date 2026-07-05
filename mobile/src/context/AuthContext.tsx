@@ -69,20 +69,20 @@ function getOrCreateLocalGuestUser(): User {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(() => {
-    try {
-      return getOrCreateLocalGuestUser();
-    } catch {
-      return null;
-    }
-  });
-  const [loading, setLoading] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const checkAuth = useCallback(async () => {
     setLoading(true);
-    const fallbackUser = getOrCreateLocalGuestUser();
-    setUser(fallbackUser);
-    setLoading(false);
+    try {
+      await localStorage.ensureInitialized();
+      const fallbackUser = getOrCreateLocalGuestUser();
+      setUser(fallbackUser);
+    } catch (err) {
+      console.warn("[AuthContext] Failed to resolve auth on boot:", err);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
