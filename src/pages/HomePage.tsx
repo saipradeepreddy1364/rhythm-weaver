@@ -1256,6 +1256,12 @@ function QuickPick({ song, queue }: { song: Song; queue: Song[] }) {
   );
 }
 
+// Session storage for Equalizer states to survive tab-navigation unmount/remount
+let sessionEqPreset: "normal" | "bass" | "treble" | "vocal" | "electronic" | null = null;
+let sessionEqBass: number | null = null;
+let sessionEqTreble: number | null = null;
+let sessionEqVocal: number | null = null;
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function HomePage({ onRequireAuth, setParentScrollEnabled }: HomePageProps) {
   const { user, logout }     = useAuth();
@@ -1266,10 +1272,10 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const navigation: any                   = useNavigation();
   // Settings & Equalizer states in HomePage
-  const [eqBass, setEqBass] = useState(5);
-  const [eqTreble, setEqTreble] = useState(5);
-  const [eqVocal, setEqVocal] = useState(5);
-  const [eqPreset, setEqPreset] = useState<"normal" | "bass" | "treble" | "vocal" | "electronic">("normal");
+  const [eqBass, setEqBass] = useState(() => sessionEqBass ?? 5);
+  const [eqTreble, setEqTreble] = useState(() => sessionEqTreble ?? 5);
+  const [eqVocal, setEqVocal] = useState(() => sessionEqVocal ?? 5);
+  const [eqPreset, setEqPreset] = useState<"normal" | "bass" | "treble" | "vocal" | "electronic">(() => sessionEqPreset ?? "normal");
   const [sliderWidths, setSliderWidths] = useState<Record<string, number>>({});
 
   const applyNativeEqualizer = (bass: number, treble: number, vocal: number) => {
@@ -1282,40 +1288,55 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
   };
 
   useEffect(() => {
-    AsyncStorage.getItem("rw_eq_settings").then((saved) => {
-      let preset: "normal" | "bass" | "treble" | "vocal" | "electronic" = "normal";
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          preset = parsed.preset ?? "normal";
-        } catch {}
-      }
-      setEqPreset(preset);
+    if (sessionEqPreset === null) {
+      AsyncStorage.getItem("rw_eq_settings").then((saved) => {
+        let preset: "normal" | "bass" | "treble" | "vocal" | "electronic" = "normal";
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            preset = parsed.preset ?? "normal";
+          } catch {}
+        }
+        setEqPreset(preset);
 
-      // Look up correct default preset values on mount
-      let b = 5, t = 5, v = 5;
-      if (preset === "normal") {
-        b = 5; t = 5; v = 5;
-      } else if (preset === "bass") {
-        b = 9; t = 6; v = 5; // +4 bass, +1 treble, +0 vocals
-      } else if (preset === "treble") {
-        b = 9; t = 8; v = 6; // +4 bass, +3 treble, +1 vocals
-      } else if (preset === "vocal") {
-        b = 7; t = 6; v = 9; // +2 bass, +1 treble, +4 vocals
-      } else if (preset === "electronic") {
-        b = 8; t = 7; v = 4; // unchanged electronic preset
-      }
+        // Look up correct default preset values on mount
+        let b = 5, t = 5, v = 5;
+        if (preset === "normal") {
+          b = 5; t = 5; v = 5;
+        } else if (preset === "bass") {
+          b = 9; t = 6; v = 5; // +4 bass, +1 treble, +0 vocals
+        } else if (preset === "treble") {
+          b = 9; t = 8; v = 6; // +4 bass, +3 treble, +1 vocals
+        } else if (preset === "vocal") {
+          b = 7; t = 6; v = 9; // +2 bass, +1 treble, +4 vocals
+        } else if (preset === "electronic") {
+          b = 8; t = 7; v = 4; // unchanged electronic preset
+        }
 
-      setEqBass(b);
-      setEqTreble(t);
-      setEqVocal(v);
-      applyNativeEqualizer(b, t, v);
-    });
+        sessionEqPreset = preset;
+        sessionEqBass = b;
+        sessionEqTreble = t;
+        sessionEqVocal = v;
+
+        setEqBass(b);
+        setEqTreble(t);
+        setEqVocal(v);
+        applyNativeEqualizer(b, t, v);
+      });
+    } else {
+      // If we navigate back, apply the active session values
+      applyNativeEqualizer(sessionEqBass ?? 5, sessionEqTreble ?? 5, sessionEqVocal ?? 5);
+    }
   }, []);
 
   const saveTimeoutRef = useRef<any>(null);
 
   const applyEqSettingsTemporary = (bass: number, treble: number, vocal: number) => {
+    sessionEqBass = bass;
+    sessionEqTreble = treble;
+    sessionEqVocal = vocal;
+    sessionEqPreset = "normal";
+
     applyNativeEqualizer(bass, treble, vocal);
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => {
@@ -1337,6 +1358,12 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
     } else if (preset === "electronic") {
       b = 8; t = 7; v = 4; // unchanged electronic preset
     }
+
+    sessionEqPreset = preset;
+    sessionEqBass = b;
+    sessionEqTreble = t;
+    sessionEqVocal = v;
+
     setEqBass(b);
     setEqTreble(t);
     setEqVocal(v);
