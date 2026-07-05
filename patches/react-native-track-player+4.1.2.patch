@@ -41,7 +41,7 @@ index b2409a0..0675a51 100644
 +    }
  }
 diff --git a/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt b/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
-index afa6b0f..c7903d9 100644
+index afa6b0f..d40a744 100644
 --- a/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
 +++ b/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
 @@ -38,6 +38,8 @@ import kotlinx.coroutines.*
@@ -118,7 +118,7 @@ index afa6b0f..c7903d9 100644
 +            if (numBands > 3) eq.setBandLevel(3, trebleVal)
 +            if (numBands > 4) eq.setBandLevel(4, trebleVal)
 +
-+        } catch (e: Exception) {
++        } catch (e: Throwable) {
 +            Timber.e(e, "Failed to apply native equalizer parameters")
 +        }
 +    }
@@ -127,18 +127,22 @@ index afa6b0f..c7903d9 100644
      /**
       * Use [appKilledPlaybackBehavior] instead.
       */
-@@ -606,6 +675,10 @@ class MusicService : HeadlessJsTaskService() {
+@@ -606,6 +675,14 @@ class MusicService : HeadlessJsTaskService() {
              event.stateChange.collect {
                  emit(MusicEvents.PLAYBACK_STATE, getPlayerStateBundle(it))
  
 +                if (it == AudioPlayerState.READY || it == AudioPlayerState.PLAYING) {
-+                    applyEqualizer(lastBass, lastTreble, lastVocal)
++                    try {
++                        applyEqualizer(lastBass, lastTreble, lastVocal)
++                    } catch (e: Throwable) {
++                        Timber.e(e, "Error applying equalizer in state observer")
++                    }
 +                }
 +
                  if (it == AudioPlayerState.ENDED && player.nextItem == null) {
                      emitQueueEndedEvent()
                  }
-@@ -803,6 +876,11 @@ class MusicService : HeadlessJsTaskService() {
+@@ -803,6 +880,11 @@ class MusicService : HeadlessJsTaskService() {
              player.destroy()
          }
  
