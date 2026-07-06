@@ -1236,14 +1236,21 @@ function SimpleSection({ title, children }: { title: string; children: React.Rea
 // ─── QuickPick tile ───────────────────────────────────────────────────────────
 function QuickPick({ song, queue }: { song: Song; queue: Song[] }) {
   const { playSong } = usePlayer();
+  const [imgError, setImgError] = React.useState(false);
+  const hasArt = Boolean(song.albumArt) && !imgError;
   return (
     <TouchableOpacity delayPressIn={0}
       onPress={() => playSong(song, queue)}
       style={styles.quickPickCard}
       activeOpacity={0.8}
     >
-      {song.albumArt ? (
-        <Image source={{ uri: song.albumArt }} style={styles.quickPickArt} />
+      {hasArt ? (
+        <Image
+          source={{ uri: song.albumArt }}
+          style={styles.quickPickArt}
+          resizeMode="cover"
+          onError={() => setImgError(true)}
+        />
       ) : (
         <View style={[styles.quickPickArt, styles.quickPickPlaceholder]}>
           <Text style={styles.quickPickIcon}>🎵</Text>

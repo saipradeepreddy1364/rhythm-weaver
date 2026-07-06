@@ -95,11 +95,9 @@ function resolveTrack(s: Song) {
   
   const downloaded = downloadedList.find((d) => d.id === s.id);
   
-  let trackUrl = s.audioUrl;
+  let trackUrl = "";
   if (downloaded?.audioUrl) {
     trackUrl = downloaded.audioUrl;
-  } else if (s.id.startsWith("yt-")) {
-    trackUrl = `youtube://${s.id.replace("yt-", "")}`;
   } else {
     trackUrl = `https://musicbackend-xg4u.onrender.com/api/songs/${s.id}/stream`;
   }
