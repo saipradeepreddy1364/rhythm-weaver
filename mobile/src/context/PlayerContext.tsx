@@ -98,8 +98,10 @@ function resolveTrack(s: Song) {
   let trackUrl = "";
   if (downloaded?.audioUrl) {
     trackUrl = downloaded.audioUrl;
+  } else if (s.id && s.id.startsWith("yt-")) {
+    trackUrl = `youtube://${s.id.replace("yt-", "")}`;
   } else {
-    trackUrl = `https://musicbackend-xg4u.onrender.com/api/songs/${s.id}/stream`;
+    trackUrl = `https://musicbackend-7a1o.onrender.com/api/songs/${s.id}/stream`;
   }
 
   return {
@@ -244,6 +246,9 @@ async function getDirectAudioUrl(url: string): Promise<string> {
       console.log(`[PlayerContext] Successfully resolved YouTube URL: ${resolved.substring(0, 50)}...`);
       return resolved;
     }
+    // Fallback to our own backend yt-dlp streaming proxy
+    console.log(`[PlayerContext] Piped/Invidious failed. Falling back to backend proxy stream for: ${videoId}`);
+    return `https://musicbackend-7a1o.onrender.com/api/songs/yt-${videoId}/stream`;
   }
   return url;
 }
@@ -720,6 +725,39 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const progress = progressData.position;
   const duration = progressData.duration;
 
+  // Pre-fetch lyrics helper
+  const preloadLyrics = useCallback(async (songId: string) => {
+    if (!songId) return;
+    try {
+      const res = await fetch(`https://musicbackend-7a1o.onrender.com/api/songs/${encodeURIComponent(songId)}/lyrics`);
+      if (res.ok) {
+        const data = await res.json();
+        // Extract lyrics text from LRCLIB response structure
+        let text = "";
+        if (data.data) {
+          text = data.data.syncedLyrics || data.data.plainLyrics || "";
+        } else {
+          text = data.syncedLyrics || data.plainLyrics || "";
+        }
+        if (text) {
+          // Write it directly to the Song object in our queue if it matches!
+          setQueue((prevQueue) => {
+            const index = prevQueue.findIndex((s) => s.id === songId);
+            if (index !== -1 && !prevQueue[index].lyrics) {
+              const updated = [...prevQueue];
+              updated[index] = { ...updated[index], lyrics: text };
+              return updated;
+            }
+            return prevQueue;
+          });
+          console.log(`[PlayerContext] Successfully pre-loaded lyrics for songId: ${songId}`);
+        }
+      }
+    } catch (e) {
+      console.warn("[PlayerContext] Failed to pre-fetch lyrics:", e);
+    }
+  }, []);
+
   // Radio suggestions fetching (Language & Category Recommendations Engine)
   const fetchRadioSongs = useCallback(async (seed: Song): Promise<Song[]> => {
     let seedLang = seed.language ? seed.language.toLowerCase().trim() : "";
@@ -795,40 +833,44 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const category = getSongCategory(seed);
     const categoryQuerySuffix = category !== "general" ? ` ${category}` : "";
 
-    const addSongs = (list: Song[], bypassLangFilter = false) => {
+    const addSongs = (
+      list: Song[],
+      options: {
+        bypassLang?: boolean;
+        bypassYear?: boolean;
+        bypassCategory?: boolean;
+        bypassMood?: boolean;
+      } = {}
+    ) => {
       list.forEach((s) => {
         if (!s || !s.id) return;
         
         // Strict global requirement: only Telugu and Hindi songs allowed in continuous play/radio suggestions
-        if (!s.language) {
+        const sLang = s.language || seedLang;
+        if (!sLang) {
           return;
         }
-        const l = s.language.toLowerCase().trim();
+        const l = sLang.toLowerCase().trim();
         if (l !== "telugu" && l !== "hindi") {
           return;
         }
 
-        // Language MUST match the seed language exactly (no bypass allowed for similar language transitions)
+        // Language MUST match the seed language exactly (enforced strictly to prevent cross-language recommendations)
         if (seedLang && l !== seedLang) {
           return;
         }
 
-        // Year/Era Match: within 5 years of seed song, and not older than 5 years globally
-        if (s.year) {
-          if (s.year < CURRENT_YEAR - 5) {
+        // Year/Era Match: unless bypassed, match within 10 years of seed song
+        if (!options.bypassYear && s.year && seed.year) {
+          const diff = Math.abs(seed.year - s.year);
+          if (diff > 10) {
             return;
-          }
-          if (seed.year) {
-            const diff = Math.abs(seed.year - s.year);
-            if (diff > 5) {
-              return;
-            }
           }
         }
 
         // Category/Type Match
         const sCat = getSongCategory(s);
-        if (category !== "general" && sCat !== category) {
+        if (!options.bypassCategory && category !== "general" && sCat !== category) {
           return;
         }
         if (category === "general" && sCat === "devotional") {
@@ -838,7 +880,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         // Mood Match
         const sMood = getSongMood(s);
         const seedMood = getSongMood(seed);
-        if (seedMood !== "general" && sMood !== seedMood) {
+        if (!options.bypassMood && seedMood !== "general" && sMood !== seedMood) {
           return;
         }
 
@@ -876,7 +918,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    // Attempt 2: Search fallback based on artist + language
+    // Attempt 2: Search fallback based on artist + language (Strict matching)
     const firstArtist = seed.artist ? seed.artist.split(",")[0].trim() : "";
     if (recommendations.length < 15 && seedLang && firstArtist) {
       try {
@@ -895,7 +937,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    // Attempt 3: Query the specific language pools (2 random queries from pool)
+    // Attempt 3: Query the specific language pools (Bypass mood constraint)
     if (recommendations.length < 15 && seedLang) {
       const pools = (LANGUAGE_QUERY_POOLS[seedLang] || [`trending ${seedLang} songs`]).map(q => q + categoryQuerySuffix);
       const selectedQueries = [...pools].sort(() => Math.random() - 0.5).slice(0, 2);
@@ -909,7 +951,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             const poolSongs = raw
               .map((item: any) => (mapApiSong ? mapApiSong(item) : item))
               .filter((s: any): s is Song => !!s && !!s.id);
-            addSongs(poolSongs);
+            addSongs(poolSongs, { bypassMood: true });
           }
         } catch (err) {
           console.warn(`[PlayerContext] Language pool search failed for "${q}":`, err);
@@ -917,7 +959,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    // Attempt 4: Search fallback based on movie / album name
+    // Attempt 4: Search fallback based on movie / album name (Bypass mood constraint)
     const movieOrAlbum = seed.movie || seed.album || "";
     if (recommendations.length < 15 && movieOrAlbum) {
       try {
@@ -929,14 +971,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           const albumSongs = raw
             .map((item: any) => (mapApiSong ? mapApiSong(item) : item))
             .filter((s: any): s is Song => !!s && !!s.id);
-          addSongs(albumSongs);
+          addSongs(albumSongs, { bypassMood: true });
         }
       } catch (err) {
         console.warn("[PlayerContext] Album/Movie fallback search failed:", err);
       }
     }
 
-    // Attempt 5: Search fallback based on artist alone
+    // Attempt 5: Search fallback based on artist alone (Bypass mood + category constraint)
     if (recommendations.length < 10 && firstArtist) {
       try {
         const query = `${firstArtist}${categoryQuerySuffix} songs`;
@@ -947,14 +989,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           const artistSongs = raw
             .map((item: any) => (mapApiSong ? mapApiSong(item) : item))
             .filter((s: any): s is Song => !!s && !!s.id);
-          addSongs(artistSongs);
+          addSongs(artistSongs, { bypassMood: true, bypassCategory: true });
         }
       } catch (err) {
         console.warn("[PlayerContext] Ultimate artist search failed:", err);
       }
     }
 
-    // Attempt 5b: Transition to similar languages / categories algorithm
+    // Attempt 5b: Transition to similar languages / categories (Bypass language, mood, category, year constraints)
     if (recommendations.length < 12 && seedLang) {
       const similarLangs = SIMILAR_LANGUAGES[seedLang] || [];
       for (const simLang of similarLangs) {
@@ -969,7 +1011,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             const simSongs = raw
               .map((item: any) => (mapApiSong ? mapApiSong(item) : item))
               .filter((s: any): s is Song => !!s && !!s.id);
-            addSongs(simSongs, true); // Bypass language filter to allow similar languages
+            addSongs(simSongs, { bypassLang: true, bypassMood: true, bypassCategory: true, bypassYear: true });
           }
         } catch (err) {
           console.warn(`[PlayerContext] Similar language pool query failed for "${randomQ}":`, err);
@@ -977,7 +1019,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    // Attempt 6: Continuous play general trending fallback
+    // Attempt 6: Continuous play general trending fallback (Bypass language, mood, category, year constraints)
     if (recommendations.length < 10) {
       const fallbackQueries = [
         `popular songs${categoryQuerySuffix}`,
@@ -1003,7 +1045,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             const fallbackSongs = raw
               .map((item: any) => (mapApiSong ? mapApiSong(item) : item))
               .filter((s: any): s is Song => !!s && !!s.id);
-            addSongs(fallbackSongs, true);
+            addSongs(fallbackSongs, { bypassLang: true, bypassMood: true, bypassCategory: true, bypassYear: true });
           }
         } catch (err) {
           console.warn(`[PlayerContext] Fallback query failed for "${q}":`, err);
@@ -1011,7 +1053,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    // Attempt 7: Final YouTube search fallback (so playing never stops under any circumstances)
+    // Attempt 7: Final YouTube search fallback (Bypass language, mood, category, year constraints)
     if (recommendations.length < 5) {
       try {
         const query = seedLang 
@@ -1023,7 +1065,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           ...song,
           language: song.language || seedLang
         }));
-        addSongs(mappedYtSongs, true);
+        addSongs(mappedYtSongs, { bypassLang: true, bypassMood: true, bypassCategory: true, bypassYear: true });
       } catch (err) {
         console.warn("[PlayerContext] Final YouTube fallback failed:", err);
       }
@@ -1053,8 +1095,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
     const promise = fetchRadioSongs(seed).then(async (recommendations) => {
       if (activeRecommendationFetchRef.current !== seed.id) {
-        console.log("[PlayerContext] Active recommendation seed changed, discarding fetched recommendations.");
-        return [];
+        console.log("[PlayerContext] Active recommendation seed changed, but appending recommendations anyway to prevent queue starvation.");
       }
 
       if (recommendations.length > 0) {
@@ -1320,7 +1361,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       } else if (repeatRef.current === "off") {
         const seed = q[idx];
         if (seed) {
-          await fetchAndAppendRecommendations(seed);
+          console.log("[PlayerContext] nextSongInternal: At queue end. Fetching and playing next recommendations...");
+          const newSongs = await fetchAndAppendRecommendations(seed);
+          if (newSongs && newSongs.length > 0) {
+            const newIdx = idx + 1;
+            if (newIdx < queueRef.current.length) {
+              await skipToReactIndex(newIdx);
+            }
+          }
         }
       }
     }
@@ -1428,7 +1476,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
                   if (nextTrack && nextTrack.url && nextTrack.url.startsWith("youtube://")) {
                     const videoId = nextTrack.url.replace("youtube://", "");
                     console.log(`[PlayerContext] Pre-resolving next YouTube track in queue: ${videoId}`);
-                    const directUrl = await resolvePipedAudioUrl(videoId);
+                    const directUrl = await getDirectAudioUrl(nextTrack.url);
                     if (directUrl) {
                       nextTrack.url = directUrl;
                       await TrackPlayer.remove(nextIndex);
@@ -1437,12 +1485,18 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
                     }
                   }
                 }
+                if (nextIndex < queueRef.current.length) {
+                  const nextSong = queueRef.current[nextIndex];
+                  if (nextSong && nextSong.id && !nextSong.lyrics) {
+                    preloadLyrics(nextSong.id);
+                  }
+                }
               } catch (e) {
                 console.warn("[PlayerContext] Failed to pre-resolve next track:", e);
               }
             }
           );
-
+  
           playbackErrorListener = TrackPlayer.addEventListener(
             Event.PlaybackError,
             async (error) => {
@@ -1457,11 +1511,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
                       console.warn(`[PlayerContext] Already attempted fallback for track ${track.id} at index ${activeIndex}. Skipping.`);
                     } else {
                       fallbackRetryRef.current[retryKey] = true;
-
+  
                       if (track.url.startsWith("youtube://")) {
                         const videoId = track.url.replace("youtube://", "");
                         console.log(`[PlayerContext] Playback error on YouTube track. Resolving video ID: ${videoId}`);
-                        const directUrl = await resolvePipedAudioUrl(videoId);
+                        const directUrl = await getDirectAudioUrl(track.url);
                         if (directUrl) {
                           track.url = directUrl;
                           await TrackPlayer.remove(activeIndex);
@@ -1470,22 +1524,22 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
                           await TrackPlayer.play();
                           return;
                         }
-                      } else if (track.url.includes("saavncdn.com") || track.url.includes("oasth.me")) {
+                      } else if (track.url.includes("saavncdn.com") || track.url.includes("oasth.me")) {} else if (track.url.includes("saavncdn.com") || track.url.includes("oasth.me")) {
                         console.log(`[PlayerContext] Playback error on direct JioSaavn CDN track. Falling back to proxy.`);
-                        track.url = `https://musicbackend-xg4u.onrender.com/api/songs/${track.id}/stream`;
+                        track.url = `https://musicbackend-7a1o.onrender.com/api/songs/${track.id}/stream`;
                         await TrackPlayer.remove(activeIndex);
                         await TrackPlayer.add(track, activeIndex);
                         await TrackPlayer.skip(activeIndex);
                         await TrackPlayer.play();
                         return;
-                      } else if (track.url.includes("musicbackend-xg4u.onrender.com")) {
+                      } else if (track.url.includes("musicbackend-7a1o.onrender.com")) {
                         console.log(`[PlayerContext] Playback error on backend stream proxy URL. Attempting to resolve direct JioSaavn CDN URL for track: ${track.id}`);
                         try {
                           const details = await api.getSongById(track.id);
                           const dataList = details?.data;
                           if (Array.isArray(dataList) && dataList.length > 0) {
                             const mapped = mapApiSong(dataList[0]);
-                            if (mapped && mapped.audioUrl && !mapped.audioUrl.includes("musicbackend-xg4u.onrender.com") && !mapped.audioUrl.includes("oasth.me")) {
+                            if (mapped && mapped.audioUrl && !mapped.audioUrl.includes("musicbackend-7a1o.onrender.com") && !mapped.audioUrl.includes("oasth.me")) {
                               console.log(`[PlayerContext] Successfully resolved direct CDN URL for proxy fallback: ${mapped.audioUrl.substring(0, 50)}...`);
                               track.url = mapped.audioUrl;
                               await TrackPlayer.remove(activeIndex);
