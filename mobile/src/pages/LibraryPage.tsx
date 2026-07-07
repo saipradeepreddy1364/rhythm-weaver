@@ -25,6 +25,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
     getPlaylist,
     loadLikedSongs,
     loadPlaylists,
+    loadLikedAlbums,
     downloadedSongs,
     likedAlbums,
     toggleLikeAlbum,
@@ -44,6 +45,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
   useEffect(() => {
     loadLikedSongs();
     loadPlaylists();
+    loadLikedAlbums();
   }, [user]);
 
   const [isOffline, setIsOffline] = useState(false);

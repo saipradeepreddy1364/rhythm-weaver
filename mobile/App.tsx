@@ -379,7 +379,7 @@ export default function App() {
     let prefetchDone = false;
 
     const maybeHideSplash = () => {
-      if (timerDone && prefetchDone && !splashHidden.current) {
+      if ((timerDone || prefetchDone) && !splashHidden.current) {
         splashHidden.current = true;
         SplashScreen.hideAsync().catch(() => {});
       }
