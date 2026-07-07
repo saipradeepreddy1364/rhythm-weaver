@@ -11,7 +11,6 @@ import type { Song } from "../data/songs";
 import { useAuth } from "./AuthContext";
 import { localStorage } from "../lib/storage";
 import * as FileSystem from "expo-file-system";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // ─── Types ────────────────=====================================================
 
@@ -395,11 +394,10 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
             })
           : [song, ...prev];
         
-        setTimeout(() => {
-          try {
-            localStorage.setItem("rw_liked_songs", JSON.stringify(nextLiked));
-          } catch {}
-        }, 0);
+        // Write immediately — no setTimeout, to prevent data loss on app kill
+        try {
+          localStorage.setItem("rw_liked_songs", JSON.stringify(nextLiked));
+        } catch {}
         return nextLiked;
       });
     },
@@ -421,11 +419,9 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       };
       setStoredPlaylists((prev) => {
         const list = [created, ...prev];
-        setTimeout(() => {
-          try {
-            localStorage.setItem("rw_playlists", JSON.stringify(list));
-          } catch {}
-        }, 0);
+        try {
+          localStorage.setItem("rw_playlists", JSON.stringify(list));
+        } catch {}
         return list;
       });
       return created;
@@ -437,11 +433,9 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     async (playlistId: string) => {
       setStoredPlaylists((prev) => {
         const list = prev.filter((p) => p.id !== playlistId);
-        setTimeout(() => {
-          try {
-            localStorage.setItem("rw_playlists", JSON.stringify(list));
-          } catch {}
-        }, 0);
+        try {
+          localStorage.setItem("rw_playlists", JSON.stringify(list));
+        } catch {}
         return list;
       });
     },
@@ -452,11 +446,9 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     async (playlistId: string, newName: string) => {
       setStoredPlaylists((prev) => {
         const list = prev.map((p) => (p.id === playlistId ? { ...p, name: newName } : p));
-        setTimeout(() => {
-          try {
-            localStorage.setItem("rw_playlists", JSON.stringify(list));
-          } catch {}
-        }, 0);
+        try {
+          localStorage.setItem("rw_playlists", JSON.stringify(list));
+        } catch {}
         return list;
       });
     },
@@ -475,11 +467,9 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
             songs: [...p.songs, song],
           };
         });
-        setTimeout(() => {
-          try {
-            localStorage.setItem("rw_playlists", JSON.stringify(list));
-          } catch {}
-        }, 0);
+        try {
+          localStorage.setItem("rw_playlists", JSON.stringify(list));
+        } catch {}
         return list;
       });
     },
@@ -497,11 +487,9 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
             songs: p.songs.filter((s) => s.id !== songId),
           };
         });
-        setTimeout(() => {
-          try {
-            localStorage.setItem("rw_playlists", JSON.stringify(list));
-          } catch {}
-        }, 0);
+        try {
+          localStorage.setItem("rw_playlists", JSON.stringify(list));
+        } catch {}
         return list;
       });
     },
@@ -539,13 +527,12 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
           ? prev.filter((a) => a.title.toLowerCase().trim() !== album.title.toLowerCase().trim())
           : [album, ...prev];
         
-        setTimeout(() => {
-          try {
-            localStorage.setItem("rw_liked_albums", JSON.stringify(nextLiked));
-          } catch (err) {
-            console.warn("Failed to save liked albums:", err);
-          }
-        }, 0);
+        // Write immediately — no setTimeout, to prevent data loss on app kill
+        try {
+          localStorage.setItem("rw_liked_albums", JSON.stringify(nextLiked));
+        } catch (err) {
+          console.warn("Failed to save liked albums:", err);
+        }
         return nextLiked;
       });
     },
