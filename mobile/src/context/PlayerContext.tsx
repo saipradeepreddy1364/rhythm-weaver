@@ -100,6 +100,8 @@ function resolveTrack(s: Song) {
     trackUrl = downloaded.audioUrl;
   } else if (s.id && s.id.startsWith("yt-")) {
     trackUrl = `youtube://${s.id.replace("yt-", "")}`;
+  } else if (s.audioUrl && s.audioUrl.startsWith("http")) {
+    trackUrl = s.audioUrl;
   } else {
     trackUrl = `https://musicbackend-7a1o.onrender.com/api/songs/${s.id}/stream`;
   }
@@ -1524,7 +1526,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
                           await TrackPlayer.play();
                           return;
                         }
-                      } else if (track.url.includes("saavncdn.com") || track.url.includes("oasth.me")) {} else if (track.url.includes("saavncdn.com") || track.url.includes("oasth.me")) {
+                      } else if (track.url.startsWith("file://")) {
+                        // Downloaded song failed to play from local disk — fall back to backend stream
+                        console.log(`[PlayerContext] Playback error on local file (downloaded song). Falling back to backend stream for: ${track.id}`);
+                        const songId = track.id || "";
+                        if (songId && !songId.startsWith("yt-")) {
+                          track.url = `https://musicbackend-7a1o.onrender.com/api/songs/${songId}/stream`;
+                          await TrackPlayer.remove(activeIndex);
+                          await TrackPlayer.add(track, activeIndex);
+                          await TrackPlayer.skip(activeIndex);
+                          await TrackPlayer.play();
+                          return;
+                        }
+                      } else if (track.url.includes("saavncdn.com") || track.url.includes("oasth.me")) {
                         console.log(`[PlayerContext] Playback error on direct JioSaavn CDN track. Falling back to proxy.`);
                         track.url = `https://musicbackend-7a1o.onrender.com/api/songs/${track.id}/stream`;
                         await TrackPlayer.remove(activeIndex);
