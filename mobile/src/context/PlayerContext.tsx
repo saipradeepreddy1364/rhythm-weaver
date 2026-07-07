@@ -242,18 +242,27 @@ async function resolvePipedAudioUrl(videoId: string): Promise<string | null> {
 async function getDirectAudioUrl(url: string): Promise<string> {
   if (url && url.startsWith("youtube://")) {
     const videoId = url.replace("youtube://", "");
+    const backendUrl = `https://musicbackend-7a1o.onrender.com/api/songs/yt-${videoId}/stream`;
     console.log(`[PlayerContext] Resolving YouTube URL for video ID: ${videoId}`);
-    const resolved = await resolvePipedAudioUrl(videoId);
-    if (resolved) {
-      console.log(`[PlayerContext] Successfully resolved YouTube URL: ${resolved.substring(0, 50)}...`);
-      return resolved;
+
+    // Race Piped/Invidious with a 4s cap — if they can't resolve in time, go straight to backend
+    const pipedResult = await Promise.race([
+      resolvePipedAudioUrl(videoId).catch(() => null),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000))
+    ]);
+
+    if (pipedResult) {
+      console.log(`[PlayerContext] Resolved via Piped/Invidious: ${pipedResult.substring(0, 50)}...`);
+      return pipedResult;
     }
-    // Fallback to our own backend yt-dlp streaming proxy
-    console.log(`[PlayerContext] Piped/Invidious failed. Falling back to backend proxy stream for: ${videoId}`);
-    return `https://musicbackend-7a1o.onrender.com/api/songs/yt-${videoId}/stream`;
+
+    // Backend proxy: TrackPlayer follows the 302 redirect to the actual audio stream
+    console.log(`[PlayerContext] Using backend proxy stream for: ${videoId}`);
+    return backendUrl;
   }
   return url;
 }
+
 
 interface PlayerContextType {
   currentSong: Song | null;
