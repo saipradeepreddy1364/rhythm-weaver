@@ -17,10 +17,14 @@
   },
   "exclude": [
     "node_modules",
-    "src/components/ui",
+    "src/components/ui/**/*",
     "src/main.tsx",
     "src/App.tsx",
     "src/index.css",
-    "src/vite-env.d.ts"
+    "src/vite-env.d.ts",
+    "src/lib/utils.ts",
+    "src/test/**/*",
+    "mobile/**/*",
+    "rhythm-weaver/**/*"
   ]
 }
