@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, TextInput, ActivityIndicator, Platform } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, TextInput, ActivityIndicator, Platform, Alert, DeviceEventEmitter } from 'react-native'
 import React, { useState, useEffect } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useAuth } from "../context/AuthContext";
@@ -312,9 +312,11 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
 
   const handleCreatePlaylist = async () => {
     if (!newPlaylistName.trim()) return;
-    await createNewPlaylist(newPlaylistName.trim());
+    const result = await createNewPlaylist(newPlaylistName.trim());
     setCreatingPlaylist(false);
     setNewPlaylistName("");
+    // Reload playlists from storage to ensure UI is up to date
+    loadPlaylists();
   };
 
   const handleRenamePlaylist = async (id: string) => {
@@ -323,6 +325,28 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
     setEditingId(null);
     setEditName("");
   };
+
+  // ── Offline full-screen view ──
+  if (isOffline) {
+    return (
+      <View style={[styles.container, styles.offlineContainer]}>
+        <MaterialCommunityIcons name="cloud-off-outline" size={64} color="#1DB954" style={{ marginBottom: 20 }} />
+        <Text style={styles.offlineTitle}>No Internet Connection</Text>
+        <Text style={styles.offlineDescription}>
+          You're offline. Go to Downloads to listen to saved songs.
+        </Text>
+        <TouchableOpacity
+          delayPressIn={0}
+          style={styles.offlineBtn}
+          onPress={() => DeviceEventEmitter.emit("NAVIGATE_TO_TAB", "Library")}
+          activeOpacity={0.8}
+        >
+          <MaterialCommunityIcons name="download" size={18} color="#000" style={{ marginRight: 8 }} />
+          <Text style={styles.offlineBtnText}>Go to Downloads</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -338,32 +362,6 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
         >
           <MaterialCommunityIcons name="cloud-refresh" size={22} color="#fff" />
         </TouchableOpacity>
-        <TouchableOpacity delayPressIn={0}
-          onPress={() => user ? setShowUserMenu(!showUserMenu) : setShowAuthModal(true)}
-          style={styles.profileBtn}
-          activeOpacity={0.7}
-        >
-          {user ? (
-            <Text style={styles.profileInitial}>
-              {(user.username?.charAt(0) || user.email?.charAt(0) || "U").toUpperCase()}
-            </Text>
-          ) : (
-            <MaterialCommunityIcons name="account-outline" size={20} color="#000" />
-          )}
-        </TouchableOpacity>
-
-        {showUserMenu && user ? (
-          <View style={styles.userDropdown}>
-            <View style={styles.dropdownInfo}>
-              <Text style={styles.dropdownName} numberOfLines={1}>{user.username}</Text>
-              <Text style={styles.dropdownEmail} numberOfLines={1}>{user.email}</Text>
-            </View>
-            <TouchableOpacity delayPressIn={0} onPress={handleLogout} style={styles.logoutBtn} activeOpacity={0.7}>
-              <MaterialCommunityIcons name="logout" size={14} color="#fff" style={{ marginRight: 6 }} />
-              <Text style={styles.logoutText}>Sign Out</Text>
-            </TouchableOpacity>
-          </View>
-        ) : null}
       </View>
 
       {/* Tabs */}
@@ -572,7 +570,20 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                       </TouchableOpacity>
                       <View style={styles.playlistActions}>
                         <TouchableOpacity delayPressIn={0}
-                          onPress={() => toggleLikeAlbum(album)}
+                          onPress={() => {
+                            Alert.alert(
+                              "Remove Album",
+                              `Remove "${album.title}" from your Liked Albums? This action cannot be undone.`,
+                              [
+                                { text: "Cancel", style: "cancel" },
+                                {
+                                  text: "Remove",
+                                  style: "destructive",
+                                  onPress: () => toggleLikeAlbum(album),
+                                },
+                              ]
+                            );
+                          }}
                           style={styles.actionBtn}
                           activeOpacity={0.7}
                         >
@@ -655,6 +666,38 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#121212",
+  },
+  offlineContainer: {
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 32,
+  },
+  offlineTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#fff",
+    marginBottom: 10,
+    textAlign: "center",
+  },
+  offlineDescription: {
+    fontSize: 14,
+    color: "rgba(255,255,255,0.5)",
+    textAlign: "center",
+    lineHeight: 22,
+    marginBottom: 28,
+  },
+  offlineBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#1DB954",
+    paddingHorizontal: 22,
+    paddingVertical: 12,
+    borderRadius: 25,
+  },
+  offlineBtnText: {
+    color: "#000",
+    fontWeight: "700",
+    fontSize: 15,
   },
   header: {
     flexDirection: "row",

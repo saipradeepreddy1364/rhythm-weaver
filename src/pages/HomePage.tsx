@@ -1543,33 +1543,6 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
             >
               <MaterialCommunityIcons name="cog" size={20} color="#fff" />
             </TouchableOpacity>
-
-            <TouchableOpacity delayPressIn={0}
-              onPress={() => user ? setShowUserMenu(!showUserMenu) : setShowAuthModal(true)}
-              style={[styles.userMenuBtn, user && styles.activeUserMenuBtn, { marginLeft: 8 }]}
-              activeOpacity={0.7}
-            >
-              {user ? (
-                <Text style={styles.userInitial}>
-                  {(user.username?.charAt(0) || user.email?.charAt(0) || "U").toUpperCase()}
-                </Text>
-              ) : (
-                <MaterialCommunityIcons name="account" size={18} color="#fff" />
-              )}
-            </TouchableOpacity>
-
-            {showUserMenu && user ? (
-              <View style={styles.userDropdown}>
-                <View style={styles.dropdownInfo}>
-                  <Text style={styles.dropdownName} numberOfLines={1}>{user.username}</Text>
-                  <Text style={styles.dropdownEmail} numberOfLines={1}>{user.email}</Text>
-                </View>
-                <TouchableOpacity delayPressIn={0} onPress={handleLogout} style={styles.logoutBtn} activeOpacity={0.7}>
-                  <MaterialCommunityIcons name="logout" size={14} color="#fff" style={{ marginRight: 6 }} />
-                  <Text style={styles.logoutText}>Sign Out</Text>
-                </TouchableOpacity>
-              </View>
-            ) : null}
           </View>
         </View>
 
