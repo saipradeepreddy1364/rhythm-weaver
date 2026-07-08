@@ -5,6 +5,7 @@ import React, {
   useState,
   useEffect,
   useCallback,
+  useRef,
   ReactNode,
 } from "react";
 import type { Song } from "../data/songs";
@@ -103,50 +104,77 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
 
   const [likedSongs, setLikedSongs]           = useState<Song[]>([]);
+  const likedSongsRef = useRef<Song[]>([]);
+  // Keep ref always in sync with state so memoized callbacks can read latest value
+  likedSongsRef.current = likedSongs;
   const [recentlyPlayed, setRecentlyPlayed]   = useState<Song[]>([]);
   const [storedPlaylists, setStoredPlaylists] = useState<StoredPlaylist[]>([]);
   const [downloadedSongs, setDownloadedSongs] = useState<Song[]>([]);
   const [downloadingIds, setDownloadingIds]   = useState<string[]>([]);
   const [likedAlbums, setLikedAlbums]         = useState<AlbumData[]>([]);
 
-  // ── One-time migration: consolidate legacy guest keys into canonical keys ──
-  // This runs once on mount. After migration, all functions only use canonical keys.
-  useEffect(() => {
-    const migrateGuestKeys = async () => {
-      try {
-        // Migrate liked songs: rw_guest_liked → rw_liked_songs
-        const canonical = await AsyncStorage.getItem("rw_liked_songs");
-        const guest = await AsyncStorage.getItem("rw_guest_liked");
-        if (!canonical && guest) {
-          await AsyncStorage.setItem("rw_liked_songs", guest);
-          await AsyncStorage.removeItem("rw_guest_liked");
-        } else if (canonical && guest) {
-          // Merge: add any guest songs not already in canonical
-          try {
+
+  // ── Single sequential liked-songs initializer ─────────────────────────────
+  // Migration runs FIRST, then load — no race condition possible.
+  const initLikedSongs = useCallback(async () => {
+    try {
+      // Step 1: Migrate legacy guest key → canonical key (only if needed)
+      const canonical = await AsyncStorage.getItem("rw_liked_songs");
+      const guest = await AsyncStorage.getItem("rw_guest_liked");
+      if (guest) {
+        try {
+          const guestSongs: Song[] = JSON.parse(guest);
+          if (!canonical) {
+            // No canonical yet — move guest directly
+            await AsyncStorage.setItem("rw_liked_songs", guest);
+          } else {
+            // Both exist — merge, then write canonical
             const canonicalSongs: Song[] = JSON.parse(canonical);
-            const guestSongs: Song[] = JSON.parse(guest);
             const canonicalIds = new Set(canonicalSongs.map(s => s.id));
             const merged = [...canonicalSongs, ...guestSongs.filter(s => !canonicalIds.has(s.id))];
             await AsyncStorage.setItem("rw_liked_songs", JSON.stringify(merged));
-            await AsyncStorage.removeItem("rw_guest_liked");
-          } catch {}
-        }
-
-        // Migrate liked albums: rw_guest_liked_albums → rw_liked_albums
-        const canonicalAlbums = await AsyncStorage.getItem("rw_liked_albums");
-        const guestAlbums = await AsyncStorage.getItem("rw_guest_liked_albums");
-        if (!canonicalAlbums && guestAlbums) {
-          await AsyncStorage.setItem("rw_liked_albums", guestAlbums);
-          await AsyncStorage.removeItem("rw_guest_liked_albums");
-        } else if (canonicalAlbums && guestAlbums) {
-          await AsyncStorage.removeItem("rw_guest_liked_albums");
-        }
-      } catch (err) {
-        console.warn("Guest key migration failed:", err);
+          }
+          await AsyncStorage.removeItem("rw_guest_liked");
+        } catch { /* bad JSON, just remove guest key */ }
       }
-    };
-    migrateGuestKeys();
+
+      // Step 2: Migrate legacy album guest key
+      const canonicalAlbums = await AsyncStorage.getItem("rw_liked_albums");
+      const guestAlbums = await AsyncStorage.getItem("rw_guest_liked_albums");
+      if (guestAlbums) {
+        if (!canonicalAlbums) {
+          await AsyncStorage.setItem("rw_liked_albums", guestAlbums);
+        }
+        await AsyncStorage.removeItem("rw_guest_liked_albums");
+      }
+
+      // Step 3: Load liked songs from canonical key (migration is done by now)
+      const raw = await AsyncStorage.getItem("rw_liked_songs");
+      setLikedSongs(raw ? JSON.parse(raw) : []);
+
+      // Step 4: Load liked albums
+      const rawAlbums = await AsyncStorage.getItem("rw_liked_albums");
+      setLikedAlbums(rawAlbums ? JSON.parse(rawAlbums) : []);
+    } catch (err) {
+      console.warn("initLikedSongs failed:", err);
+      setLikedSongs([]);
+      setLikedAlbums([]);
+    }
   }, []);
+
+  // Run on mount and when app comes back to foreground
+  useEffect(() => {
+    initLikedSongs();
+  }, [initLikedSongs]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") {
+        initLikedSongs();
+      }
+    });
+    return () => sub.remove();
+  }, [initLikedSongs]);
 
   // Load downloads from AsyncStorage after initialization
   useEffect(() => {
@@ -343,26 +371,12 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     setStoredPlaylists([]);
   }, []);
 
-  // Trigger loads on mount or initially
+  // Load non-liked data on mount
   useEffect(() => {
-    loadLikedSongs();
     loadRecentlyPlayed();
     loadPlaylists();
-    loadLikedAlbums();
-  }, [loadLikedSongs, loadRecentlyPlayed, loadPlaylists, loadLikedAlbums]);
+  }, [loadRecentlyPlayed, loadPlaylists]);
 
-  // Re-read liked songs from AsyncStorage when app comes back to foreground
-  // This ensures data saved in a previous session is always current
-  useEffect(() => {
-    const sub = AppState.addEventListener("change", (nextState) => {
-      if (nextState === "active") {
-        loadLikedSongs();
-        loadLikedAlbums();
-        loadPlaylists();
-      }
-    });
-    return () => sub.remove();
-  }, [loadLikedSongs, loadLikedAlbums, loadPlaylists]);
 
   // ── Derived playlists ─────────────────────────────────────────────────────────
 
@@ -405,9 +419,8 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     async (song: Song) => {
       if (!song) return;
       try {
-        // Read fresh from canonical key
-        const raw = await AsyncStorage.getItem("rw_liked_songs");
-        const current: Song[] = raw ? JSON.parse(raw) : [];
+        // Read from ref — always the latest, even mid-render or rapid calls
+        const current = likedSongsRef.current;
         const queryNorm = normalizeSongTitle(song.title, song.movie || song.album);
         const matched = current.filter((s) => {
           if (s.id === song.id) return true;
@@ -422,8 +435,14 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
               return !(sNorm && queryNorm && sNorm === queryNorm);
             })
           : [song, ...current];
-        await AsyncStorage.setItem("rw_liked_songs", JSON.stringify(nextLiked));
+
+        // ⚡ Update ref immediately so back-to-back calls see the new list
+        // even if React hasn't re-rendered yet
+        likedSongsRef.current = nextLiked;
+
+        // Optimistic state update (instant UI), then persist to AsyncStorage
         setLikedSongs(nextLiked);
+        await AsyncStorage.setItem("rw_liked_songs", JSON.stringify(nextLiked));
       } catch (err) {
         console.warn("Failed to toggle like:", err);
       }

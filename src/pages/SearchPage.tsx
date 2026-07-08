@@ -1173,7 +1173,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                   )}
                 </View>
                 <View style={styles.artistAlbumCardMeta}>
-                  <Text style={styles.artistAlbumCardLabel}>Artist / Person</Text>
+                  <Text style={styles.artistAlbumCardLabel}>Album</Text>
                   <Text style={styles.artistAlbumCardName} numberOfLines={1}>{autoArtistQuery}</Text>
                   <Text style={styles.artistAlbumCardSub}>See all songs →</Text>
                 </View>
