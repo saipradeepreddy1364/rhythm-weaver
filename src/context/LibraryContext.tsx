@@ -287,12 +287,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const deleteDownloadedSong = useCallback(async (songId: string) => {
     try {
-      const audioLocalUri = (FileSystem.documentDirectory || "") + songId + ".mp3";
-      const artLocalUri = (FileSystem.documentDirectory || "") + songId + "_art.jpg";
-
-      await FileSystem.deleteAsync(audioLocalUri, { idempotent: true });
-      await FileSystem.deleteAsync(artLocalUri, { idempotent: true });
-
+      // 1. Update list and store in AsyncStorage first for instant UI response and robustness
       const next = downloadedSongs.filter((s) => String(s.id) !== String(songId));
       const stripped = next.map((s) => {
         let aUrl = s.audioUrl || "";
@@ -311,6 +306,12 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       });
       await AsyncStorage.setItem("rw_downloads", JSON.stringify(stripped));
       setDownloadedSongs(next);
+
+      // 2. Cleanup physical files in the background without blocking the UI/state flow
+      const audioLocalUri = (FileSystem.documentDirectory || "") + songId + ".mp3";
+      const artLocalUri = (FileSystem.documentDirectory || "") + songId + "_art.jpg";
+      FileSystem.deleteAsync(audioLocalUri, { idempotent: true }).catch(() => {});
+      FileSystem.deleteAsync(artLocalUri, { idempotent: true }).catch(() => {});
     } catch (err) {
       console.error("Failed to delete downloaded song:", err);
     }
