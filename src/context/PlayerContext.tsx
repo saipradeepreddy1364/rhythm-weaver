@@ -23,20 +23,31 @@ import { Song, mapApiSong } from "../data/songs";
 import { api } from "../services/api";
 import { localStorage } from "../lib/storage";
 import { normalizeSongTitle } from "./LibraryContext";
+import * as FileSystem from "expo-file-system";
 
 // ─── Playback History & Offline Helpers ──────────────────────────────────────
 const RECENT_LIMIT_MS = 3 * 60 * 60 * 1000; // 3 hours
 
 // Normalize song title to strip suffixes like "(From 'Movie')", "- Remix" etc. for deduplication
 
+let inMemoryHistory: any[] = [];
+let historyLoaded = false;
+
+let inMemoryHistoryStack: Song[] = [];
+let inMemoryHistoryIndex: number = -1;
+let historyStackLoaded = false;
+
+async function loadHistoryAsync() {
+  if (historyLoaded) return;
+  try {
+    const raw = await AsyncStorage.getItem("rw_playback_history");
+    if (raw) inMemoryHistory = JSON.parse(raw);
+  } catch {}
+  historyLoaded = true;
+}
 
 function getPlaybackHistory(): any[] {
-  try {
-    const raw = localStorage.getItem("rw_playback_history");
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
+  return inMemoryHistory;
 }
 
 function logPlayback(song: Song) {
@@ -53,7 +64,8 @@ function logPlayback(song: Song) {
         artist: song.artist,
         timestamp: now,
       });
-      localStorage.setItem("rw_playback_history", JSON.stringify(filtered));
+      inMemoryHistory = filtered;
+      AsyncStorage.setItem("rw_playback_history", JSON.stringify(filtered)).catch(() => {});
     }
   } catch (err) {
     console.warn("Failed to log playback history:", err);
@@ -86,18 +98,17 @@ function filterQueueByHistory(song: Song, songQueue: Song[]): Song[] {
   });
 }
 
-function resolveTrack(s: Song) {
-  let downloadedList: any[] = [];
-  try {
-    const raw = localStorage.getItem("rw_downloads");
-    if (raw) downloadedList = JSON.parse(raw);
-  } catch {}
-  
+function resolveTrack(s: Song, downloadedList: any[] = []) {
   const downloaded = downloadedList.find((d) => d.id === s.id);
   
   let trackUrl = "";
-  if (downloaded?.audioUrl) {
+  if (s.audioUrl && (s.audioUrl.startsWith("file://") || s.audioUrl.startsWith("/"))) {
+    trackUrl = s.audioUrl;
+  } else if (downloaded?.audioUrl) {
     trackUrl = downloaded.audioUrl;
+    if (trackUrl && !trackUrl.startsWith("http") && !trackUrl.startsWith("file://")) {
+      trackUrl = (FileSystem.documentDirectory || "") + trackUrl;
+    }
   } else if (s.id && s.id.startsWith("yt-")) {
     trackUrl = `youtube://${s.id.replace("yt-", "")}`;
   } else if (s.audioUrl && s.audioUrl.startsWith("http")) {
@@ -106,13 +117,21 @@ function resolveTrack(s: Song) {
     trackUrl = `https://musicbackend-7a1o.onrender.com/api/songs/${s.id}/stream`;
   }
 
+  let artwork = s.albumArt || "";
+  if (downloaded?.albumArt) {
+    artwork = downloaded.albumArt;
+    if (artwork && !artwork.startsWith("http") && !artwork.startsWith("file://")) {
+      artwork = (FileSystem.documentDirectory || "") + artwork;
+    }
+  }
+
   return {
     id: s.id,
     url: trackUrl,
     title: s.title,
     artist: s.artist,
     album: s.album || s.movie || "",
-    artwork: downloaded?.albumArt || s.albumArt || "",
+    artwork: artwork,
   };
 }
 
@@ -654,21 +673,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const isNavigatingHistoryRef = useRef(false);
 
   const loadHistoryFromStorage = useCallback((): { stack: Song[]; index: number } => {
-    try {
-      const rawStack = localStorage.getItem("rw_history_stack");
-      const rawIndex = localStorage.getItem("rw_history_index");
-      const stack = rawStack ? JSON.parse(rawStack) : [];
-      const index = rawIndex ? parseInt(rawIndex, 10) : -1;
-      return { stack, index };
-    } catch {
-      return { stack: [], index: -1 };
-    }
+    return { stack: inMemoryHistoryStack, index: inMemoryHistoryIndex };
   }, []);
 
   const saveHistoryToStorage = useCallback((stack: Song[], index: number) => {
+    inMemoryHistoryStack = stack;
+    inMemoryHistoryIndex = index;
     try {
-      localStorage.setItem("rw_history_stack", JSON.stringify(stack));
-      localStorage.setItem("rw_history_index", String(index));
+      AsyncStorage.setItem("rw_history_stack", JSON.stringify(stack)).catch(() => {});
+      AsyncStorage.setItem("rw_history_index", String(index)).catch(() => {});
     } catch (err) {
       console.warn("[PlayerContext] Failed to save history to storage:", err);
     }
@@ -691,6 +704,21 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
   }, [favorites]);
+
+  // Load playback history & history stack on mount
+  useEffect(() => {
+    const load = async () => {
+      await loadHistoryAsync();
+      try {
+        const rawStack = await AsyncStorage.getItem("rw_history_stack");
+        const rawIndex = await AsyncStorage.getItem("rw_history_index");
+        inMemoryHistoryStack = rawStack ? JSON.parse(rawStack) : [];
+        inMemoryHistoryIndex = rawIndex ? parseInt(rawIndex, 10) : -1;
+      } catch {}
+      historyStackLoaded = true;
+    };
+    load();
+  }, []);
 
   // Background task to try to fetch a high-res original movie/album cover image for YouTube tracks
   useEffect(() => {
@@ -772,7 +800,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   // Radio suggestions fetching (Language & Category Recommendations Engine)
   const fetchRadioSongs = useCallback(async (seed: Song): Promise<Song[]> => {
     let seedLang = seed.language ? seed.language.toLowerCase().trim() : "";
-    if (seedLang !== "telugu" && seedLang !== "hindi") {
+    const supportedLangs = ["telugu", "hindi", "tamil", "punjabi", "kannada", "malayalam", "english"];
+    
+    if (!supportedLangs.includes(seedLang)) {
       seedLang = "";
     }
 
@@ -781,7 +811,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       const songsWithLang = queueRef.current.filter((s) => {
         if (!s.language) return false;
         const l = s.language.toLowerCase().trim();
-        return l === "telugu" || l === "hindi";
+        return supportedLangs.includes(l);
       });
       if (songsWithLang.length > 0) {
         const langCounts: Record<string, number> = {};
@@ -806,7 +836,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           const matched = dataList[0];
           if (matched && matched.language) {
             const resolved = String(matched.language).toLowerCase().trim();
-            if (resolved === "telugu" || resolved === "hindi") {
+            if (supportedLangs.includes(resolved)) {
               seedLang = resolved;
               console.log(`[PlayerContext] Resolved language from API details: ${seedLang}`);
             }
@@ -817,7 +847,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    if (seedLang !== "telugu" && seedLang !== "hindi") {
+    if (!seedLang) {
       seedLang = "telugu"; // Default fallback
     }
 
@@ -856,13 +886,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       list.forEach((s) => {
         if (!s || !s.id) return;
         
-        // Strict global requirement: only Telugu and Hindi songs allowed in continuous play/radio suggestions
+        // Strict global requirement: only supported languages allowed in continuous play/radio suggestions
         const sLang = s.language || seedLang;
         if (!sLang) {
           return;
         }
         const l = sLang.toLowerCase().trim();
-        if (l !== "telugu" && l !== "hindi") {
+        if (!supportedLangs.includes(l)) {
           return;
         }
 
@@ -1109,6 +1139,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         console.log("[PlayerContext] Active recommendation seed changed, but appending recommendations anyway to prevent queue starvation.");
       }
 
+      let downloadedList: any[] = [];
+      try {
+        const raw = await AsyncStorage.getItem("rw_downloads");
+        if (raw) downloadedList = JSON.parse(raw);
+      } catch {}
+
       if (recommendations.length > 0) {
         const existingIds = new Set(queueRef.current.map((s) => s.id));
         const existingKeys = new Set(queueRef.current.map((s) => (s.title || "").toLowerCase().trim() + "|" + (s.artist || "").toLowerCase().trim()));
@@ -1125,7 +1161,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           setQueue(updatedQueue);
           
           try {
-            const tracksToAdd = uniqueRecs.map((s) => resolveTrack(s));
+            const tracksToAdd = uniqueRecs.map((s) => resolveTrack(s, downloadedList));
             await TrackPlayer.add(tracksToAdd);
             
             const playbackState = await TrackPlayer.getPlaybackState();
@@ -1144,7 +1180,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
               } catch (skipErr) {
                 console.warn("[PlayerContext] Skip failed, resetting track player with entire updated queue.");
                 await TrackPlayer.reset();
-                const allTracks = updatedQueue.map((s) => resolveTrack(s));
+                const allTracks = updatedQueue.map((s) => resolveTrack(s, downloadedList));
                 await TrackPlayer.add(allTracks);
                 await TrackPlayer.skip(oldLength);
                 await TrackPlayer.play();
@@ -1280,14 +1316,20 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       try {
         await TrackPlayer.reset();
         
+        let downloadedList: any[] = [];
+        try {
+          const raw = await AsyncStorage.getItem("rw_downloads");
+          if (raw) downloadedList = JSON.parse(raw);
+        } catch {}
+        
         // Resolve the direct URL of the selected song
-        const resolvedSongTrack = resolveTrack(song);
+        const resolvedSongTrack = resolveTrack(song, downloadedList);
         const directUrl = await getDirectAudioUrl(resolvedSongTrack.url);
         resolvedSongTrack.url = directUrl;
         
         // Slice the queue starting from safeIdx onwards
         const slicedQueue = q.slice(safeIdx);
-        const tracks = slicedQueue.map((s) => resolveTrack(s));
+        const tracks = slicedQueue.map((s) => resolveTrack(s, downloadedList));
         if (tracks.length > 0) {
           tracks[0].url = directUrl;
         }
@@ -1630,6 +1672,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const newShuffle = !shuffle;
     setShuffle(newShuffle);
 
+    let downloadedList: any[] = [];
+    try {
+      const raw = await AsyncStorage.getItem("rw_downloads");
+      if (raw) downloadedList = JSON.parse(raw);
+    } catch {}
+
     if (newShuffle) {
       setOriginalQueue(queue);
       if (queue.length > 1 && currentSong) {
@@ -1641,7 +1689,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
         try {
           await TrackPlayer.reset();
-          const tracks = newQ.map((s) => resolveTrack(s));
+          const tracks = newQ.map((s) => resolveTrack(s, downloadedList));
           await TrackPlayer.add(tracks);
           await TrackPlayer.play();
         } catch {}
@@ -1655,7 +1703,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
         try {
           await TrackPlayer.reset();
-          const tracks = originalQueue.map((s) => resolveTrack(s));
+          const tracks = originalQueue.map((s) => resolveTrack(s, downloadedList));
           await TrackPlayer.add(tracks);
           await TrackPlayer.skip(safeIdx);
           await TrackPlayer.play();
@@ -1690,7 +1738,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       if (prev.some((s) => s.id === song.id)) return prev;
       const newQ = [...prev, song];
 
-      TrackPlayer.add(resolveTrack(song)).catch(() => {});
+      AsyncStorage.getItem("rw_downloads")
+        .then((raw) => {
+          let downloads: any[] = [];
+          if (raw) {
+            try { downloads = JSON.parse(raw); } catch {}
+          }
+          TrackPlayer.add(resolveTrack(song, downloads)).catch(() => {});
+        })
+        .catch(() => {
+          TrackPlayer.add(resolveTrack(song)).catch(() => {});
+        });
 
       return newQ;
     });

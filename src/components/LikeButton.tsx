@@ -1,9 +1,9 @@
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Modal, ActivityIndicator } from 'react-native'
 import React, { useState, useEffect } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { useLibrary } from "@/context/LibraryContext";
-import { useAuth } from "@/context/AuthContext";
-import type { Song } from "@/data/songs";
+import { useLibrary } from "../context/LibraryContext";
+import { useAuth } from "../context/AuthContext";
+import type { Song } from "../data/songs";
 
 interface LikeButtonProps {
   song: Song;
@@ -25,7 +25,7 @@ export function LikeButton({
 
   const containingFolderIds = new Set(
     playlists
-      .filter((p) => ((p as any).songs || []).some((s: any) => s.id === song.id))
+      .filter((p) => (p.songs || []).some((s: any) => s.id === song.id))
       .map((p) => p.id)
   );
 
@@ -39,12 +39,7 @@ export function LikeButton({
     lg: 24,
   };
 
-  const handlePress = async () => {
-    if (!user) {
-      // Guest/offline user: toggle general like directly without showing folder or login modal
-      await toggleLike(song);
-      return;
-    }
+  const handlePress = () => {
     setModalOpen(true);
   };
 

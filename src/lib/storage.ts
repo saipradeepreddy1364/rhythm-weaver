@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Platform } from "react-native";
 
 /**
  * MemoryStorage — in-memory cache backed by AsyncStorage.
@@ -9,16 +10,19 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 class MemoryStorage {
   private cache: Record<string, string> = {};
   private initialized = false;
-  private initPromise: Promise<void>;
+  private initPromise: Promise<void> | null = null;
 
   // Serial write queue: each write waits for the previous to finish
   private writeQueue: Promise<void> = Promise.resolve();
 
   constructor() {
-    this.initPromise = this.init();
+    // Do not initialize at import time to prevent calling native modules before the React Native bridge is ready
   }
 
   async ensureInitialized(): Promise<void> {
+    if (!this.initPromise) {
+      this.initPromise = this.init();
+    }
     await this.initPromise;
   }
 
@@ -160,7 +164,7 @@ export const localStorage = new MemoryStorage();
 export const sessionStorage = new SessionMemoryStorage();
 
 // Apply polyfills to global context so standard browser-focused libraries can also use them
-if (typeof global !== "undefined") {
+if (typeof global !== "undefined" && Platform.OS !== "web") {
   (global as any).localStorage = localStorage;
   (global as any).sessionStorage = sessionStorage;
 }

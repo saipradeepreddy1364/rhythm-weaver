@@ -9,7 +9,7 @@ import React, {
 } from "react";
 import type { Song } from "../data/songs";
 import { useAuth } from "./AuthContext";
-import { localStorage } from "../lib/storage";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as FileSystem from "expo-file-system";
 
 // ─── Types ────────────────=====================================================
@@ -20,6 +20,7 @@ export interface Playlist {
   cover_art?: string;
   song_count?: number;
   created_at: string;
+  songs?: Song[];
 }
 
 interface StoredPlaylist extends Playlist {
@@ -108,12 +109,11 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const [downloadingIds, setDownloadingIds]   = useState<string[]>([]);
   const [likedAlbums, setLikedAlbums]         = useState<AlbumData[]>([]);
 
-  // Load downloads from localStorage after initialization
+  // Load downloads from AsyncStorage after initialization
   useEffect(() => {
     const loadDownloads = async () => {
       try {
-        await localStorage.ensureInitialized();
-        const raw = localStorage.getItem("rw_downloads");
+        const raw = await AsyncStorage.getItem("rw_downloads");
         if (raw) {
           const songs: Song[] = JSON.parse(raw);
           const mapped = songs.map((s) => {
@@ -208,7 +208,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
               albumArt: aArt,
             };
           });
-          localStorage.setItem("rw_downloads", JSON.stringify(stripped));
+          AsyncStorage.setItem("rw_downloads", JSON.stringify(stripped)).catch(() => {});
           return next;
         });
       } catch (err) {
@@ -245,7 +245,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
             albumArt: aArt,
           };
         });
-        localStorage.setItem("rw_downloads", JSON.stringify(stripped));
+        AsyncStorage.setItem("rw_downloads", JSON.stringify(stripped)).catch(() => {});
         return next;
       });
     } catch (err) {
@@ -257,8 +257,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const loadLikedAlbums = useCallback(async () => {
     try {
-      await localStorage.ensureInitialized();
-      const rawAlbums = localStorage.getItem("rw_liked_albums") || localStorage.getItem("rw_guest_liked_albums");
+      const rawAlbums = await AsyncStorage.getItem("rw_liked_albums") || await AsyncStorage.getItem("rw_guest_liked_albums");
       if (rawAlbums) {
         setLikedAlbums(JSON.parse(rawAlbums));
       } else {
@@ -274,9 +273,8 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const loadLikedSongs = useCallback(async () => {
     try {
-      await localStorage.ensureInitialized();
-      const raw = localStorage.getItem("rw_liked_songs")
-        || localStorage.getItem("rw_guest_liked");
+      const raw = await AsyncStorage.getItem("rw_liked_songs")
+        || await AsyncStorage.getItem("rw_guest_liked");
       if (raw) {
         setLikedSongs(JSON.parse(raw));
         return;
@@ -289,8 +287,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const loadRecentlyPlayed = useCallback(async () => {
     try {
-      await localStorage.ensureInitialized();
-      const raw = localStorage.getItem("rw_recently_played");
+      const raw = await AsyncStorage.getItem("rw_recently_played");
       if (raw) {
         setRecentlyPlayed(JSON.parse(raw));
         return;
@@ -303,8 +300,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const loadPlaylists = useCallback(async () => {
     try {
-      await localStorage.ensureInitialized();
-      const raw = localStorage.getItem("rw_playlists");
+      const raw = await AsyncStorage.getItem("rw_playlists");
       if (raw) {
         setStoredPlaylists(JSON.parse(raw));
         return;
@@ -336,9 +332,9 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   // ── Derived playlists ─────────────────────────────────────────────────────────
 
-  const playlists: Playlist[] = storedPlaylists.map(({ songs, ...rest }) => ({
-    ...rest,
-    song_count: rest.song_count ?? songs.length,
+  const playlists: Playlist[] = storedPlaylists.map((p) => ({
+    ...p,
+    song_count: p.song_count ?? p.songs.length,
   }));
 
   // ── Recently played — persisted to in-memory & local storage ────────────────
@@ -352,7 +348,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     });
 
     try {
-      localStorage.setItem("rw_recently_played", JSON.stringify(newRecent));
+      AsyncStorage.setItem("rw_recently_played", JSON.stringify(newRecent)).catch(() => {});
     } catch { /* ignore */ }
   }, []);
 
@@ -374,7 +370,6 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const toggleLike = useCallback(
     async (song: Song) => {
       if (!song) return;
-      await localStorage.ensureInitialized();
       
       const queryNorm = normalizeSongTitle(song.title, song.movie || song.album);
       
@@ -394,10 +389,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
             })
           : [song, ...prev];
         
-        // Write immediately — no setTimeout, to prevent data loss on app kill
-        try {
-          localStorage.setItem("rw_liked_songs", JSON.stringify(nextLiked));
-        } catch {}
+        AsyncStorage.setItem("rw_liked_songs", JSON.stringify(nextLiked)).catch(() => {});
         return nextLiked;
       });
     },
@@ -420,7 +412,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       setStoredPlaylists((prev) => {
         const list = [created, ...prev];
         try {
-          localStorage.setItem("rw_playlists", JSON.stringify(list));
+          AsyncStorage.setItem("rw_playlists", JSON.stringify(list)).catch(() => {});
         } catch {}
         return list;
       });
@@ -434,7 +426,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       setStoredPlaylists((prev) => {
         const list = prev.filter((p) => p.id !== playlistId);
         try {
-          localStorage.setItem("rw_playlists", JSON.stringify(list));
+          AsyncStorage.setItem("rw_playlists", JSON.stringify(list)).catch(() => {});
         } catch {}
         return list;
       });
@@ -447,7 +439,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       setStoredPlaylists((prev) => {
         const list = prev.map((p) => (p.id === playlistId ? { ...p, name: newName } : p));
         try {
-          localStorage.setItem("rw_playlists", JSON.stringify(list));
+          AsyncStorage.setItem("rw_playlists", JSON.stringify(list)).catch(() => {});
         } catch {}
         return list;
       });
@@ -468,7 +460,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
           };
         });
         try {
-          localStorage.setItem("rw_playlists", JSON.stringify(list));
+          AsyncStorage.setItem("rw_playlists", JSON.stringify(list)).catch(() => {});
         } catch {}
         return list;
       });
@@ -488,7 +480,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
           };
         });
         try {
-          localStorage.setItem("rw_playlists", JSON.stringify(list));
+          AsyncStorage.setItem("rw_playlists", JSON.stringify(list)).catch(() => {});
         } catch {}
         return list;
       });
@@ -517,7 +509,6 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const toggleLikeAlbum = useCallback(
     async (album: AlbumData) => {
       if (!album) return;
-      await localStorage.ensureInitialized();
 
       setLikedAlbums((prev) => {
         const isLiked = prev.some(
@@ -527,9 +518,8 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
           ? prev.filter((a) => a.title.toLowerCase().trim() !== album.title.toLowerCase().trim())
           : [album, ...prev];
         
-        // Write immediately — no setTimeout, to prevent data loss on app kill
         try {
-          localStorage.setItem("rw_liked_albums", JSON.stringify(nextLiked));
+          AsyncStorage.setItem("rw_liked_albums", JSON.stringify(nextLiked)).catch(() => {});
         } catch (err) {
           console.warn("Failed to save liked albums:", err);
         }

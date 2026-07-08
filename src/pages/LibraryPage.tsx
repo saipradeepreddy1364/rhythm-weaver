@@ -270,16 +270,8 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
         </View>
 
         <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
-          <View style={styles.detailCoverSection}>
-            <View style={[styles.largeCoverArt, { backgroundColor: "#1e1e1e" }]}>
-              <MaterialCommunityIcons name="heart" size={60} color="#f43f5e" />
-            </View>
-            <Text style={styles.detailTitle}>Liked Songs</Text>
-            <Text style={styles.detailSubtitle}>
-              {likedSongs.length} songs
-            </Text>
-
-            {likedSongs.length > 0 ? (
+          {likedSongs.length > 0 ? (
+            <View style={{ flexDirection: "row", justifyContent: "flex-end", paddingHorizontal: 16, marginTop: 12, marginBottom: 8 }}>
               <TouchableOpacity delayPressIn={0}
                 onPress={() => playSong(likedSongs[0], likedSongs, true)}
                 style={styles.playAllBtn}
@@ -288,8 +280,8 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                 <MaterialCommunityIcons name="play" size={16} color="#000" style={{ marginRight: 6 }} />
                 <Text style={styles.playAllBtnText}>Play All</Text>
               </TouchableOpacity>
-            ) : null}
-          </View>
+            </View>
+          ) : null}
 
           {likedSongs.length === 0 ? (
             <LibraryEmpty

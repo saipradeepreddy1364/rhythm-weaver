@@ -1,6 +1,6 @@
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image } from 'react-native'
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
-import { localStorage } from "../lib/storage";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 interface User {
   id: string;
@@ -28,25 +28,25 @@ function generateGuestId(): string {
   });
 }
 
-function getStableGuestUsername(userId?: string): string {
+async function getStableGuestUsername(userId?: string): Promise<string> {
   const key = `rw_stable_guest_username_${userId || "generic"}`;
   try {
-    const cached = localStorage.getItem(key);
+    const cached = await AsyncStorage.getItem(key);
     if (cached) return cached;
   } catch { /* ignore */ }
   
   const randNum = Math.floor(1000 + Math.random() * 9000);
   const name = `Guest_${randNum}`;
   try {
-    localStorage.setItem(key, name);
+    await AsyncStorage.setItem(key, name);
   } catch { /* ignore */ }
   return name;
 }
 
-function getOrCreateLocalGuestUser(): User {
+async function getOrCreateLocalGuestUser(): Promise<User> {
   const LOCAL_USER_KEY = "rw_local_guest_user_v2";
   try {
-    const raw = localStorage.getItem(LOCAL_USER_KEY);
+    const raw = await AsyncStorage.getItem(LOCAL_USER_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && parsed.id && parsed.username) return parsed;
@@ -62,7 +62,7 @@ function getOrCreateLocalGuestUser(): User {
   };
   
   try {
-    localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(guestUser));
+    await AsyncStorage.setItem(LOCAL_USER_KEY, JSON.stringify(guestUser));
   } catch { /* ignore */ }
   
   return guestUser;
@@ -75,8 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const checkAuth = useCallback(async () => {
     setLoading(true);
     try {
-      await localStorage.ensureInitialized();
-      const fallbackUser = getOrCreateLocalGuestUser();
+      const fallbackUser = await getOrCreateLocalGuestUser();
       setUser(fallbackUser);
     } catch (err) {
       console.warn("[AuthContext] Failed to resolve auth on boot:", err);
@@ -99,7 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAnonymous: false
     };
     setUser(loggedInUser);
-    localStorage.setItem("rw_local_guest_user_v2", JSON.stringify(loggedInUser));
+    await AsyncStorage.setItem("rw_local_guest_user_v2", JSON.stringify(loggedInUser));
     return null;
   };
 
@@ -115,20 +114,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAnonymous: false
     };
     setUser(registeredUser);
-    localStorage.setItem("rw_local_guest_user_v2", JSON.stringify(registeredUser));
+    await AsyncStorage.setItem("rw_local_guest_user_v2", JSON.stringify(registeredUser));
     return null;
   };
 
   const logout = async () => {
     try {
-      localStorage.removeItem("rw_guest_creds_v2");
-      localStorage.removeItem("rw_local_guest_user_v2");
+      await AsyncStorage.removeItem("rw_guest_creds_v2");
+      await AsyncStorage.removeItem("rw_local_guest_user_v2");
       if (user?.id) {
-        localStorage.removeItem(`rw_stable_guest_username_${user.id}`);
+        await AsyncStorage.removeItem(`rw_stable_guest_username_${user.id}`);
       }
     } catch { /* ignore */ }
 
-    const fallbackUser = getOrCreateLocalGuestUser();
+    const fallbackUser = await getOrCreateLocalGuestUser();
     setUser(fallbackUser);
   };
 
