@@ -208,13 +208,13 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const isDownloaded = useCallback(
-    (songId: string) => downloadedSongs.some((s) => s.id === songId),
+    (songId: string) => downloadedSongs.some((s) => String(s.id) === String(songId)),
     [downloadedSongs]
   );
 
   const downloadSong = useCallback(
     async (song: Song) => {
-      if (downloadedSongs.some((s) => s.id === song.id)) return;
+      if (downloadedSongs.some((s) => String(s.id) === String(song.id))) return;
       setDownloadingIds((prev) => [...prev, song.id]);
 
       try {
@@ -293,7 +293,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       await FileSystem.deleteAsync(audioLocalUri, { idempotent: true });
       await FileSystem.deleteAsync(artLocalUri, { idempotent: true });
 
-      const next = downloadedSongs.filter((s) => s.id !== songId);
+      const next = downloadedSongs.filter((s) => String(s.id) !== String(songId));
       const stripped = next.map((s) => {
         let aUrl = s.audioUrl || "";
         if (FileSystem.documentDirectory && aUrl.startsWith(FileSystem.documentDirectory)) {
@@ -407,7 +407,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       if (!song) return false;
       const queryNorm = normalizeSongTitle(song.title, song.movie || song.album);
       return likedSongs.some((s) => {
-        if (s.id === song.id) return true;
+        if (String(s.id) === String(song.id)) return true;
         const sNorm = normalizeSongTitle(s.title, s.movie || s.album);
         return sNorm && queryNorm && sNorm === queryNorm;
       });
@@ -423,14 +423,14 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         const current = likedSongsRef.current;
         const queryNorm = normalizeSongTitle(song.title, song.movie || song.album);
         const matched = current.filter((s) => {
-          if (s.id === song.id) return true;
+          if (String(s.id) === String(song.id)) return true;
           const sNorm = normalizeSongTitle(s.title, s.movie || s.album);
           return sNorm && queryNorm && sNorm === queryNorm;
         });
         const liked = matched.length > 0;
         const nextLiked = liked
           ? current.filter((s) => {
-              if (s.id === song.id) return false;
+              if (String(s.id) === String(song.id)) return false;
               const sNorm = normalizeSongTitle(s.title, s.movie || s.album);
               return !(sNorm && queryNorm && sNorm === queryNorm);
             })
@@ -515,7 +515,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         const current = await _readPlaylists();
         const list = current.map((p) => {
           if (p.id !== playlistId) return p;
-          if (p.songs.some((s) => s.id === song.id)) return p;
+          if (p.songs.some((s) => String(s.id) === String(song.id))) return p;
           return {
             ...p,
             song_count: (p.song_count ?? 0) + 1,
@@ -537,7 +537,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
           return {
             ...p,
             song_count: Math.max(0, (p.song_count ?? 1) - 1),
-            songs: p.songs.filter((s) => s.id !== songId),
+            songs: p.songs.filter((s) => String(s.id) !== String(songId)),
           };
         });
         await _writePlaylists(list);

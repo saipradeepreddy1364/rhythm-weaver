@@ -89,6 +89,7 @@ export function AddToPlaylistMenu({
             delayPressIn={0}
             style={styles.dialog}
             activeOpacity={1}
+            onPress={() => {}} // Block touch event bubbling
           >
             {/* Header */}
             <View style={styles.dialogHeader}>

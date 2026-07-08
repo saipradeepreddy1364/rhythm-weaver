@@ -105,15 +105,14 @@ export function SongRow({ song, queue, onRequireAuth, fromLibrary, hideActions }
             />
           </View>
 
-          {/* Download Song */}
           <TouchableOpacity delayPressIn={0} onPress={handleDownload} style={styles.actionButton} activeOpacity={0.7} disabled={downloading}>
             {downloading ? (
               <ActivityIndicator size="small" color="#1DB954" />
             ) : (
               <MaterialCommunityIcons
-                name={downloaded ? "check-circle" : "download"}
+                name={downloaded ? "trash-can-outline" : "download"}
                 size={18}
-                color={downloaded ? "#1DB954" : "rgba(255,255,255,0.4)"}
+                color={downloaded ? "#ff5b5b" : "rgba(255,255,255,0.4)"}
               />
             )}
           </TouchableOpacity>

@@ -25,7 +25,7 @@ export function LikeButton({
 
   const containingFolderIds = new Set(
     playlists
-      .filter((p) => (p.songs || []).some((s: any) => s.id === song.id))
+      .filter((p) => (p.songs || []).some((s: any) => String(s.id) === String(song.id)))
       .map((p) => p.id)
   );
 
@@ -101,6 +101,7 @@ export function LikeButton({
           <TouchableOpacity delayPressIn={0}
             style={styles.dialog}
             activeOpacity={1}
+            onPress={() => {}} // Intercept clicks inside the dialog to prevent bubbling/closing
           >
             {/* Header */}
             <View style={styles.dialogHeader}>

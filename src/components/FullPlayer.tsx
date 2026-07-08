@@ -789,9 +789,9 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
                   <ActivityIndicator size="small" color="#1DB954" />
                 ) : (
                   <MaterialCommunityIcons
-                    name={downloaded ? "check-circle" : "download"}
+                    name={downloaded ? "trash-can-outline" : "download"}
                     size={20}
-                    color={downloaded ? "#1DB954" : "#fff"}
+                    color={downloaded ? "#ff5b5b" : "#fff"}
                   />
                 )}
               </TouchableOpacity>
