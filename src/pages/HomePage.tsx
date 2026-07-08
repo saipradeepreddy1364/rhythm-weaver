@@ -1514,7 +1514,11 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
         </Text>
         <TouchableOpacity delayPressIn={0}
           style={modalStyles.offlineBtn}
-          onPress={() => DeviceEventEmitter.emit("NAVIGATE_TO_TAB", "Library")}
+          onPress={() => {
+            DeviceEventEmitter.emit("NAVIGATE_TO_TAB", "Library");
+            // Small delay to ensure Library tab is visible before switching sub-tab
+            setTimeout(() => DeviceEventEmitter.emit("NAVIGATE_TO_DOWNLOADS"), 100);
+          }}
           activeOpacity={0.8}
         >
           <Text style={modalStyles.offlineBtnText}>Go to Downloads</Text>
@@ -1541,7 +1545,7 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
               style={styles.settingsBtn}
               activeOpacity={0.7}
             >
-              <MaterialCommunityIcons name="cog" size={20} color="#fff" />
+              <MaterialCommunityIcons name="equalizer" size={22} color="#fff" />
             </TouchableOpacity>
           </View>
         </View>

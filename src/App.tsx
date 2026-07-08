@@ -1,6 +1,6 @@
 import { View, StyleSheet, SafeAreaView, StatusBar, Dimensions, ScrollView, Text, TouchableOpacity, Platform, useWindowDimensions, DeviceEventEmitter } from 'react-native'
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { NavigationContainer } from "@react-navigation/native";
+import { NavigationContainer, DarkTheme } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { PaperProvider } from "react-native-paper";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
@@ -9,6 +9,9 @@ import TrackPlayer from "react-native-track-player";
 
 // Register playback service for background lock screen controls
 TrackPlayer.registerPlaybackService(() => async () => {});
+
+// Keep native splash screen visible until React Native is mounted and ready
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 // Import Providers
 import { AuthProvider, useAuth } from "./context/AuthContext";
@@ -86,9 +89,10 @@ function AppContent() {
     if (!user) setShowAuthModal(true);
   };
 
-  // Check auth once on mount
+  // Check auth once on mount, and hide splash screen once mounted
   useEffect(() => {
     checkAuth();
+    SplashScreen.hideAsync().catch(() => {});
     const interval = setInterval(checkAuth, 10 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
@@ -105,11 +109,30 @@ function AppContent() {
     };
   }, [screenWidth]);
 
+  // Auto-navigate to Library→Downloads if device is offline on launch
+  useEffect(() => {
+    const checkOffline = async () => {
+      try {
+        await Promise.race([
+          fetch("https://clients3.google.com/generate_204", { method: "HEAD" }),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3000)),
+        ]);
+        // Online — do nothing
+      } catch {
+        // Offline — go straight to Library → Downloads tab
+        setActiveTab('Library');
+        scrollViewRef.current?.scrollTo({ x: 2 * screenWidth, animated: false });
+        setTimeout(() => DeviceEventEmitter.emit("NAVIGATE_TO_DOWNLOADS"), 200);
+      }
+    };
+    checkOffline();
+  }, [screenWidth]);
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#121212" />
       
-      <NavigationContainer ref={navigationRef}>
+      <NavigationContainer ref={navigationRef} theme={DarkTheme}>
         <Tab.Navigator screenOptions={{ headerShown: false, tabBarStyle: { display: 'none' } }}>
           <Tab.Screen name="Main">
             {() => (

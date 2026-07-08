@@ -73,6 +73,14 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
     }
   }, [isOffline]);
 
+  // Listen for explicit "go to downloads" navigation from other screens
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener("NAVIGATE_TO_DOWNLOADS", () => {
+      setTab("downloads");
+    });
+    return () => sub.remove();
+  }, []);
+
   const handleRequireAuth = () => {
     onRequireAuth();
     setShowAuthModal(true);
@@ -326,27 +334,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
     setEditName("");
   };
 
-  // ── Offline full-screen view ──
-  if (isOffline) {
-    return (
-      <View style={[styles.container, styles.offlineContainer]}>
-        <MaterialCommunityIcons name="cloud-off-outline" size={64} color="#1DB954" style={{ marginBottom: 20 }} />
-        <Text style={styles.offlineTitle}>No Internet Connection</Text>
-        <Text style={styles.offlineDescription}>
-          You're offline. Go to Downloads to listen to saved songs.
-        </Text>
-        <TouchableOpacity
-          delayPressIn={0}
-          style={styles.offlineBtn}
-          onPress={() => DeviceEventEmitter.emit("NAVIGATE_TO_TAB", "Library")}
-          activeOpacity={0.8}
-        >
-          <MaterialCommunityIcons name="download" size={18} color="#000" style={{ marginRight: 8 }} />
-          <Text style={styles.offlineBtnText}>Go to Downloads</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
+  // (offline auto-switches to downloads tab via the useEffect above — no blocking screen needed)
 
   return (
     <View style={styles.container}>

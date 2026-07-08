@@ -102,6 +102,28 @@ function detectLanguageSearch(query: string): string | null {
   return null;
 }
 
+// ─── Person/Artist name detection ────────────────────────────────────────────
+// Detects queries that look like a person's name (artist, actor, god, director)
+// rather than a song title or language search
+function detectPersonSearch(query: string): boolean {
+  const clean = query.trim();
+  if (clean.length < 2 || clean.length > 50) return false;
+  // Must not contain song/movie keywords
+  const songKeywords = [
+    "songs", "song", "music", "hits", "album", "movie", "film", "remix",
+    "latest", "new", "best", "top", "trending", "2024", "2025", "hindi",
+    "telugu", "tamil", "kannada", "malayalam", "punjabi",
+  ];
+  const lower = clean.toLowerCase();
+  if (songKeywords.some((k) => lower.includes(k))) return false;
+  // 1–4 words, each word starts with a letter (not a number/symbol)
+  const words = clean.trim().split(/\s+/);
+  if (words.length < 1 || words.length > 5) return false;
+  if (!words.every((w) => /^[a-zA-Z\u0900-\u097F]+/.test(w))) return false;
+  // All words capitalized or all lowercase → likely a name
+  return true;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -915,6 +937,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
   const [activeLangAlbum, setActiveLangAlbum] = useState<string | null>(null);
   const [activeAlbum, setActiveAlbum]       = useState<Album | null>(null);
   const [activeArtist, setActiveArtist]     = useState<Artist | null>(null);
+  const [autoArtistQuery, setAutoArtistQuery] = useState<string | null>(null);
 
   // Load and dynamically resolve generic stock category cover art with correct album arts
   const [categoryCovers, setCategoryCovers] = useState<Record<string, string>>(() => {
@@ -985,32 +1008,26 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
       return;
     }
 
+    // If query looks like a person name, track it so we can show artist album card
+    if (detectPersonSearch(clean)) {
+      setAutoArtistQuery(clean);
+    } else {
+      setAutoArtistQuery(null);
+    }
+
     setLoading(true);
-    Promise.all([
-      api.searchSongs(clean, 1, 60)
-        .then((res) => {
-          const raw = extractResults(res);
-          return raw.map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
-        })
-        .catch((err) => {
-          console.warn("[SearchPage] JioSaavn search failed:", err);
-          return [];
-        }),
-      searchPiped(clean)
-        .catch((err) => {
-          console.warn("[SearchPage] YouTube search failed:", err);
-          return [];
-        })
-    ]).then(([jioSongs, ytSongs]) => {
-      // Combine results: JioSaavn songs first, then YouTube songs
-      const combined = [...jioSongs, ...ytSongs];
-      setResults(combined);
-      setLoading(false);
-    }).catch((err) => {
-      console.error("[SearchPage] Search parallel execution failed:", err);
-      setResults([]);
-      setLoading(false);
-    });
+    api.searchSongs(clean, 1, 60)
+      .then((res) => {
+        const raw = extractResults(res);
+        const songs = raw.map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
+        setResults(songs);
+        setLoading(false);
+      })
+      .catch((err) => {
+        console.warn("[SearchPage] JioSaavn search failed:", err);
+        setResults([]);
+        setLoading(false);
+      });
   }, [debouncedQuery]);
 
   const handleRequireAuth = () => {
@@ -1076,8 +1093,8 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
   const songsResult = results;
   const albumsResult = groupIntoAlbums(results);
   const artistsResult = groupIntoArtists(results);
-  const jioSongs = results.filter((s) => !s.id.startsWith("yt-"));
-  const ytSongs = results.filter((s) => s.id.startsWith("yt-"));
+  const jioSongs = results;
+  const ytSongs: Song[] = [];
 
   return (
     <View style={styles.container}>
@@ -1098,35 +1115,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
           />
         </View>
 
-        {/* Search Results filter tabs restored */}
-        {query.trim().length > 0 && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.filterTabs}
-            contentContainerStyle={{ paddingBottom: 8 }}
-          >
-            {(["all", "youtube"] as const).map((tab) => {
-              const isActive = activeTab === tab;
-              const labelMap = {
-                all: "All",
-                youtube: "YouTube"
-              };
-              return (
-                <TouchableOpacity
-                  key={tab}
-                  onPress={() => setActiveTab(tab)}
-                  style={[styles.filterTabBtn, isActive && styles.activeFilterTabBtn]}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[styles.filterTabText, isActive && styles.activeFilterTabText]}>
-                    {labelMap[tab]}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        )}
+        {/* (Filter tabs hidden because YouTube is disabled) */}
       </View>
 
       <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
@@ -1163,11 +1152,39 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
         ) : (
           // Results list view
           <View style={{ paddingBottom: 60 }}>
+            {/* Artist/Person Album Card — shown when query looks like a name */}
+            {autoArtistQuery && jioSongs.length > 0 && activeTab === "all" ? (
+              <TouchableOpacity
+                delayPressIn={0}
+                activeOpacity={0.8}
+                onPress={() => {
+                  const coverArt = jioSongs[0]?.albumArt || "";
+                  setActiveArtist({ name: autoArtistQuery, coverArt, songs: jioSongs });
+                }}
+                style={styles.artistAlbumCard}
+              >
+                <View style={styles.artistAlbumCardLeft}>
+                  {jioSongs[0]?.albumArt ? (
+                    <Image source={{ uri: jioSongs[0].albumArt }} style={styles.artistAlbumCardCover} />
+                  ) : (
+                    <View style={[styles.artistAlbumCardCover, styles.artistAlbumCardCoverPlaceholder]}>
+                      <MaterialCommunityIcons name="account-music" size={28} color="rgba(255,255,255,0.3)" />
+                    </View>
+                  )}
+                </View>
+                <View style={styles.artistAlbumCardMeta}>
+                  <Text style={styles.artistAlbumCardLabel}>Artist / Person</Text>
+                  <Text style={styles.artistAlbumCardName} numberOfLines={1}>{autoArtistQuery}</Text>
+                  <Text style={styles.artistAlbumCardSub}>See all songs →</Text>
+                </View>
+                <MaterialCommunityIcons name="chevron-right" size={22} color="#1DB954" />
+              </TouchableOpacity>
+            ) : null}
             {/* All - JioSaavn Songs */}
             {activeTab === "all" && jioSongs.length > 0 ? (
               <View style={styles.resultSection}>
                 <Text style={styles.sectionSubHeader}>Songs</Text>
-                {jioSongs.slice(0, 6).map((song) => (
+                {jioSongs.slice(0, 30).map((song) => (
                   <SongRow key={song.id} song={song} queue={jioSongs} onRequireAuth={handleRequireAuth} />
                 ))}
               </View>
@@ -1306,6 +1323,52 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#121212",
+  },
+  artistAlbumCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(29, 185, 84, 0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(29, 185, 84, 0.25)",
+    borderRadius: 14,
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 4,
+    padding: 12,
+  },
+  artistAlbumCardLeft: {
+    marginRight: 14,
+  },
+  artistAlbumCardCover: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+  },
+  artistAlbumCardCoverPlaceholder: {
+    backgroundColor: "rgba(255,255,255,0.05)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  artistAlbumCardMeta: {
+    flex: 1,
+  },
+  artistAlbumCardLabel: {
+    fontSize: 10,
+    color: "#1DB954",
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+    marginBottom: 2,
+  },
+  artistAlbumCardName: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#fff",
+    marginBottom: 2,
+  },
+  artistAlbumCardSub: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.5)",
   },
   header: {
     paddingTop: Platform.OS === 'ios' ? 44 : 24,

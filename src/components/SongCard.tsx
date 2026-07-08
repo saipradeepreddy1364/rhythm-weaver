@@ -12,6 +12,9 @@ interface SongCardProps {
   index?: number;
 }
 
+// Module-level cache — persists for the app session, survives panel re-opens
+const _lyricsCache = new Map<string, string | null>();
+
 // ─── Lyrics Panel ─────────────────────────────────────────────────────────────
 // A slide-up full-screen overlay that fetches and displays lyrics for a song.
 function LyricsPanel({
@@ -21,8 +24,9 @@ function LyricsPanel({
   song: Song;
   onClose: () => void;
 }) {
-  const [lyrics, setLyrics] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const cached = _lyricsCache.get(song.id);
+  const [lyrics, setLyrics] = useState<string | null>(cached !== undefined ? cached : null);
+  const [loading, setLoading] = useState(cached === undefined); // skip spinner if cached
   const [error, setError] = useState(false);
 
   const [translationLang, setTranslationLang] = useState<"original" | "hi" | "te" | "en">("original");
@@ -70,6 +74,15 @@ function LyricsPanel({
   };
 
   useEffect(() => {
+    // Already cached — no network needed
+    if (_lyricsCache.has(song.id)) {
+      const hit = _lyricsCache.get(song.id);
+      setLyrics(hit || null);
+      setError(!hit);
+      setLoading(false);
+      return;
+    }
+
     let cancelled = false;
     setLoading(true);
     setError(false);
@@ -80,13 +93,18 @@ function LyricsPanel({
       .then((res) => {
         if (cancelled) return;
         if (res?.success && res.data?.lyrics) {
+          _lyricsCache.set(song.id, res.data.lyrics);
           setLyrics(res.data.lyrics);
         } else {
+          _lyricsCache.set(song.id, null);
           setError(true);
         }
       })
       .catch(() => {
-        if (!cancelled) setError(true);
+        if (!cancelled) {
+          _lyricsCache.set(song.id, null);
+          setError(true);
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);

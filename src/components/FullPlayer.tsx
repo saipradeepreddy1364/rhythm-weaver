@@ -595,9 +595,9 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
             </TouchableOpacity>
           </View>
 
-          {/* Tab Switcher - always show Video; show Lyrics only when available */}
+          {/* Tab Switcher - show Lyrics only when available, hide Video */}
           <View style={styles.tabBar}>
-            {(["cover", ...((!lyricsLoading && lyrics && lyrics.trim().length > 0) ? ["lyrics"] : []), "video"] as TabType[]).map((tab) => {
+            {(["cover", ...((!lyricsLoading && lyrics && lyrics.trim().length > 0) ? ["lyrics"] : [])] as TabType[]).map((tab) => {
               const isActive = activeTab === tab;
               return (
                 <TouchableOpacity delayPressIn={0} key={tab} onPress={() => setActiveTab(tab)} style={[styles.tabButton, isActive && styles.activeTabButton]} activeOpacity={0.7}>
