@@ -150,11 +150,25 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
       // Step 3: Load liked songs from canonical key (migration is done by now)
       const raw = await AsyncStorage.getItem("rw_liked_songs");
-      setLikedSongs(raw ? JSON.parse(raw) : []);
+      let parsedSongs = [];
+      try {
+        if (raw) {
+          const val = JSON.parse(raw);
+          if (Array.isArray(val)) parsedSongs = val;
+        }
+      } catch {}
+      setLikedSongs(parsedSongs);
 
       // Step 4: Load liked albums
       const rawAlbums = await AsyncStorage.getItem("rw_liked_albums");
-      setLikedAlbums(rawAlbums ? JSON.parse(rawAlbums) : []);
+      let parsedAlbums = [];
+      try {
+        if (rawAlbums) {
+          const val = JSON.parse(rawAlbums);
+          if (Array.isArray(val)) parsedAlbums = val;
+        }
+      } catch {}
+      setLikedAlbums(parsedAlbums);
     } catch (err) {
       console.warn("initLikedSongs failed:", err);
       setLikedSongs([]);
@@ -182,7 +196,8 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       try {
         const raw = await AsyncStorage.getItem("rw_downloads");
         if (raw) {
-          const songs: Song[] = JSON.parse(raw);
+          const val = JSON.parse(raw);
+          const songs: Song[] = Array.isArray(val) ? val : [];
           const mapped = songs.map((s) => {
             let audioUrl = s.audioUrl;
             if (audioUrl && !audioUrl.startsWith("http") && !audioUrl.startsWith("file://")) {
@@ -323,14 +338,16 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     try {
       const raw = await AsyncStorage.getItem("rw_liked_albums");
       if (raw) {
-        setLikedAlbums(JSON.parse(raw));
-      } else {
-        setLikedAlbums([]);
+        const val = JSON.parse(raw);
+        if (Array.isArray(val)) {
+          setLikedAlbums(val);
+          return;
+        }
       }
     } catch (err) {
       console.warn("Failed to load liked albums:", err);
-      setLikedAlbums([]);
     }
+    setLikedAlbums([]);
   }, []);
 
   // ── Load liked songs ─────────────────────────────────────────────────────────
@@ -339,8 +356,11 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     try {
       const raw = await AsyncStorage.getItem("rw_liked_songs");
       if (raw) {
-        setLikedSongs(JSON.parse(raw));
-        return;
+        const val = JSON.parse(raw);
+        if (Array.isArray(val)) {
+          setLikedSongs(val);
+          return;
+        }
       }
     } catch { /* ignore */ }
     setLikedSongs([]);
@@ -352,8 +372,11 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     try {
       const raw = await AsyncStorage.getItem("rw_recently_played");
       if (raw) {
-        setRecentlyPlayed(JSON.parse(raw));
-        return;
+        const val = JSON.parse(raw);
+        if (Array.isArray(val)) {
+          setRecentlyPlayed(val);
+          return;
+        }
       }
     } catch { /* ignore */ }
     setRecentlyPlayed([]);
@@ -365,8 +388,11 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     try {
       const raw = await AsyncStorage.getItem("rw_playlists");
       if (raw) {
-        setStoredPlaylists(JSON.parse(raw));
-        return;
+        const val = JSON.parse(raw);
+        if (Array.isArray(val)) {
+          setStoredPlaylists(val);
+          return;
+        }
       }
     } catch { /* ignore */ }
     setStoredPlaylists([]);
