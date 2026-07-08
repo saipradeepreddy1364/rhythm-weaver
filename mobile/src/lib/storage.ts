@@ -23,6 +23,11 @@ class MemoryStorage {
   }
 
   private async init() {
+    if (!AsyncStorage) {
+      console.warn("[MemoryStorage] AsyncStorage is undefined. Local storage will use memory fallback.");
+      this.initialized = true;
+      return;
+    }
     try {
       const allKeys = await (AsyncStorage as any).getAllKeys();
       if (allKeys && allKeys.length > 0) {
@@ -58,22 +63,43 @@ class MemoryStorage {
     // Update in-memory cache immediately (synchronous read is always up to date)
     this.cache[k] = v;
 
+    if (!AsyncStorage) {
+      console.warn("[MemoryStorage] AsyncStorage is undefined. setItem cached only in memory.");
+      return;
+    }
+
     // Write to AsyncStorage directly and instantly so writes are not lost on app suspension
-    (AsyncStorage as any)
-      .setItem(k, v)
-      .catch((err: any) => {
-        console.warn("[MemoryStorage] setItem failed for key:", k, err);
-      });
+    try {
+      const p = (AsyncStorage as any).setItem(k, v);
+      if (p && typeof p.catch === "function") {
+        p.catch((err: any) => {
+          console.warn("[MemoryStorage] setItem failed for key:", k, err);
+        });
+      }
+    } catch (err: any) {
+      console.warn("[MemoryStorage] setItem synchronous error for key:", k, err);
+    }
   }
 
   removeItem(key: any): void {
     const k = key !== null && key !== undefined ? String(key) : "";
     delete this.cache[k];
-    (AsyncStorage as any)
-      .removeItem(k)
-      .catch((err: any) => {
-        console.warn("[MemoryStorage] removeItem failed for key:", k, err);
-      });
+
+    if (!AsyncStorage) {
+      console.warn("[MemoryStorage] AsyncStorage is undefined. removeItem deleted from memory only.");
+      return;
+    }
+
+    try {
+      const p = (AsyncStorage as any).removeItem(k);
+      if (p && typeof p.catch === "function") {
+        p.catch((err: any) => {
+          console.warn("[MemoryStorage] removeItem failed for key:", k, err);
+        });
+      }
+    } catch (err: any) {
+      console.warn("[MemoryStorage] removeItem synchronous error for key:", k, err);
+    }
   }
 
   /**
@@ -85,11 +111,24 @@ class MemoryStorage {
 
   clear(): void {
     this.cache = {};
-    this.writeQueue = this.writeQueue.then(() =>
-      (AsyncStorage as any).clear().catch((err: any) => {
-        console.warn("[MemoryStorage] clear failed:", err);
-      })
-    );
+
+    if (!AsyncStorage) {
+      console.warn("[MemoryStorage] AsyncStorage is undefined. clear cleared memory only.");
+      return;
+    }
+
+    this.writeQueue = this.writeQueue.then(() => {
+      try {
+        const p = (AsyncStorage as any).clear();
+        if (p && typeof p.catch === "function") {
+          return p.catch((err: any) => {
+            console.warn("[MemoryStorage] clear failed:", err);
+          });
+        }
+      } catch (err: any) {
+        console.warn("[MemoryStorage] clear synchronous error:", err);
+      }
+    });
   }
 }
 

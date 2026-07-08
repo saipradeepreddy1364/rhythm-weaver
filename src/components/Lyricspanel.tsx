@@ -134,20 +134,12 @@ export function LyricsPanel({ songId, songTitle, onClose }: LyricsPanelProps) {
 
         <View style={styles.headerRight}>
           {(state.status === "error" || state.status === "missing") && songId && (
-            <TouchableOpacity
-              onPress={() => fetchLyrics(songId)}
-              style={styles.circleBtn}
-              activeOpacity={0.7}
-            >
+            <TouchableOpacity delayPressIn={0} onPress={() => fetchLyrics(songId)} style={styles.circleBtn} activeOpacity={0.7}>
               <MaterialCommunityIcons name="refresh" size={16} color="rgba(255,255,255,0.6)" />
             </TouchableOpacity>
           )}
           {onClose && (
-            <TouchableOpacity
-              onPress={onClose}
-              style={styles.circleBtn}
-              activeOpacity={0.7}
-            >
+            <TouchableOpacity delayPressIn={0} onPress={onClose} style={styles.circleBtn} activeOpacity={0.7}>
               <MaterialCommunityIcons name="close" size={16} color="rgba(255,255,255,0.6)" />
             </TouchableOpacity>
           )}
@@ -166,7 +158,7 @@ export function LyricsPanel({ songId, songTitle, onClose }: LyricsPanelProps) {
             };
             const isActive = translationLang === lang;
             return (
-              <TouchableOpacity
+              <TouchableOpacity delayPressIn={0}
                 key={lang}
                 onPress={() => handleLangSelect(lang, state.text)}
                 style={[styles.transButton, isActive && styles.transButtonActive]}

@@ -10,6 +10,9 @@ export interface Song {
   genre?: string;
   album?: string;
   movie?: string;
+  albumId?: string;
+  artistId?: string;
+  lyrics?: string;
 }
 
 export function formatDuration(seconds: number): string {
@@ -61,7 +64,7 @@ export function mapApiSong(item: any): Song {
     audioUrl = item.audioUrl || item.audio_url || item.url || item.media_url || item.mediaUrl || "";
   }
   if (!audioUrl && songId) {
-    audioUrl = `https://musicbackend-xg4u.onrender.com/api/songs/${songId}/stream`;
+    audioUrl = `https://musicbackend-7a1o.onrender.com/api/songs/${songId}/stream`;
   }
 
   // ── Artists ────────────────────────────────────────────────────────────────
@@ -93,6 +96,23 @@ export function mapApiSong(item: any): Song {
     item.film ||
     "";
 
+  const albumId =
+    item.album?.id ||
+    item.albumId ||
+    item.album_id ||
+    "";
+
+  let artistId = "";
+  if (Array.isArray(item.artists?.primary) && item.artists.primary.length > 0) {
+    artistId = item.artists.primary[0].id || "";
+  } else if (Array.isArray(item.artists?.all) && item.artists.all.length > 0) {
+    artistId = item.artists.all[0].id || "";
+  } else if (item.artistId) {
+    artistId = item.artistId;
+  } else if (item.artist_id) {
+    artistId = item.artist_id;
+  }
+
   const movieName =
     item.movie ||
     item.film ||
@@ -122,6 +142,9 @@ export function mapApiSong(item: any): Song {
     genre: item.genre || undefined,
     album: albumName || undefined,
     movie: movieName || undefined,
+    albumId: albumId || undefined,
+    artistId: artistId || undefined,
+    lyrics: item.lyrics || undefined,
   };
 }
 

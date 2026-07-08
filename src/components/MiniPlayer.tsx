@@ -53,11 +53,7 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
             </View>
           )}
 
-          <TouchableOpacity
-            onPress={togglePlay}
-            style={styles.playOverlay}
-            activeOpacity={0.8}
-          >
+          <TouchableOpacity delayPressIn={0} onPress={togglePlay} style={styles.playOverlay} activeOpacity={0.8}>
             <MaterialCommunityIcons
               name={isPlaying ? "pause" : "play"}
               size={20}
@@ -67,11 +63,7 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
         </View>
 
         {/* Song info (taps to expand full player) */}
-        <TouchableOpacity
-          style={styles.infoButton}
-          onPress={() => setShowPlayer(true)}
-          activeOpacity={0.8}
-        >
+        <TouchableOpacity delayPressIn={0} style={styles.infoButton} onPress={() => setShowPlayer(true)} activeOpacity={0.8}>
           <Text style={styles.titleText} numberOfLines={1}>
             {currentSong.title}
           </Text>
@@ -81,16 +73,7 @@ export function MiniPlayer({ onRequireAuth }: MiniPlayerProps) {
         </TouchableOpacity>
 
         {/* Add to Queue */}
-        <TouchableOpacity
-          onPress={handleAddToQueue}
-          style={[
-            styles.circleBtn,
-            {
-              backgroundColor: queuedFlash ? "rgba(29,185,84,0.2)" : "rgba(255,255,255,0.08)",
-            }
-          ]}
-          activeOpacity={0.7}
-        >
+        <TouchableOpacity delayPressIn={0} onPress={handleAddToQueue} style={[ styles.circleBtn, { backgroundColor: queuedFlash ? "rgba(29,185,84,0.2)" : "rgba(255,255,255,0.08)", } ]} activeOpacity={0.7}>
           <MaterialCommunityIcons
             name="playlist-play"
             size={18}

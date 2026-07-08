@@ -3,8 +3,6 @@ import React, { useState, useEffect } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useLibrary } from "@/context/LibraryContext";
 import { useAuth } from "@/context/AuthContext";
-import { supabase as baseSupabase } from "@/lib/supabase/client";
-const supabase = baseSupabase as any;
 import type { Song } from "@/data/songs";
 
 interface LikeButtonProps {

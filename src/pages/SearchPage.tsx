@@ -14,18 +14,18 @@ const CURRENT_YEAR = new Date().getFullYear();
 
 // ─── Browse categories ────────────────────────────────────────────────────────
 const BROWSE_CATEGORIES = [
-  { label: "Trending",     query: "trending hindi songs 2025" },
-  { label: "New Releases", query: "new bollywood songs 2025" },
-  { label: "Hindi",        query: "top hindi hits 2025" },
-  { label: "Telugu",       query: "trending telugu songs 2025" },
-  { label: "Tamil",        query: "trending tamil songs 2025" },
-  { label: "Romantic",     query: "hindi romantic songs 2025" },
-  { label: "Punjabi",      query: "top punjabi songs 2025" },
-  { label: "Devotional",   query: "devotional songs hindi 2025" },
-  { label: "Malayalam",    query: "trending malayalam songs 2025" },
-  { label: "Lofi/Chill",   query: "lofi chill hindi songs" },
-  { label: "Retro",        query: "90s bollywood hits" },
-  { label: "Kannada",      query: "trending kannada songs 2025" },
+  { label: "Trending",     query: "trending hindi songs 2025", cover: "https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=300&q=80" },
+  { label: "New Releases", query: "new bollywood songs 2025",  cover: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300&q=80" },
+  { label: "Hindi",        query: "top hindi hits 2025",        cover: "https://images.unsplash.com/photo-1498038432885-c6f3f1b912ee?w=300&q=80" },
+  { label: "Telugu",       query: "trending telugu songs 2025", cover: "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=300&q=80" },
+  { label: "Tamil",        query: "trending tamil songs 2025",  cover: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&q=80" },
+  { label: "Romantic",     query: "hindi romantic songs 2025",  cover: "https://images.unsplash.com/photo-1518199266791-5375a83190b7?w=300&q=80" },
+  { label: "Punjabi",      query: "top punjabi songs 2025",     cover: "https://images.unsplash.com/photo-1465847899084-d164df4dedc6?w=300&q=80" },
+  { label: "Devotional",   query: "devotional songs hindi 2025",cover: "https://images.unsplash.com/photo-1542442248-61590e0c8ee0?w=300&q=80" },
+  { label: "Malayalam",    query: "trending malayalam songs 2025",cover: "https://images.unsplash.com/photo-1506157786151-b8491531f063?w=300&q=80" },
+  { label: "Lofi/Chill",   query: "lofi chill hindi songs",     cover: "https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=300&q=80" },
+  { label: "Retro",        query: "90s bollywood hits",         cover: "https://images.unsplash.com/photo-1487180142328-054b783fc471?w=300&q=80" },
+  { label: "Kannada",      query: "trending kannada songs 2025",cover: "https://images.unsplash.com/photo-1459749411175-04bf5292ceea?w=300&q=80" },
 ];
 
 const LANGUAGE_EXTRA_QUERIES: Record<string, string[]> = {
@@ -157,54 +157,9 @@ function saveCategoryCache(label: string, songs: Song[], coverArt: string) {
   } catch {}
 }
 
-let _catPreloadStarted = false;
+// Background preloading disabled to prevent thread freezing and button click delay
 function startCategoryPreload() {
-  if (_catPreloadStarted) return;
-  _catPreloadStarted = true;
-
-  setTimeout(async () => {
-    for (const cat of BROWSE_CATEGORIES) {
-      const cache = getCategoryCache(cat.label);
-      if (cache.songs.length > 0) continue;
-
-      const extraQueries = LANGUAGE_EXTRA_QUERIES[cat.label] || [];
-      const allQueries   = [cat.query, ...extraQueries];
-      const seen         = new Set<string>();
-      const allSongs: Song[] = [];
-
-      for (const q of allQueries) {
-        for (let page = 1; page <= 4; page++) {
-          try {
-            if (page > 1) await new Promise(r => setTimeout(r, 200));
-            const res     = await api.searchSongs(q, page, 50);
-            const items   = extractResults(res);
-            if (items.length === 0) break;
-            const songs = items.map(mapApiSong).map(cleanSong).filter((s) => Boolean(s.audioUrl));
-            let added = 0;
-            for (const s of songs) {
-              if (!s.id) continue;
-              const norm = normalizeSongTitle(s.title, s.movie || s.album);
-              if (!seen.has(s.id) && (!norm || !seen.has(norm))) {
-                seen.add(s.id);
-                if (norm) seen.add(norm);
-                allSongs.push(s);
-                added++;
-              }
-            }
-            if (items.length < 50 || added === 0) break;
-          } catch { break; }
-        }
-        await new Promise(r => setTimeout(r, 200));
-      }
-
-      if (allSongs.length > 0) {
-        const withArt = allSongs.filter(s => s.albumArt);
-        const art     = withArt.length > 0 ? withArt[0].albumArt! : "";
-        saveCategoryCache(cat.label, allSongs, art);
-      }
-      await new Promise(r => setTimeout(r, 1000));
-    }
-  }, 3000);
+  return;
 }
 
 startCategoryPreload();
@@ -228,75 +183,69 @@ function CategorySongModal({
   const { playSong } = usePlayer();
 
   return (
-    <Modal visible={true} animationType="slide" onRequestClose={onClose}>
-      <View style={modalStyles.container}>
-        {coverArt && (
-          <Image
-            source={{ uri: coverArt }}
-            style={modalStyles.backgroundImage}
-            blurRadius={20}
-            resizeMode="cover"
-          />
-        )}
-        <View style={modalStyles.overlay} />
+    <View style={modalStyles.container}>
+      {coverArt && (
+        <Image
+          source={{ uri: coverArt }}
+          style={modalStyles.backgroundImage}
+          blurRadius={20}
+          resizeMode="cover"
+        />
+      )}
+      <View style={modalStyles.overlay} />
 
-        <View style={modalStyles.content}>
-          {/* Header */}
-          <View style={modalStyles.header}>
-            <TouchableOpacity onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
-              <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
-            </TouchableOpacity>
+      <View style={modalStyles.content}>
+        {/* Header */}
+        <View style={modalStyles.header}>
+          <TouchableOpacity delayPressIn={0} onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
+            <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
+          </TouchableOpacity>
 
-            <View style={modalStyles.headerMeta}>
-              <Text style={modalStyles.headerTitle} numberOfLines={1}>{label}</Text>
-              <Text style={modalStyles.headerSubtitle} numberOfLines={1}>
-                {loading ? "Loading songs…" : `${songs.length} songs`}
-              </Text>
-            </View>
-
-            {songs.length > 0 ? (
-              <TouchableOpacity
-                onPress={() => playSong(songs[0], songs)}
-                style={modalStyles.playBtn}
-                activeOpacity={0.8}
-              >
-                <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
-              </TouchableOpacity>
-            ) : null}
+          <View style={modalStyles.headerMeta}>
+            <Text style={modalStyles.headerTitle} numberOfLines={1}>{label}</Text>
+            <Text style={modalStyles.headerSubtitle} numberOfLines={1}>
+              {loading ? "Loading songs…" : `${songs.length} songs`}
+            </Text>
           </View>
 
-          {/* Large cover art */}
-          {coverArt ? (
-            <View style={modalStyles.coverWrapper}>
-              <Image source={{ uri: coverArt }} style={modalStyles.coverImage} resizeMode="cover" />
-            </View>
+          {songs.length > 0 ? (
+            <TouchableOpacity delayPressIn={0} onPress={() => playSong(songs[0], songs)} style={modalStyles.playBtn} activeOpacity={0.8}>
+              <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
+            </TouchableOpacity>
           ) : null}
-
-          {/* Songs list */}
-          <ScrollView style={modalStyles.songsScroll} contentContainerStyle={modalStyles.songsScrollContent}>
-            {loading && songs.length === 0 ? (
-              <View style={modalStyles.centerLoading}>
-                <ActivityIndicator size="large" color="#1DB954" />
-                <Text style={modalStyles.loadingText}>Loading songs…</Text>
-              </View>
-            ) : (
-              <View style={{ paddingBottom: 60 }}>
-                {songs.map((song) => (
-                  <SongRow key={song.id} song={song} queue={songs} onRequireAuth={onRequireAuth} />
-                ))}
-
-                {loading && songs.length > 0 ? (
-                  <View style={modalStyles.fetchingMoreRow}>
-                    <ActivityIndicator size="small" color="#1DB954" />
-                    <Text style={modalStyles.fetchingMoreText}>Finding more songs…</Text>
-                  </View>
-                ) : null}
-              </View>
-            )}
-          </ScrollView>
         </View>
+
+        {/* Large cover art */}
+        {coverArt ? (
+          <View style={modalStyles.coverWrapper}>
+            <Image source={{ uri: coverArt }} style={modalStyles.coverImage} resizeMode="cover" />
+          </View>
+        ) : null}
+
+        {/* Songs list */}
+        <ScrollView style={modalStyles.songsScroll} contentContainerStyle={modalStyles.songsScrollContent}>
+          {loading && songs.length === 0 ? (
+            <View style={modalStyles.centerLoading}>
+              <ActivityIndicator size="large" color="#1DB954" />
+              <Text style={modalStyles.loadingText}>Loading songs…</Text>
+            </View>
+          ) : (
+            <View style={{ paddingBottom: 60 }}>
+              {songs.map((song) => (
+                <SongRow key={song.id} song={song} queue={songs} onRequireAuth={onRequireAuth} />
+              ))}
+
+              {loading && songs.length > 0 ? (
+                <View style={modalStyles.fetchingMoreRow}>
+                  <ActivityIndicator size="small" color="#1DB954" />
+                  <Text style={modalStyles.fetchingMoreText}>Finding more songs…</Text>
+                </View>
+              ) : null}
+            </View>
+          )}
+        </ScrollView>
       </View>
-    </Modal>
+    </View>
   );
 }
 
@@ -386,77 +335,71 @@ function LanguageAlbumModal({
   }, [language]);
 
   return (
-    <Modal visible={true} animationType="slide" onRequestClose={onClose}>
-      <View style={modalStyles.container}>
-        {coverArt && (
-          <Image
-            source={{ uri: coverArt }}
-            style={modalStyles.backgroundImage}
-            blurRadius={20}
-            resizeMode="cover"
-          />
-        )}
-        <View style={modalStyles.overlay} />
+    <View style={modalStyles.container}>
+      {coverArt && (
+        <Image
+          source={{ uri: coverArt }}
+          style={modalStyles.backgroundImage}
+          blurRadius={20}
+          resizeMode="cover"
+        />
+      )}
+      <View style={modalStyles.overlay} />
 
-        <View style={modalStyles.content}>
-          {/* Header */}
-          <View style={modalStyles.header}>
-            <TouchableOpacity onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
-              <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
-            </TouchableOpacity>
+      <View style={modalStyles.content}>
+        {/* Header */}
+        <View style={modalStyles.header}>
+          <TouchableOpacity delayPressIn={0} onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
+            <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
+          </TouchableOpacity>
 
-            <View style={modalStyles.headerMeta}>
-              <Text style={modalStyles.headerTitle} numberOfLines={1}>{displayName} Music</Text>
-              <Text style={modalStyles.headerSubtitle} numberOfLines={1}>
-                {loadingMore ? `Loading (${totalFetched} songs…)` : `${songs.length} songs`}
-              </Text>
-            </View>
-
-            {songs.length > 0 ? (
-              <TouchableOpacity
-                onPress={() => playSong(songs[0], songs)}
-                style={modalStyles.playBtn}
-                activeOpacity={0.8}
-              >
-                <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
-              </TouchableOpacity>
-            ) : null}
+          <View style={modalStyles.headerMeta}>
+            <Text style={modalStyles.headerTitle} numberOfLines={1}>{displayName} Music</Text>
+            <Text style={modalStyles.headerSubtitle} numberOfLines={1}>
+              {loadingMore ? `Loading (${totalFetched} songs…)` : `${songs.length} songs`}
+            </Text>
           </View>
 
-          {/* Large cover art */}
-          {coverArt ? (
-            <View style={modalStyles.coverWrapper}>
-              <Image source={{ uri: coverArt }} style={modalStyles.coverImage} resizeMode="cover" />
-            </View>
+          {songs.length > 0 ? (
+            <TouchableOpacity delayPressIn={0} onPress={() => playSong(songs[0], songs)} style={modalStyles.playBtn} activeOpacity={0.8}>
+              <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
+            </TouchableOpacity>
           ) : null}
-
-          {/* Songs list */}
-          <ScrollView style={modalStyles.songsScroll} contentContainerStyle={modalStyles.songsScrollContent}>
-            {songs.length === 0 && (loadingCover || loadingMore) ? (
-              <View style={modalStyles.centerLoading}>
-                <ActivityIndicator size="large" color="#1DB954" />
-                <Text style={modalStyles.loadingText}>Fetching {displayName} songs…</Text>
-              </View>
-            ) : (
-              <View style={{ paddingBottom: 60 }}>
-                {songs.map((song) => (
-                  <SongRow key={song.id} song={song} queue={songs} onRequireAuth={onRequireAuth} />
-                ))}
-
-                {loadingMore && (
-                  <View style={modalStyles.fetchingMoreRow}>
-                    <ActivityIndicator size="small" color="#1DB954" />
-                    <Text style={modalStyles.fetchingMoreText}>
-                      Loading more songs ({totalFetched} so far)…
-                    </Text>
-                  </View>
-                )}
-              </View>
-            )}
-          </ScrollView>
         </View>
+
+        {/* Large cover art */}
+        {coverArt ? (
+          <View style={modalStyles.coverWrapper}>
+            <Image source={{ uri: coverArt }} style={modalStyles.coverImage} resizeMode="cover" />
+          </View>
+        ) : null}
+
+        {/* Songs list */}
+        <ScrollView style={modalStyles.songsScroll} contentContainerStyle={modalStyles.songsScrollContent}>
+          {songs.length === 0 && (loadingCover || loadingMore) ? (
+            <View style={modalStyles.centerLoading}>
+              <ActivityIndicator size="large" color="#1DB954" />
+              <Text style={modalStyles.loadingText}>Fetching {displayName} songs…</Text>
+            </View>
+          ) : (
+            <View style={{ paddingBottom: 60 }}>
+              {songs.map((song) => (
+                <SongRow key={song.id} song={song} queue={songs} onRequireAuth={onRequireAuth} />
+              ))}
+
+              {loadingMore && (
+                <View style={modalStyles.fetchingMoreRow}>
+                  <ActivityIndicator size="small" color="#1DB954" />
+                  <Text style={modalStyles.fetchingMoreText}>
+                    Loading more songs ({totalFetched} so far)…
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
+        </ScrollView>
       </View>
-    </Modal>
+    </View>
   );
 }
 
@@ -464,73 +407,19 @@ function LanguageAlbumModal({
 interface CategoryCardProps {
   label: string;
   query: string;
-  onSelect: (label: string, songs: Song[], coverArt: string) => void;
+  coverArt: string;
+  onSelect: (label: string, query: string, coverArt: string) => void;
 }
 
-function CategoryCard({ label, query, onSelect }: CategoryCardProps) {
-  const cached                  = getCategoryCache(label);
-  const [coverArt, setCoverArt] = useState<string | null>(cached.coverArt || null);
-  const [songs, setSongs]       = useState<Song[]>(cached.songs);
-  const [loaded, setLoaded]     = useState(cached.songs.length > 0);
-  const fetchedRef              = useRef(cached.songs.length > 0);
-
-  useEffect(() => {
-    if (fetchedRef.current) return;
-    fetchedRef.current = true;
-
-    const extraQueries = LANGUAGE_EXTRA_QUERIES[label] || [];
-    const allQueries   = [query, ...extraQueries];
-
-    const fetchAll = async () => {
-      const seen     = new Set<string>();
-      const allSongs: Song[] = [];
-
-      for (const q of allQueries) {
-        for (let page = 1; page <= 4; page++) {
-          try {
-            if (page > 1) await sleep(200);
-            const res     = await api.searchSongs(q, page, 50);
-            const items   = extractResults(res);
-            const fetched = items.map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
-            for (const s of fetched) {
-              if (s.id && !seen.has(s.id)) {
-                seen.add(s.id);
-                allSongs.push(s);
-              }
-            }
-            if (items.length < 50) break;
-          } catch { break; }
-          await sleep(150);
-        }
-      }
-
-      const withArt = allSongs.filter((s: Song) => s.albumArt);
-      const art     = withArt.length > 0 ? withArt[0].albumArt! : "";
-      if (art) setCoverArt(art);
-      setSongs(allSongs);
-      setLoaded(true);
-      saveCategoryCache(label, allSongs, art);
-    };
-
-    fetchAll().catch(() => setLoaded(true));
-  }, [query, label]);
-
+function CategoryCard({ label, query, coverArt, onSelect }: CategoryCardProps) {
   return (
-    <TouchableOpacity
-      onPress={() => onSelect(label, songs, coverArt || "")}
-      style={styles.categoryBtn}
-      activeOpacity={0.8}
-    >
+    <TouchableOpacity delayPressIn={0} onPress={() => onSelect(label, query, coverArt)} style={styles.categoryBtn} activeOpacity={0.8}>
       <View style={styles.categoryCoverWrapper}>
         {coverArt ? (
           <Image source={{ uri: coverArt }} style={styles.categoryCover} />
         ) : (
           <View style={[styles.categoryCover, styles.categoryCoverPlaceholder]}>
-            {!loaded ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <MaterialCommunityIcons name="music" size={24} color="rgba(255,255,255,0.2)" />
-            )}
+            <MaterialCommunityIcons name="music" size={24} color="rgba(255,255,255,0.2)" />
           </View>
         )}
 
@@ -542,15 +431,13 @@ function CategoryCard({ label, query, onSelect }: CategoryCardProps) {
       <Text style={styles.categoryLabel} numberOfLines={1}>
         {label}
       </Text>
-      <Text style={styles.categorySongCount} numberOfLines={1}>
-        {loaded ? `${songs.length} songs` : "Loading…"}
-      </Text>
     </TouchableOpacity>
   );
 }
 
-// ─── Album Detail Modal ───────────────────────────────────────────────────────
+// ─── Album Detail View ───────────────────────────────────────────────────────
 interface Album {
+  id?: string;
   title: string;
   coverArt: string;
   songs: Song[];
@@ -568,62 +455,95 @@ function AlbumModal({
   onRequireAuth: () => void;
 }) {
   const { playSong } = usePlayer();
+  const [songs, setSongs] = useState<Song[]>(album.songs);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let unmounted = false;
+    if (!album.id) {
+      // Fallback: search for album songs using query
+      setLoading(true);
+      api.searchSongs(album.query, 1, 50).then((res) => {
+        if (unmounted) return;
+        const items = extractResults(res);
+        const mapped = items.map(mapApiSong).map(cleanSong).filter((s) => s.audioUrl);
+        if (mapped.length > 0) setSongs(mapped);
+        setLoading(false);
+      }).catch(() => {
+        if (!unmounted) setLoading(false);
+      });
+      return;
+    }
+
+    setLoading(true);
+    api.getAlbumDetails(album.id)
+      .then((res) => {
+        if (unmounted) return;
+        const raw = extractResults(res);
+        const mapped = raw.map(mapApiSong).map(cleanSong).filter((s) => s.audioUrl);
+        if (mapped.length > 0) {
+          setSongs(mapped);
+        }
+        setLoading(false);
+      })
+      .catch((err) => {
+        console.warn("Failed to fetch album details:", err);
+        if (!unmounted) setLoading(false);
+      });
+
+    return () => { unmounted = true; };
+  }, [album.id, album.query]);
+
   return (
-    <Modal visible={true} animationType="slide" onRequestClose={onClose}>
-      <View style={modalStyles.container}>
-        {album.coverArt && (
-          <Image
-            source={{ uri: album.coverArt }}
-            style={modalStyles.backgroundImage}
-            blurRadius={20}
-            resizeMode="cover"
-          />
-        )}
-        <View style={modalStyles.overlay} />
+    <View style={modalStyles.container}>
+      {album.coverArt && (
+        <Image
+          source={{ uri: album.coverArt }}
+          style={modalStyles.backgroundImage}
+          blurRadius={20}
+          resizeMode="cover"
+        />
+      )}
+      <View style={modalStyles.overlay} />
 
-        <View style={modalStyles.content}>
-          {/* Header */}
-          <View style={modalStyles.header}>
-            <TouchableOpacity onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
-              <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
-            </TouchableOpacity>
+      <View style={modalStyles.content}>
+        {/* Header */}
+        <View style={modalStyles.header}>
+          <TouchableOpacity delayPressIn={0} onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
+            <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
+          </TouchableOpacity>
 
-            <View style={modalStyles.headerMeta}>
-              <Text style={modalStyles.headerTitle} numberOfLines={1}>{album.title}</Text>
-              <Text style={modalStyles.headerSubtitle} numberOfLines={1}>
-                Album · {album.songs.length} songs
-              </Text>
-            </View>
-
-            {album.songs.length > 0 ? (
-              <TouchableOpacity
-                onPress={() => playSong(album.songs[0], album.songs)}
-                style={modalStyles.playBtn}
-                activeOpacity={0.8}
-              >
-                <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
-              </TouchableOpacity>
-            ) : null}
+          <View style={modalStyles.headerMeta}>
+            <Text style={modalStyles.headerTitle} numberOfLines={1}>{album.title}</Text>
+            <Text style={modalStyles.headerSubtitle} numberOfLines={1}>
+              Album
+            </Text>
           </View>
 
-          {/* Large cover art */}
-          {album.coverArt ? (
-            <View style={modalStyles.coverWrapper}>
-              <Image source={{ uri: album.coverArt }} style={modalStyles.coverImage} resizeMode="cover" />
-            </View>
+          {songs.length > 0 ? (
+            <TouchableOpacity delayPressIn={0} onPress={() => playSong(songs[0], songs)} style={modalStyles.playBtn} activeOpacity={0.8}>
+              <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
+            </TouchableOpacity>
           ) : null}
-
-          {/* Songs list */}
-          <ScrollView style={modalStyles.songsScroll} contentContainerStyle={modalStyles.songsScrollContent}>
-            <View style={{ paddingBottom: 60 }}>
-              {album.songs.map((song) => (
-                <SongRow key={song.id} song={song} queue={album.songs} onRequireAuth={onRequireAuth} />
-              ))}
-            </View>
-          </ScrollView>
         </View>
+
+        {/* Large cover art */}
+        {album.coverArt ? (
+          <View style={modalStyles.coverWrapper}>
+            <Image source={{ uri: album.coverArt }} style={modalStyles.coverImage} resizeMode="cover" />
+          </View>
+        ) : null}
+
+        {/* Songs list */}
+        <ScrollView style={modalStyles.songsScroll} contentContainerStyle={modalStyles.songsScrollContent}>
+          <View style={{ paddingBottom: 60 }}>
+            {songs.map((song) => (
+              <SongRow key={song.id} song={song} queue={songs} onRequireAuth={onRequireAuth} />
+            ))}
+          </View>
+        </ScrollView>
       </View>
-    </Modal>
+    </View>
   );
 }
 
@@ -639,8 +559,11 @@ async function fetchAllPages(query: string, maxPages = 60, seen?: Set<string>): 
       const songs = items.map(mapApiSong).map(cleanSong).filter((s) => Boolean(s.audioUrl));
       let added = 0;
       for (const s of songs) {
-        if (s.id && !localSeen.has(s.id)) {
+        if (!s.id) continue;
+        const titleKey = normalizeSongTitle(s.title, s.movie || s.album);
+        if (!localSeen.has(s.id) && !localSeen.has(titleKey)) {
           localSeen.add(s.id);
+          localSeen.add(titleKey);
           all.push(s);
           added++;
         }
@@ -671,6 +594,7 @@ async function fetchAllArtistSongs(artistName: string): Promise<Song[]> {
 
 // ─── Artist Profile Modal ─────────────────────────────────────────────────────
 interface Artist {
+  id?: string;
   name: string;
   coverArt: string;
   songs: Song[];
@@ -693,83 +617,97 @@ function ArtistModal({
     let unmounted = false;
     setLoading(true);
 
-    fetchAllArtistSongs(artist.name)
-      .then((fetched: Song[]) => {
-        if (!unmounted) {
-          if (fetched.length > 0) setSongs(fetched);
+    if (artist.id) {
+      api.getArtistSongs(artist.id, 1)
+        .then((res) => {
+          if (unmounted) return;
+          const raw = extractResults(res);
+          const mapped = raw.map(mapApiSong).map(cleanSong).filter((s) => s.audioUrl);
+          if (mapped.length > 0) {
+            setSongs(mapped);
+          }
           setLoading(false);
-        }
-      })
-      .catch(() => {
-        if (!unmounted) setLoading(false);
-      });
+        })
+        .catch(() => {
+          if (unmounted) return;
+          // Fallback
+          fetchAllArtistSongs(artist.name)
+            .then((fetched: Song[]) => {
+              if (!unmounted) {
+                if (fetched.length > 0) setSongs(fetched);
+                setLoading(false);
+              }
+            })
+            .catch(() => {
+              if (!unmounted) setLoading(false);
+            });
+        });
+    } else {
+      fetchAllArtistSongs(artist.name)
+        .then((fetched: Song[]) => {
+          if (!unmounted) {
+            if (fetched.length > 0) setSongs(fetched);
+            setLoading(false);
+          }
+        })
+        .catch(() => {
+          if (!unmounted) setLoading(false);
+        });
+    }
 
     return () => { unmounted = true; };
-  }, [artist.name]);
+  }, [artist.id, artist.name]);
 
   return (
-    <Modal visible={true} animationType="slide" onRequestClose={onClose}>
-      <View style={modalStyles.container}>
-        {artist.coverArt && (
-          <Image
-            source={{ uri: artist.coverArt }}
-            style={modalStyles.backgroundImage}
-            blurRadius={20}
-            resizeMode="cover"
-          />
-        )}
-        <View style={modalStyles.overlay} />
+    <View style={modalStyles.container}>
+      {artist.coverArt && (
+        <Image
+          source={{ uri: artist.coverArt }}
+          style={modalStyles.backgroundImage}
+          blurRadius={20}
+          resizeMode="cover"
+        />
+      )}
+      <View style={modalStyles.overlay} />
 
-        <View style={modalStyles.content}>
-          {/* Header */}
-          <View style={modalStyles.header}>
-            <TouchableOpacity onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
-              <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
-            </TouchableOpacity>
+      <View style={modalStyles.content}>
+        {/* Header */}
+        <View style={modalStyles.header}>
+          <TouchableOpacity delayPressIn={0} onPress={onClose} style={modalStyles.backBtn} activeOpacity={0.7}>
+            <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
+          </TouchableOpacity>
 
-            <View style={modalStyles.headerMeta}>
-              <Text style={modalStyles.headerTitle} numberOfLines={1}>{artist.name}</Text>
-              <Text style={modalStyles.headerSubtitle} numberOfLines={1}>
-                Artist · {songs.length} songs
-              </Text>
-            </View>
-
-            {songs.length > 0 ? (
-              <TouchableOpacity
-                onPress={() => playSong(songs[0], songs)}
-                style={modalStyles.playBtn}
-                activeOpacity={0.8}
-              >
-                <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
-              </TouchableOpacity>
-            ) : null}
+          <View style={modalStyles.headerMeta}>
+            <Text style={modalStyles.headerTitle} numberOfLines={1}>{artist.name}</Text>
+            <Text style={modalStyles.headerSubtitle} numberOfLines={1}>
+              Artist
+            </Text>
           </View>
 
-          {/* Large cover art */}
-          {artist.coverArt ? (
-            <View style={modalStyles.coverWrapper}>
-              <Image source={{ uri: artist.coverArt }} style={[modalStyles.coverImage, { borderRadius: 80 }]} resizeMode="cover" />
-            </View>
+          {songs.length > 0 ? (
+            <TouchableOpacity delayPressIn={0} onPress={() => playSong(songs[0], songs)} style={modalStyles.playBtn} activeOpacity={0.8}>
+              <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
+            </TouchableOpacity>
           ) : null}
-
-          {/* Songs list */}
-          <ScrollView style={modalStyles.songsScroll} contentContainerStyle={modalStyles.songsScrollContent}>
-            {loading && songs.length === artist.songs.length ? (
-              <View style={modalStyles.centerLoading}>
-                <ActivityIndicator size="large" color="#1DB954" />
-                <Text style={modalStyles.loadingText}>Loading discography…</Text>
-              </View>
-            ) : (
-              <View style={{ paddingBottom: 60 }}>
-                {songs.map((song) => (
-                  <SongRow key={song.id} song={song} queue={songs} onRequireAuth={onRequireAuth} />
-                ))}
-              </View>
-            )}
-          </ScrollView>
         </View>
+
+        {/* Large cover art */}
+        {artist.coverArt ? (
+          <View style={modalStyles.coverWrapper}>
+            <Image source={{ uri: artist.coverArt }} style={[modalStyles.coverImage, { borderRadius: 80 }]} resizeMode="cover" />
+          </View>
+        ) : null}
+
+        {/* Songs list */}
+        <ScrollView style={modalStyles.songsScroll} contentContainerStyle={modalStyles.songsScrollContent}>
+          <View style={{ paddingBottom: 60 }}>
+            {songs.map((song) => (
+              <SongRow key={song.id} song={song} queue={songs} onRequireAuth={onRequireAuth} />
+            ))}
+          </View>
+        </ScrollView>
       </View>
-    </Modal>
+    </View>
   );
 }
 
@@ -782,6 +720,7 @@ function groupIntoAlbums(songs: Song[]): Album[] {
     const key = title.toLowerCase().trim();
     if (!map.has(key)) {
       map.set(key, {
+        id: s.albumId || "",
         title,
         coverArt: s.albumArt || "",
         songs: [],
@@ -790,6 +729,7 @@ function groupIntoAlbums(songs: Song[]): Album[] {
       });
     }
     const album = map.get(key)!;
+    if (!album.id && s.albumId) album.id = s.albumId;
     if (!album.coverArt && s.albumArt) album.coverArt = s.albumArt;
     const sTitleKey = s.title.toLowerCase().trim();
     if (!album.songs.some((existing) => existing.title.toLowerCase().trim() === sTitleKey)) {
@@ -809,47 +749,90 @@ function groupIntoArtists(songs: Song[]): Artist[] {
     const key = cleanName.toLowerCase();
     if (!map.has(key)) {
       map.set(key, {
+        id: s.artistId || "",
         name: cleanName,
         coverArt: s.albumArt || "",
         songs: [],
       });
     }
     const artist = map.get(key)!;
+    if (!artist.id && s.artistId) artist.id = s.artistId;
     if (!artist.coverArt && s.albumArt) artist.coverArt = s.albumArt;
     artist.songs.push(s);
   }
-async function searchPiped(query: string): Promise<Song[]> {
-  const PIPED_INSTANCES = [
-    "https://pipedapi.adminforge.de",
-    "https://pipedapi.projectsegfau.lt",
-    "https://pipedapi.kavin.rocks",
-    "https://pipedapi-libre.kavin.rocks",
-    "https://pipedapi.leptons.xyz",
-    "https://api.looleh.xyz"
+  return [...map.values()];
+}
+
+function firstSuccessArray(promises: Promise<Song[] | null>[]): Promise<Song[] | null> {
+  return new Promise((resolve) => {
+    let completedCount = 0;
+    let resolved = false;
+
+    promises.forEach((p) => {
+      p.then((val) => {
+        if (val && val.length > 0 && !resolved) {
+          resolved = true;
+          resolve(val);
+        }
+      }).catch(() => {
+        // ignore
+      }).finally(() => {
+        completedCount++;
+        if (completedCount === promises.length && !resolved) {
+          resolve(null);
+        }
+      });
+    });
+  });
+}
+
+async function searchInvidious(query: string): Promise<Song[]> {
+  const INVIDIOUS_INSTANCES = [
+    "https://iv.melmac.space",
+    "https://invidious.flokinet.to",
+    "https://invidious.privacydev.net",
+    "https://invidious.nerdvpn.de",
+    "https://invidious.slipfox.xyz",
+    "https://inv.tux.pizza"
   ];
-  for (const instance of PIPED_INSTANCES) {
+
+  const fetchPromises = INVIDIOUS_INSTANCES.map(async (instance) => {
     try {
       const res = await Promise.race([
-        fetch(`${instance}/search?q=${encodeURIComponent(query)}&filter=videos`),
-        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
+        fetch(`${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video`, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+            "Accept": "application/json"
+          }
+        }),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 2500))
       ]);
-      if (!res.ok) continue;
-      const data = await res.json();
-      const items = data.items || [];
-      if (items.length === 0) continue;
-      return items.slice(0, 30).map((item: any) => ({
-        id: `yt-${item.videoId}`,
-        title: decodeHtml(item.title || "Unknown Title"),
-        artist: decodeHtml(item.uploaderName || "YouTube"),
-        duration: item.duration || 0,
-        albumArt: item.thumbnail || "",
-        audioUrl: `youtube://${item.videoId}`,
-        album: "YouTube Web",
-        movie: "YouTube Web"
-      }));
+      if (res.ok) {
+        const items = await res.json();
+        if (Array.isArray(items) && items.length > 0) {
+          return items.slice(0, 30).map((item: any) => ({
+            id: `yt-${item.videoId}`,
+            title: decodeHtml(item.title || "Unknown Title"),
+            artist: decodeHtml(item.author || "YouTube"),
+            duration: item.lengthSeconds || 0,
+            albumArt: item.videoThumbnails?.[0]?.url || "",
+            audioUrl: `youtube://${item.videoId}`,
+            album: "YouTube Web",
+            movie: "YouTube Web"
+          }));
+        }
+      }
     } catch (err) {
-      console.warn(`[SearchPage] Piped instance ${instance} failed:`, err);
+      // Ignore
     }
+    return null;
+  });
+
+  try {
+    const results = await firstSuccessArray(fetchPromises);
+    return results || [];
+  } catch (err) {
+    console.warn("[SearchPage] Invidious search failed:", err);
   }
   return [];
 }
@@ -861,33 +844,57 @@ async function searchPiped(query: string): Promise<Song[]> {
     "https://pipedapi.kavin.rocks",
     "https://pipedapi-libre.kavin.rocks",
     "https://pipedapi.leptons.xyz",
-    "https://api.looleh.xyz"
+    "https://api.looleh.xyz",
+    "https://piapi.ggtyler.dev",
+    "https://pipedapi.moomoo.me",
+    "https://pipedapi.ox.am",
+    "https://piped-api.garudalinux.org",
+    "https://pipedapi.tokhmi.xyz"
   ];
-  for (const instance of PIPED_INSTANCES) {
+
+  const fetchPromises = PIPED_INSTANCES.map(async (instance) => {
     try {
       const res = await Promise.race([
-        fetch(`${instance}/search?q=${encodeURIComponent(query)}&filter=videos`),
-        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
+        fetch(`${instance}/search?q=${encodeURIComponent(query)}&filter=videos`, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+            "Accept": "application/json"
+          }
+        }),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 2500))
       ]);
-      if (!res.ok) continue;
-      const data = await res.json();
-      const items = data.items || [];
-      if (items.length === 0) continue;
-      return items.slice(0, 30).map((item: any) => ({
-        id: `yt-${item.videoId}`,
-        title: decodeHtml(item.title || "Unknown Title"),
-        artist: decodeHtml(item.uploaderName || "YouTube"),
-        duration: item.duration || 0,
-        albumArt: item.thumbnail || "",
-        audioUrl: `youtube://${item.videoId}`,
-        album: "YouTube Web",
-        movie: "YouTube Web"
-      }));
+      if (res.ok) {
+        const data = await res.json();
+        const items = data.items || [];
+        if (items.length > 0) {
+          return items.slice(0, 30).map((item: any) => ({
+            id: `yt-${item.videoId}`,
+            title: decodeHtml(item.title || "Unknown Title"),
+            artist: decodeHtml(item.uploaderName || "YouTube"),
+            duration: item.duration || 0,
+            albumArt: item.thumbnail || "",
+            audioUrl: `youtube://${item.videoId}`,
+            album: "YouTube Web",
+            movie: "YouTube Web"
+          }));
+        }
+      }
     } catch (err) {
-      console.warn(`[SearchPage] Piped instance ${instance} failed:`, err);
+      // Ignore individual failures
     }
+    return null;
+  });
+
+  try {
+    const results = await firstSuccessArray(fetchPromises);
+    if (results && results.length > 0) return results;
+  } catch (err) {
+    console.warn("[SearchPage] Parallel searchPiped failed:", err);
   }
-  return [];
+
+  // Fallback to Invidious search
+  console.log("[SearchPage] Piped search failed. Trying Invidious search...");
+  return await searchInvidious(query);
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -902,10 +909,56 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
   const [loading, setLoading]         = useState(false);
   const [activeTab, setActiveTab]     = useState<"all" | "songs" | "albums" | "artists" | "youtube">("all");
 
-  const [activeCategory, setActiveCategory] = useState<{ label: string; songs: Song[]; coverArt: string } | null>(null);
+  const [activeCategory, setActiveCategory] = useState<{ label: string; coverArt: string } | null>(null);
+  const [categorySongs, setCategorySongs]   = useState<Song[]>([]);
+  const [categoryLoading, setCategoryLoading] = useState(false);
   const [activeLangAlbum, setActiveLangAlbum] = useState<string | null>(null);
   const [activeAlbum, setActiveAlbum]       = useState<Album | null>(null);
   const [activeArtist, setActiveArtist]     = useState<Artist | null>(null);
+
+  // Load and dynamically resolve generic stock category cover art with correct album arts
+  const [categoryCovers, setCategoryCovers] = useState<Record<string, string>>(() => {
+    const initial: Record<string, string> = {};
+    BROWSE_CATEGORIES.forEach((cat) => {
+      const cache = getCategoryCache(cat.label);
+      initial[cat.label] = cache.coverArt || cat.cover;
+    });
+    return initial;
+  });
+
+  useEffect(() => {
+    let unmounted = false;
+    const resolveCovers = async () => {
+      for (const cat of BROWSE_CATEGORIES) {
+        if (unmounted) break;
+        const cache = getCategoryCache(cat.label);
+        if (cache.coverArt) continue;
+
+        try {
+          const res = await api.searchSongs(cat.query, 1, 1);
+          const raw = extractResults(res);
+          if (raw.length > 0) {
+            const mapped = mapApiSong(raw[0]);
+            if (mapped.albumArt) {
+              if (!unmounted) {
+                setCategoryCovers((prev) => ({ ...prev, [cat.label]: mapped.albumArt! }));
+              }
+              saveCategoryCache(cat.label, [], mapped.albumArt!);
+            }
+          }
+        } catch {
+          // continue
+        }
+        await sleep(400);
+      }
+    };
+    
+    const timer = setTimeout(resolveCovers, 1500);
+    return () => {
+      unmounted = true;
+      clearTimeout(timer);
+    };
+  }, []);
 
   // Debounce query
   useEffect(() => {
@@ -934,7 +987,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
 
     setLoading(true);
     Promise.all([
-      api.globalSearch(clean, 1, 60)
+      api.searchSongs(clean, 1, 60)
         .then((res) => {
           const raw = extractResults(res);
           return raw.map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
@@ -949,6 +1002,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
           return [];
         })
     ]).then(([jioSongs, ytSongs]) => {
+      // Combine results: JioSaavn songs first, then YouTube songs
       const combined = [...jioSongs, ...ytSongs];
       setResults(combined);
       setLoading(false);
@@ -963,21 +1017,67 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
     if (onRequireAuth) onRequireAuth();
   };
 
-  const handleCategorySelect = (label: string, songs: Song[], coverArt: string) => {
+  const handleCategorySelect = async (label: string, query: string, coverArt: string) => {
     const lang = detectLanguageSearch(label);
     if (lang) {
       setActiveLangAlbum(lang);
-    } else {
-      setActiveCategory({ label, songs, coverArt });
+      return;
+    }
+
+    setActiveCategory({ label, coverArt });
+    setCategorySongs([]);
+    setCategoryLoading(true);
+
+    const cache = getCategoryCache(label);
+    if (cache.songs.length > 0) {
+      setCategorySongs(cache.songs);
+      setActiveCategory({ label, coverArt: cache.coverArt || coverArt });
+      setCategoryLoading(false);
+      return;
+    }
+
+    try {
+      const extraQueries = LANGUAGE_EXTRA_QUERIES[label] || [];
+      const allQueries   = [query, ...extraQueries];
+      const seen         = new Set<string>();
+      const allSongs: Song[] = [];
+
+      for (const q of allQueries) {
+        for (let page = 1; page <= 4; page++) {
+          try {
+            if (page > 1) await new Promise(r => setTimeout(r, 200));
+            const res     = await api.searchSongs(q, page, 50);
+            const items   = extractResults(res);
+            const fetched = items.map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
+            for (const s of fetched) {
+              if (s.id && !seen.has(s.id)) {
+                seen.add(s.id);
+                allSongs.push(s);
+              }
+            }
+            if (items.length < 50) break;
+          } catch { break; }
+        }
+      }
+
+      const resolvedCover = allSongs[0]?.albumArt || coverArt;
+      setCategorySongs(allSongs);
+      setActiveCategory({ label, coverArt: resolvedCover });
+      saveCategoryCache(label, allSongs, resolvedCover);
+      
+      setCategoryCovers((prev) => ({ ...prev, [label]: resolvedCover }));
+    } catch (err) {
+      console.warn("[SearchPage] Failed to load category songs:", err);
+    } finally {
+      setCategoryLoading(false);
     }
   };
-
-  const jioSongs = results.filter((s) => !s.id.startsWith("yt-"));
-  const ytSongs = results.filter((s) => s.id.startsWith("yt-"));
 
   const songsResult = results;
   const albumsResult = groupIntoAlbums(results);
   const artistsResult = groupIntoArtists(results);
+  const jioSongs = results.filter((s) => !s.id.startsWith("yt-"));
+  const ytSongs = results.filter((s) => s.id.startsWith("yt-"));
 
   return (
     <View style={styles.container}>
@@ -998,31 +1098,40 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
           />
         </View>
 
-        {/* Search Results filter tabs */}
-        {query.trim().length > 0 ? (
-          <View style={styles.filterTabs}>
-            {(["all", "songs", "albums", "artists", "youtube"] as const).map((tab) => {
+        {/* Search Results filter tabs restored */}
+        {query.trim().length > 0 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.filterTabs}
+            contentContainerStyle={{ paddingBottom: 8 }}
+          >
+            {(["all", "youtube"] as const).map((tab) => {
               const isActive = activeTab === tab;
+              const labelMap = {
+                all: "All",
+                youtube: "YouTube"
+              };
               return (
                 <TouchableOpacity
                   key={tab}
                   onPress={() => setActiveTab(tab)}
                   style={[styles.filterTabBtn, isActive && styles.activeFilterTabBtn]}
-                  activeOpacity={0.7}
+                  activeOpacity={0.8}
                 >
                   <Text style={[styles.filterTabText, isActive && styles.activeFilterTabText]}>
-                    {tab.toUpperCase()}
+                    {labelMap[tab]}
                   </Text>
                 </TouchableOpacity>
               );
             })}
-          </View>
-        ) : null}
+          </ScrollView>
+        )}
       </View>
 
       <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
         {query.trim().length === 0 ? (
-          // Category Grid View (when query isempty)
+          // Category Grid View (when query is empty)
           <View>
             <Text style={styles.sectionTitle}>Browse Categories</Text>
             <View style={styles.grid}>
@@ -1031,6 +1140,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                   <CategoryCard
                     label={cat.label}
                     query={cat.query}
+                    coverArt={categoryCovers[cat.label] || cat.cover}
                     onSelect={handleCategorySelect}
                   />
                 </View>
@@ -1073,7 +1183,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
               </View>
             ) : null}
 
-            {/* Songs Tab - JioSaavn Songs only */}
+            {/* Songs Tab - Show JioSaavn songs only */}
             {activeTab === "songs" && jioSongs.length > 0 ? (
               <View style={styles.resultSection}>
                 {jioSongs.map((song) => (
@@ -1082,7 +1192,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
               </View>
             ) : null}
 
-            {/* YouTube Tab - YouTube Videos only */}
+            {/* YouTube Tab - Show YouTube Videos only */}
             {activeTab === "youtube" && ytSongs.length > 0 ? (
               <View style={styles.resultSection}>
                 {ytSongs.map((song) => (
@@ -1091,17 +1201,21 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
               </View>
             ) : null}
 
+            {/* YouTube Tab - Empty State */}
+            {activeTab === "youtube" && ytSongs.length === 0 ? (
+              <View style={styles.emptyContainer}>
+                <MaterialCommunityIcons name="video-off-outline" size={48} color="rgba(255,255,255,0.15)" />
+                <Text style={styles.emptyTitle}>No YouTube videos found</Text>
+                <Text style={styles.emptySubtitle}>We couldn't retrieve video results for this search query.</Text>
+              </View>
+            ) : null}
+
             {/* All / Albums */}
             {(activeTab === "all" || activeTab === "albums") && albumsResult.length > 0 ? (
               <View style={styles.resultSection}>
                 {activeTab === "all" && <Text style={styles.sectionSubHeader}>Albums</Text>}
                 {albumsResult.slice(0, activeTab === "all" ? 6 : undefined).map((album) => (
-                  <TouchableOpacity
-                    key={album.title}
-                    onPress={() => setActiveAlbum(album)}
-                    style={styles.albumRowItem}
-                    activeOpacity={0.7}
-                  >
+                  <TouchableOpacity delayPressIn={0} key={album.title} onPress={() => setActiveAlbum(album)} style={styles.albumRowItem} activeOpacity={0.7}>
                     {album.coverArt ? (
                       <Image source={{ uri: album.coverArt }} style={styles.albumCoverImage} />
                     ) : (
@@ -1124,12 +1238,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
               <View style={styles.resultSection}>
                 {activeTab === "all" && <Text style={styles.sectionSubHeader}>Artists</Text>}
                 {artistsResult.slice(0, activeTab === "all" ? 6 : undefined).map((artist) => (
-                  <TouchableOpacity
-                    key={artist.name}
-                    onPress={() => setActiveArtist(artist)}
-                    style={styles.albumRowItem}
-                    activeOpacity={0.7}
-                  >
+                  <TouchableOpacity delayPressIn={0} key={artist.name} onPress={() => setActiveArtist(artist)} style={styles.albumRowItem} activeOpacity={0.7}>
                     {artist.coverArt ? (
                       <Image source={{ uri: artist.coverArt }} style={[styles.albumCoverImage, { borderRadius: 22 }]} />
                     ) : (
@@ -1154,9 +1263,9 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
       {activeCategory ? (
         <CategorySongModal
           label={activeCategory.label}
-          songs={activeCategory.songs}
+          songs={categorySongs}
           coverArt={activeCategory.coverArt}
-          loading={false}
+          loading={categoryLoading}
           onClose={() => setActiveCategory(null)}
           onRequireAuth={handleRequireAuth}
         />
@@ -1398,8 +1507,9 @@ const styles = StyleSheet.create({
 
 const modalStyles = StyleSheet.create({
   container: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: "#0d0d0d",
+    zIndex: 100,
   },
   backgroundImage: {
     ...StyleSheet.absoluteFillObject,

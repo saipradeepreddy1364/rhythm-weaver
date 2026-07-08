@@ -1236,14 +1236,21 @@ function SimpleSection({ title, children }: { title: string; children: React.Rea
 // ─── QuickPick tile ───────────────────────────────────────────────────────────
 function QuickPick({ song, queue }: { song: Song; queue: Song[] }) {
   const { playSong } = usePlayer();
+  const [imgError, setImgError] = React.useState(false);
+  const hasArt = Boolean(song.albumArt) && !imgError;
   return (
     <TouchableOpacity delayPressIn={0}
       onPress={() => playSong(song, queue)}
       style={styles.quickPickCard}
       activeOpacity={0.8}
     >
-      {song.albumArt ? (
-        <Image source={{ uri: song.albumArt }} style={styles.quickPickArt} />
+      {hasArt ? (
+        <Image
+          source={{ uri: song.albumArt }}
+          style={styles.quickPickArt}
+          resizeMode="cover"
+          onError={() => setImgError(true)}
+        />
       ) : (
         <View style={[styles.quickPickArt, styles.quickPickPlaceholder]}>
           <Text style={styles.quickPickIcon}>🎵</Text>
@@ -1257,7 +1264,7 @@ function QuickPick({ song, queue }: { song: Song; queue: Song[] }) {
 }
 
 // Session storage for Equalizer states to survive tab-navigation unmount/remount
-let sessionEqPreset: "normal" | "bass" | "treble" | "vocal" | "electronic" | null = null;
+let sessionEqPreset: "normal" | "bass" | "treble" | "vocal" | "electronic" | "custom" | null = null;
 let sessionEqBass: number | null = null;
 let sessionEqTreble: number | null = null;
 let sessionEqVocal: number | null = null;
@@ -1275,7 +1282,7 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
   const [eqBass, setEqBass] = useState(() => sessionEqBass ?? 5);
   const [eqTreble, setEqTreble] = useState(() => sessionEqTreble ?? 5);
   const [eqVocal, setEqVocal] = useState(() => sessionEqVocal ?? 5);
-  const [eqPreset, setEqPreset] = useState<"normal" | "bass" | "treble" | "vocal" | "electronic">(() => sessionEqPreset ?? "normal");
+  const [eqPreset, setEqPreset] = useState<"normal" | "bass" | "treble" | "vocal" | "electronic" | "custom">(() => sessionEqPreset ?? "normal");
   const [sliderWidths, setSliderWidths] = useState<Record<string, number>>({});
 
   const applyNativeEqualizer = (bass: number, treble: number, vocal: number) => {
@@ -1290,28 +1297,18 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
   useEffect(() => {
     if (sessionEqPreset === null) {
       AsyncStorage.getItem("rw_eq_settings").then((saved) => {
-        let preset: "normal" | "bass" | "treble" | "vocal" | "electronic" = "normal";
+        let preset: "normal" | "bass" | "treble" | "vocal" | "electronic" | "custom" = "normal";
+        let b = 5, t = 5, v = 5;
         if (saved) {
           try {
             const parsed = JSON.parse(saved);
             preset = parsed.preset ?? "normal";
+            b = parsed.bass ?? 5;
+            t = parsed.treble ?? 5;
+            v = parsed.vocal ?? 5;
           } catch {}
         }
         setEqPreset(preset);
-
-        // Look up correct default preset values on mount
-        let b = 5, t = 5, v = 5;
-        if (preset === "normal") {
-          b = 5; t = 5; v = 5;
-        } else if (preset === "bass") {
-          b = 9; t = 6; v = 5; // +4 bass, +1 treble, +0 vocals
-        } else if (preset === "treble") {
-          b = 9; t = 8; v = 6; // +4 bass, +3 treble, +1 vocals
-        } else if (preset === "vocal") {
-          b = 7; t = 6; v = 9; // +2 bass, +1 treble, +4 vocals
-        } else if (preset === "electronic") {
-          b = 8; t = 7; v = 4; // unchanged electronic preset
-        }
 
         sessionEqPreset = preset;
         sessionEqBass = b;
@@ -1335,12 +1332,16 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
     sessionEqBass = bass;
     sessionEqTreble = treble;
     sessionEqVocal = vocal;
-    sessionEqPreset = "normal";
+    sessionEqPreset = "custom";
+    setEqPreset("custom");
 
     applyNativeEqualizer(bass, treble, vocal);
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => {
-      AsyncStorage.setItem("rw_eq_settings", JSON.stringify({ preset: "normal" })).catch(() => {});
+      AsyncStorage.setItem(
+        "rw_eq_settings",
+        JSON.stringify({ preset: "custom", bass, treble, vocal })
+      ).catch(() => {});
     }, 400);
   };
 
@@ -1369,8 +1370,11 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
     setEqVocal(v);
     applyNativeEqualizer(b, t, v);
     
-    // Save only preset type identifier to ensure default values reload on restart
-    AsyncStorage.setItem("rw_eq_settings", JSON.stringify({ preset })).catch(() => {});
+    // Save preset and its values to ensure correct values reload on restart
+    AsyncStorage.setItem(
+      "rw_eq_settings",
+      JSON.stringify({ preset, bass: b, treble: t, vocal: v })
+    ).catch(() => {});
   };
 
   const [sections,     setSections]     = useState<SectionData[]>(() => homePagePrefetcher.sections);
@@ -1445,35 +1449,60 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
     try { sessionStorage.removeItem("rw_open_album"); } catch { /**/ }
   };
 
+  const [randomSeed] = useState(() => Math.floor(Math.random() * 100000));
   const [quickPickSongs, setQuickPickSongs] = useState<Song[]>([]);
 
   useEffect(() => {
-    if (quickPickSongs.length > 0) return;
+    if (quickPickSongs.length >= 12) {
+      // Self-healing: if we only have one language represented (e.g. due to incremental loading),
+      // allow recalculation as more sections load. Once we have a balanced mix, lock it.
+      const hasTelugu = quickPickSongs.some(s => s.language?.toLowerCase().trim() === "telugu");
+      const hasHindi  = quickPickSongs.some(s => s.language?.toLowerCase().trim() === "hindi");
+      if (hasTelugu && hasHindi) return;
+    }
     const pool = sections.flatMap((s) => s.songs);
     if (pool.length === 0) return;
 
+    // Deduplicate by song id
+    const seen = new Set<string>();
+    const uniquePool = pool.filter((song) => {
+      if (!song.id || seen.has(song.id)) return false;
+      seen.add(song.id);
+      return true;
+    });
+
     // Filter out devotional songs and separate by language
-    const teluguSongs = pool.filter((song) => {
+    const teluguSongs = uniquePool.filter((song) => {
       if (!song.language || isDevotionalSong(song)) return false;
       return song.language.toLowerCase().trim() === "telugu";
     });
 
-    const hindiSongs = pool.filter((song) => {
+    const hindiSongs = uniquePool.filter((song) => {
       if (!song.language || isDevotionalSong(song)) return false;
       return song.language.toLowerCase().trim() === "hindi";
     });
 
-    // Populate only when we have at least 6 of each language to ensure equal representation
-    if (teluguSongs.length >= 6 && hindiSongs.length >= 6) {
-      const selectedTelugu = seededShuffle(teluguSongs, todaysSeed()).slice(0, 6);
-      const selectedHindi = seededShuffle(hindiSongs, todaysSeed()).slice(0, 6);
-      
-      // Combine and mix the final 12 songs with a stable seed
-      const combined = [...selectedTelugu, ...selectedHindi];
-      const mixed = seededShuffle(combined, todaysSeed() + 9);
-      setQuickPickSongs(mixed);
+    // Try to pick up to 6 from each language, fall back to mixing all non-devotional songs
+    const shuffledTelugu = seededShuffle(teluguSongs, randomSeed);
+    const shuffledHindi  = seededShuffle(hindiSongs,  randomSeed);
+
+    let combined: Song[] = [];
+
+    if (shuffledTelugu.length >= 3 && shuffledHindi.length >= 3) {
+      // Both languages have some songs — pick proportionally up to 6 each
+      const take = Math.min(6, shuffledTelugu.length, shuffledHindi.length);
+      combined = [...shuffledTelugu.slice(0, take), ...shuffledHindi.slice(0, take)];
+    } else {
+      // Fallback: use whatever non-devotional songs we have from the pool
+      const fallbackPool = uniquePool.filter((song) => !isDevotionalSong(song));
+      combined = seededShuffle(fallbackPool, randomSeed).slice(0, 12);
     }
-  }, [sections, quickPickSongs.length]);
+
+    if (combined.length > 0) {
+      const mixed = seededShuffle(combined, randomSeed + 9);
+      setQuickPickSongs(mixed.slice(0, 12));
+    }
+  }, [sections, quickPickSongs.length, randomSeed]);
 
   if (isOffline) {
     return (
@@ -1816,7 +1845,7 @@ class HomePagePrefetcher {
       let res: any = null;
       try {
         const raw = await fetch(
-          "https://musicbackend-xg4u.onrender.com/api/music/home",
+          "https://musicbackend-7a1o.onrender.com/api/music/home",
           { signal: controller.signal }
         );
         clearTimeout(timeoutId);

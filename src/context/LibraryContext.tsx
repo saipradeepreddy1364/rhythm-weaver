@@ -11,7 +11,6 @@ import type { Song } from "../data/songs";
 import { useAuth } from "./AuthContext";
 import { localStorage } from "../lib/storage";
 import * as FileSystem from "expo-file-system";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // ─── Types ────────────────=====================================================
 
@@ -53,6 +52,7 @@ interface LibraryContextType {
   getPlaylist: (playlistId: string) => Promise<Song[]>;
   loadLikedSongs: () => void;
   loadPlaylists: () => void;
+  loadLikedAlbums: () => Promise<void>;
   downloadSong: (song: Song) => Promise<void>;
   deleteDownloadedSong: (songId: string) => Promise<void>;
   isDownloaded: (songId: string) => boolean;
@@ -151,11 +151,17 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       setDownloadingIds((prev) => [...prev, song.id]);
 
       try {
-        const audioUrl = song.audioUrl || `https://musicbackend-xg4u.onrender.com/api/songs/${song.id}/stream`;
+        const audioUrl = song.audioUrl || `https://musicbackend-7a1o.onrender.com/api/songs/${song.id}/stream`;
         const audioLocalUri = FileSystem.documentDirectory + song.id + ".mp3";
 
         // Download audio file
         const audioResult = await FileSystem.downloadAsync(audioUrl, audioLocalUri);
+        if (audioResult.status !== 200) {
+          try {
+            await FileSystem.deleteAsync(audioLocalUri, { idempotent: true });
+          } catch {}
+          throw new Error(`Failed to download audio. HTTP Status: ${audioResult.status}`);
+        }
 
         // Download album art if present
         let artLocalUri = "";
@@ -380,17 +386,18 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         });
         
         const liked = matched.length > 0;
-        let nextLiked: Song[];
-        if (liked) {
-          nextLiked = prev.filter((s) => {
-            if (s.id === song.id) return false;
-            const sNorm = normalizeSongTitle(s.title, s.movie || s.album);
-            return !(sNorm && queryNorm && sNorm === queryNorm);
-          });
-        } else {
-          nextLiked = [song, ...prev];
-        }
-        localStorage.setItem("rw_liked_songs", JSON.stringify(nextLiked));
+        const nextLiked = liked
+          ? prev.filter((s) => {
+              if (s.id === song.id) return false;
+              const sNorm = normalizeSongTitle(s.title, s.movie || s.album);
+              return !(sNorm && queryNorm && sNorm === queryNorm);
+            })
+          : [song, ...prev];
+        
+        // Write immediately — no setTimeout, to prevent data loss on app kill
+        try {
+          localStorage.setItem("rw_liked_songs", JSON.stringify(nextLiked));
+        } catch {}
         return nextLiked;
       });
     },
@@ -414,7 +421,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         const list = [created, ...prev];
         try {
           localStorage.setItem("rw_playlists", JSON.stringify(list));
-        } catch { /* ignore */ }
+        } catch {}
         return list;
       });
       return created;
@@ -428,7 +435,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         const list = prev.filter((p) => p.id !== playlistId);
         try {
           localStorage.setItem("rw_playlists", JSON.stringify(list));
-        } catch { /* ignore */ }
+        } catch {}
         return list;
       });
     },
@@ -441,7 +448,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         const list = prev.map((p) => (p.id === playlistId ? { ...p, name: newName } : p));
         try {
           localStorage.setItem("rw_playlists", JSON.stringify(list));
-        } catch { /* ignore */ }
+        } catch {}
         return list;
       });
     },
@@ -462,7 +469,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         });
         try {
           localStorage.setItem("rw_playlists", JSON.stringify(list));
-        } catch { /* ignore */ }
+        } catch {}
         return list;
       });
     },
@@ -482,7 +489,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         });
         try {
           localStorage.setItem("rw_playlists", JSON.stringify(list));
-        } catch { /* ignore */ }
+        } catch {}
         return list;
       });
     },
@@ -510,29 +517,26 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const toggleLikeAlbum = useCallback(
     async (album: AlbumData) => {
       if (!album) return;
+      await localStorage.ensureInitialized();
 
-      let nextLiked: AlbumData[];
-      const isLiked = likedAlbums.some(
-        (a) => a.title.toLowerCase().trim() === album.title.toLowerCase().trim()
-      );
-
-      if (isLiked) {
-        nextLiked = likedAlbums.filter(
-          (a) => a.title.toLowerCase().trim() !== album.title.toLowerCase().trim()
+      setLikedAlbums((prev) => {
+        const isLiked = prev.some(
+          (a) => a.title.toLowerCase().trim() === album.title.toLowerCase().trim()
         );
-      } else {
-        nextLiked = [album, ...likedAlbums];
-      }
-
-      setLikedAlbums(nextLiked);
-
-      try {
-        localStorage.setItem("rw_liked_albums", JSON.stringify(nextLiked));
-      } catch (err) {
-        console.warn("Failed to save liked albums:", err);
-      }
+        const nextLiked = isLiked
+          ? prev.filter((a) => a.title.toLowerCase().trim() !== album.title.toLowerCase().trim())
+          : [album, ...prev];
+        
+        // Write immediately — no setTimeout, to prevent data loss on app kill
+        try {
+          localStorage.setItem("rw_liked_albums", JSON.stringify(nextLiked));
+        } catch (err) {
+          console.warn("Failed to save liked albums:", err);
+        }
+        return nextLiked;
+      });
     },
-    [likedAlbums]
+    []
   );
 
   return (
@@ -554,6 +558,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         getPlaylist,
         loadLikedSongs,
         loadPlaylists,
+        loadLikedAlbums,
         downloadSong,
         deleteDownloadedSong,
         isDownloaded,

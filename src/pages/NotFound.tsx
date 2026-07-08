@@ -18,11 +18,7 @@ export function NotFound({ onGoBack }: NotFoundProps) {
         <Text style={styles.description}>
           The page you're looking for doesn't exist.
         </Text>
-        <TouchableOpacity
-          onPress={onGoBack}
-          style={styles.button}
-          activeOpacity={0.7}
-        >
+        <TouchableOpacity delayPressIn={0} onPress={onGoBack} style={styles.button} activeOpacity={0.7}>
           <Text style={styles.buttonText}>Go Back</Text>
         </TouchableOpacity>
       </View>

@@ -4,6 +4,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Song, formatDuration } from "../data/songs";
 import { usePlayer } from "../context/PlayerContext";
 import { api } from "../services/api";
+import { useLibrary } from "../context/LibraryContext";
 
 interface SongCardProps {
   song: Song;
@@ -24,11 +25,56 @@ function LyricsPanel({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
+  const [translationLang, setTranslationLang] = useState<"original" | "hi" | "te" | "en">("original");
+  const [translatedLyrics, setTranslatedLyrics] = useState<Record<string, string>>({});
+  const [translating, setTranslating] = useState(false);
+
+  const translateLyrics = async (targetLang: "hi" | "te" | "en") => {
+    if (!lyrics) return;
+    const cacheKey = `${song.id}_${targetLang}`;
+    if (translatedLyrics[cacheKey]) return;
+
+    setTranslating(true);
+    try {
+      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(lyrics)}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        let translatedText = "";
+        if (data && data[0]) {
+          for (const item of data[0]) {
+            if (item && item[0]) {
+              translatedText += item[0];
+            }
+          }
+        }
+        if (translatedText.trim()) {
+          setTranslatedLyrics((prev) => ({
+            ...prev,
+            [cacheKey]: translatedText,
+          }));
+        }
+      }
+    } catch (err) {
+      console.warn("Translation failed:", err);
+    } finally {
+      setTranslating(false);
+    }
+  };
+
+  const handleLangSelect = (lang: "original" | "hi" | "te" | "en") => {
+    setTranslationLang(lang);
+    if (lang !== "original") {
+      translateLyrics(lang);
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(false);
     setLyrics(null);
+    setTranslationLang("original");
 
     api.getSongLyrics(song.id)
       .then((res) => {
@@ -64,14 +110,37 @@ function LyricsPanel({
             <Text style={styles.modalTitle} numberOfLines={1}>{song.title}</Text>
             <Text style={styles.modalArtist} numberOfLines={1}>{song.artist}</Text>
           </View>
-          <TouchableOpacity
-            onPress={onClose}
-            style={styles.closeButton}
-            activeOpacity={0.7}
-          >
+          <TouchableOpacity delayPressIn={0} onPress={onClose} style={styles.closeButton} activeOpacity={0.7}>
             <MaterialCommunityIcons name="close" size={20} color="#fff" />
           </TouchableOpacity>
         </View>
+
+        {/* Translation Selector */}
+        {!loading && !error && lyrics && (
+          <View style={styles.translationContainer}>
+            {(["original", "en", "hi", "te"] as const).map((lang) => {
+              const labelMap = {
+                original: "Original",
+                en: "English",
+                hi: "Hindi",
+                te: "Telugu",
+              };
+              const isActive = translationLang === lang;
+              return (
+                <TouchableOpacity delayPressIn={0}
+                  key={lang}
+                  onPress={() => handleLangSelect(lang)}
+                  style={[styles.transButton, isActive && styles.transButtonActive]}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.transButtonText, isActive && styles.transButtonTextActive]}>
+                    {labelMap[lang]}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
 
         {/* Body */}
         <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent}>
@@ -93,7 +162,18 @@ function LyricsPanel({
           )}
 
           {!loading && !error && lyrics && (
-            <Text style={styles.lyricsText}>{lyrics}</Text>
+            translating ? (
+              <View style={styles.translatingContainer}>
+                <ActivityIndicator size="small" color="#1DB954" style={{ marginBottom: 10 }} />
+                <Text style={styles.translatingText}>Translating lyrics...</Text>
+              </View>
+            ) : (
+              <Text style={styles.lyricsText}>
+                {translationLang === "original"
+                  ? lyrics
+                  : (translatedLyrics[`${song.id}_${translationLang}`] || lyrics)}
+              </Text>
+            )
           )}
         </ScrollView>
       </View>
@@ -104,8 +184,9 @@ function LyricsPanel({
 // ─── SongCard ─────────────────────────────────────────────────────────────────
 
 export function SongCard({ song, queue, index }: SongCardProps) {
-  const { playSong, currentSong, isPlaying, togglePlay, toggleFavorite, isFavorite } =
+  const { playSong, currentSong, isPlaying, togglePlay } =
     usePlayer();
+  const { isLiked, toggleLike } = useLibrary();
   const isActive = currentSong?.id === song.id;
   const [showLyrics, setShowLyrics] = useState(false);
 
@@ -123,15 +204,11 @@ export function SongCard({ song, queue, index }: SongCardProps) {
     setShowLyrics(true);
   };
 
-  const isFav = isFavorite(song.id);
+  const isFav = isLiked(song);
 
   return (
     <>
-      <TouchableOpacity
-        style={[styles.card, isActive && styles.activeCard]}
-        onPress={handleClick}
-        activeOpacity={0.7}
-      >
+      <TouchableOpacity delayPressIn={0} style={[styles.card, isActive && styles.activeCard]} onPress={handleClick} activeOpacity={0.7}>
         {/* Index or play icon */}
         {index !== undefined && (
           <Text style={styles.indexText}>
@@ -144,7 +221,7 @@ export function SongCard({ song, queue, index }: SongCardProps) {
           {song.albumArt ? (
             <Image
               source={{ uri: song.albumArt }}
-              style={styles.albumArt}
+              style={styles.albumArt as any}
               resizeMode="cover"
             />
           ) : (
@@ -172,11 +249,7 @@ export function SongCard({ song, queue, index }: SongCardProps) {
         </View>
 
         {/* Lyrics button */}
-        <TouchableOpacity
-          onPress={handleLyricsClick}
-          style={styles.actionButton}
-          activeOpacity={0.7}
-        >
+        <TouchableOpacity delayPressIn={0} onPress={handleLyricsClick} style={styles.actionButton} activeOpacity={0.7}>
           <MaterialCommunityIcons
             name="file-music-outline"
             size={18}
@@ -185,15 +258,11 @@ export function SongCard({ song, queue, index }: SongCardProps) {
         </TouchableOpacity>
 
         {/* Favorite button */}
-        <TouchableOpacity
-          onPress={() => toggleFavorite(song.id)}
-          style={styles.actionButton}
-          activeOpacity={0.7}
-        >
+        <TouchableOpacity delayPressIn={0} onPress={() => toggleLike(song)} style={styles.actionButton} activeOpacity={0.7}>
           <MaterialCommunityIcons
             name={isFav ? "heart" : "heart-outline"}
             size={18}
-            color={isFav ? "#1DB954" : "rgba(255,255,255,0.5)"}
+            color={isFav ? "#f43f5e" : "rgba(255,255,255,0.5)"}
           />
         </TouchableOpacity>
 
@@ -365,5 +434,42 @@ const styles = StyleSheet.create({
     lineHeight: 28,
     color: "rgba(255, 255, 255, 0.85)",
     textAlign: "center",
+  },
+  translationContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 8,
+    marginVertical: 12,
+    paddingHorizontal: 8,
+  },
+  transButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 15,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+  },
+  transButtonActive: {
+    backgroundColor: "#1DB954",
+    borderColor: "#1DB954",
+  },
+  transButtonText: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  transButtonTextActive: {
+    color: "#000000",
+    fontWeight: "bold",
+  },
+  translatingContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 40,
+  },
+  translatingText: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.4)",
   },
 });

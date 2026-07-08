@@ -21,12 +21,7 @@ export function BottomNav({ page, onNavigate }: BottomNavProps) {
       {tabs.map(({ key, label, icon }) => {
         const active = page === key;
         return (
-          <TouchableOpacity
-            key={key}
-            onPress={() => onNavigate(key)}
-            style={styles.navButton}
-            activeOpacity={0.7}
-          >
+          <TouchableOpacity delayPressIn={0} key={key} onPress={() => onNavigate(key)} style={styles.navButton} activeOpacity={0.7}>
             <MaterialCommunityIcons
               name={icon as any}
               size={22}
