@@ -551,7 +551,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                     <View key={album.title} style={styles.playlistItemContainer}>
                       <TouchableOpacity delayPressIn={0}
                         onPress={() => setTab({ type: "album", title: album.title })}
-                        style={styles.playlistRowItem}
+                        style={[styles.playlistRowItem, { flex: 1 }]}
                         activeOpacity={0.7}
                       >
                         <View style={styles.coverArtWrapper}>
@@ -570,6 +570,15 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
                           </Text>
                         </View>
                       </TouchableOpacity>
+                      <View style={styles.playlistActions}>
+                        <TouchableOpacity delayPressIn={0}
+                          onPress={() => toggleLikeAlbum(album)}
+                          style={styles.actionBtn}
+                          activeOpacity={0.7}
+                        >
+                          <MaterialCommunityIcons name="heart" size={16} color="#f43f5e" />
+                        </TouchableOpacity>
+                      </View>
                     </View>
                   ))
                 )}

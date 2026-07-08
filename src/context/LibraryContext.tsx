@@ -183,34 +183,32 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
           albumArt: artLocalUri ? `${song.id}_art.jpg` : song.albumArt,
         };
 
-        setDownloadedSongs((prev) => {
-          const inMemorySong = {
-            ...downloadedSong,
-            audioUrl: (FileSystem.documentDirectory || "") + downloadedSong.audioUrl,
-            albumArt: downloadedSong.albumArt.endsWith("_art.jpg")
-              ? (FileSystem.documentDirectory || "") + downloadedSong.albumArt
-              : downloadedSong.albumArt,
+        const inMemorySong = {
+          ...downloadedSong,
+          audioUrl: (FileSystem.documentDirectory || "") + downloadedSong.audioUrl,
+          albumArt: downloadedSong.albumArt && downloadedSong.albumArt.endsWith("_art.jpg")
+            ? (FileSystem.documentDirectory || "") + downloadedSong.albumArt
+            : downloadedSong.albumArt,
+        };
+        const next = [...downloadedSongs, inMemorySong];
+        
+        const stripped = next.map((s) => {
+          let aUrl = s.audioUrl || "";
+          if (FileSystem.documentDirectory && aUrl.startsWith(FileSystem.documentDirectory)) {
+            aUrl = aUrl.replace(FileSystem.documentDirectory, "");
+          }
+          let aArt = s.albumArt || "";
+          if (FileSystem.documentDirectory && aArt.startsWith(FileSystem.documentDirectory)) {
+            aArt = aArt.replace(FileSystem.documentDirectory, "");
+          }
+          return {
+            ...s,
+            audioUrl: aUrl,
+            albumArt: aArt,
           };
-          const next = [...prev, inMemorySong];
-          
-          const stripped = next.map((s) => {
-            let aUrl = s.audioUrl || "";
-            if (FileSystem.documentDirectory && aUrl.startsWith(FileSystem.documentDirectory)) {
-              aUrl = aUrl.replace(FileSystem.documentDirectory, "");
-            }
-            let aArt = s.albumArt || "";
-            if (FileSystem.documentDirectory && aArt.startsWith(FileSystem.documentDirectory)) {
-              aArt = aArt.replace(FileSystem.documentDirectory, "");
-            }
-            return {
-              ...s,
-              audioUrl: aUrl,
-              albumArt: aArt,
-            };
-          });
-          AsyncStorage.setItem("rw_downloads", JSON.stringify(stripped)).catch(() => {});
-          return next;
         });
+        await AsyncStorage.setItem("rw_downloads", JSON.stringify(stripped));
+        setDownloadedSongs(next);
       } catch (err) {
         console.error("Failed to download song:", err);
       } finally {
@@ -228,30 +226,28 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       await FileSystem.deleteAsync(audioLocalUri, { idempotent: true });
       await FileSystem.deleteAsync(artLocalUri, { idempotent: true });
 
-      setDownloadedSongs((prev) => {
-        const next = prev.filter((s) => s.id !== songId);
-        const stripped = next.map((s) => {
-          let aUrl = s.audioUrl || "";
-          if (FileSystem.documentDirectory && aUrl.startsWith(FileSystem.documentDirectory)) {
-            aUrl = aUrl.replace(FileSystem.documentDirectory, "");
-          }
-          let aArt = s.albumArt || "";
-          if (FileSystem.documentDirectory && aArt.startsWith(FileSystem.documentDirectory)) {
-            aArt = aArt.replace(FileSystem.documentDirectory, "");
-          }
-          return {
-            ...s,
-            audioUrl: aUrl,
-            albumArt: aArt,
-          };
-        });
-        AsyncStorage.setItem("rw_downloads", JSON.stringify(stripped)).catch(() => {});
-        return next;
+      const next = downloadedSongs.filter((s) => s.id !== songId);
+      const stripped = next.map((s) => {
+        let aUrl = s.audioUrl || "";
+        if (FileSystem.documentDirectory && aUrl.startsWith(FileSystem.documentDirectory)) {
+          aUrl = aUrl.replace(FileSystem.documentDirectory, "");
+        }
+        let aArt = s.albumArt || "";
+        if (FileSystem.documentDirectory && aArt.startsWith(FileSystem.documentDirectory)) {
+          aArt = aArt.replace(FileSystem.documentDirectory, "");
+        }
+        return {
+          ...s,
+          audioUrl: aUrl,
+          albumArt: aArt,
+        };
       });
+      await AsyncStorage.setItem("rw_downloads", JSON.stringify(stripped));
+      setDownloadedSongs(next);
     } catch (err) {
       console.error("Failed to delete downloaded song:", err);
     }
-  }, []);
+  }, [downloadedSongs]);
 
   // ── Load liked albums ────────────────────────────────────────────────────────
 
@@ -372,28 +368,29 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       if (!song) return;
       
       const queryNorm = normalizeSongTitle(song.title, song.movie || song.album);
-      
-      setLikedSongs((prev) => {
-        const matched = prev.filter((s) => {
-          if (s.id === song.id) return true;
-          const sNorm = normalizeSongTitle(s.title, s.movie || s.album);
-          return sNorm && queryNorm && sNorm === queryNorm;
-        });
-        
-        const liked = matched.length > 0;
-        const nextLiked = liked
-          ? prev.filter((s) => {
-              if (s.id === song.id) return false;
-              const sNorm = normalizeSongTitle(s.title, s.movie || s.album);
-              return !(sNorm && queryNorm && sNorm === queryNorm);
-            })
-          : [song, ...prev];
-        
-        AsyncStorage.setItem("rw_liked_songs", JSON.stringify(nextLiked)).catch(() => {});
-        return nextLiked;
+      const matched = likedSongs.filter((s) => {
+        if (s.id === song.id) return true;
+        const sNorm = normalizeSongTitle(s.title, s.movie || s.album);
+        return sNorm && queryNorm && sNorm === queryNorm;
       });
+      
+      const liked = matched.length > 0;
+      const nextLiked = liked
+        ? likedSongs.filter((s) => {
+            if (s.id === song.id) return false;
+            const sNorm = normalizeSongTitle(s.title, s.movie || s.album);
+            return !(sNorm && queryNorm && sNorm === queryNorm);
+          })
+        : [song, ...likedSongs];
+      
+      try {
+        await AsyncStorage.setItem("rw_liked_songs", JSON.stringify(nextLiked));
+        setLikedSongs(nextLiked);
+      } catch (err) {
+        console.warn("Failed to toggle like:", err);
+      }
     },
-    []
+    [likedSongs]
   );
 
   // ── Playlist CRUD (100% localStorage-backed) ─────────────────────────────────
@@ -409,83 +406,75 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         song_count: 0,
         songs: [],
       };
-      setStoredPlaylists((prev) => {
-        const list = [created, ...prev];
-        try {
-          AsyncStorage.setItem("rw_playlists", JSON.stringify(list)).catch(() => {});
-        } catch {}
-        return list;
-      });
-      return created;
+      const list = [created, ...storedPlaylists];
+      try {
+        await AsyncStorage.setItem("rw_playlists", JSON.stringify(list));
+        setStoredPlaylists(list);
+        return created;
+      } catch {
+        return null;
+      }
     },
-    []
+    [storedPlaylists]
   );
 
   const removePlaylist = useCallback(
     async (playlistId: string) => {
-      setStoredPlaylists((prev) => {
-        const list = prev.filter((p) => p.id !== playlistId);
-        try {
-          AsyncStorage.setItem("rw_playlists", JSON.stringify(list)).catch(() => {});
-        } catch {}
-        return list;
-      });
+      const list = storedPlaylists.filter((p) => p.id !== playlistId);
+      try {
+        await AsyncStorage.setItem("rw_playlists", JSON.stringify(list));
+        setStoredPlaylists(list);
+      } catch {}
     },
-    []
+    [storedPlaylists]
   );
 
   const updatePlaylistName = useCallback(
     async (playlistId: string, newName: string) => {
-      setStoredPlaylists((prev) => {
-        const list = prev.map((p) => (p.id === playlistId ? { ...p, name: newName } : p));
-        try {
-          AsyncStorage.setItem("rw_playlists", JSON.stringify(list)).catch(() => {});
-        } catch {}
-        return list;
-      });
+      const list = storedPlaylists.map((p) => (p.id === playlistId ? { ...p, name: newName } : p));
+      try {
+        await AsyncStorage.setItem("rw_playlists", JSON.stringify(list));
+        setStoredPlaylists(list);
+      } catch {}
     },
-    []
+    [storedPlaylists]
   );
 
   const addToPlaylist = useCallback(
     async (playlistId: string, song: Song) => {
-      setStoredPlaylists((prev) => {
-        const list = prev.map((p) => {
-          if (p.id !== playlistId) return p;
-          if (p.songs.some((s) => s.id === song.id)) return p;
-          return {
-            ...p,
-            song_count: (p.song_count ?? 0) + 1,
-            songs: [...p.songs, song],
-          };
-        });
-        try {
-          AsyncStorage.setItem("rw_playlists", JSON.stringify(list)).catch(() => {});
-        } catch {}
-        return list;
+      const list = storedPlaylists.map((p) => {
+        if (p.id !== playlistId) return p;
+        if (p.songs.some((s) => s.id === song.id)) return p;
+        return {
+          ...p,
+          song_count: (p.song_count ?? 0) + 1,
+          songs: [...p.songs, song],
+        };
       });
+      try {
+        await AsyncStorage.setItem("rw_playlists", JSON.stringify(list));
+        setStoredPlaylists(list);
+      } catch {}
     },
-    []
+    [storedPlaylists]
   );
 
   const removeFromPlaylist = useCallback(
     async (playlistId: string, songId: string) => {
-      setStoredPlaylists((prev) => {
-        const list = prev.map((p) => {
-          if (p.id !== playlistId) return p;
-          return {
-            ...p,
-            song_count: Math.max(0, (p.song_count ?? 1) - 1),
-            songs: p.songs.filter((s) => s.id !== songId),
-          };
-        });
-        try {
-          AsyncStorage.setItem("rw_playlists", JSON.stringify(list)).catch(() => {});
-        } catch {}
-        return list;
+      const list = storedPlaylists.map((p) => {
+        if (p.id !== playlistId) return p;
+        return {
+          ...p,
+          song_count: Math.max(0, (p.song_count ?? 1) - 1),
+          songs: p.songs.filter((s) => s.id !== songId),
+        };
       });
+      try {
+        await AsyncStorage.setItem("rw_playlists", JSON.stringify(list));
+        setStoredPlaylists(list);
+      } catch {}
     },
-    []
+    [storedPlaylists]
   );
 
   const getPlaylist = useCallback(
@@ -510,23 +499,21 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     async (album: AlbumData) => {
       if (!album) return;
 
-      setLikedAlbums((prev) => {
-        const isLiked = prev.some(
-          (a) => a.title.toLowerCase().trim() === album.title.toLowerCase().trim()
-        );
-        const nextLiked = isLiked
-          ? prev.filter((a) => a.title.toLowerCase().trim() !== album.title.toLowerCase().trim())
-          : [album, ...prev];
-        
-        try {
-          AsyncStorage.setItem("rw_liked_albums", JSON.stringify(nextLiked)).catch(() => {});
-        } catch (err) {
-          console.warn("Failed to save liked albums:", err);
-        }
-        return nextLiked;
-      });
+      const isLiked = likedAlbums.some(
+        (a) => a.title.toLowerCase().trim() === album.title.toLowerCase().trim()
+      );
+      const nextLiked = isLiked
+        ? likedAlbums.filter((a) => a.title.toLowerCase().trim() !== album.title.toLowerCase().trim())
+        : [album, ...likedAlbums];
+      
+      try {
+        await AsyncStorage.setItem("rw_liked_albums", JSON.stringify(nextLiked));
+        setLikedAlbums(nextLiked);
+      } catch (err) {
+        console.warn("Failed to save liked albums:", err);
+      }
     },
-    []
+    [likedAlbums]
   );
 
   return (
