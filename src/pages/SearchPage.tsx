@@ -102,26 +102,40 @@ function detectLanguageSearch(query: string): string | null {
   return null;
 }
 
-// ─── Person/Artist name detection ────────────────────────────────────────────
-// Detects queries that look like a person's name (artist, actor, god, director)
-// rather than a song title or language search
-function detectPersonSearch(query: string): boolean {
+// ─── Person/Artist name detection with optional language suffix ──────────────
+// Returns { name, language } if query looks like "PersonName [LanguageName]"
+// e.g. "Prabhas Telugu" → { name: "Prabhas", language: "telugu" }
+// e.g. "AR Rahman"      → { name: "AR Rahman", language: null }
+function detectPersonSearchWithLang(query: string): { name: string; language: string | null } | null {
   const clean = query.trim();
-  if (clean.length < 2 || clean.length > 50) return false;
-  // Must not contain song/movie keywords
+  if (clean.length < 2 || clean.length > 60) return null;
+
+  const words = clean.trim().split(/\s+/);
+  if (words.length < 1 || words.length > 6) return null;
+
+  // Check if last word is a language name
+  let language: string | null = null;
+  let nameWords = words;
+  const lastWord = words[words.length - 1].toLowerCase();
+  if (LANGUAGE_NAMES.includes(lastWord)) {
+    language = lastWord;
+    nameWords = words.slice(0, -1);
+    if (nameWords.length === 0) return null; // query was just a language name
+  }
+
+  // Must not contain song/movie/non-name keywords in the name portion
   const songKeywords = [
     "songs", "song", "music", "hits", "album", "movie", "film", "remix",
-    "latest", "new", "best", "top", "trending", "2024", "2025", "hindi",
-    "telugu", "tamil", "kannada", "malayalam", "punjabi",
+    "latest", "new", "best", "top", "trending", "2024", "2025",
   ];
-  const lower = clean.toLowerCase();
-  if (songKeywords.some((k) => lower.includes(k))) return false;
-  // 1–4 words, each word starts with a letter (not a number/symbol)
-  const words = clean.trim().split(/\s+/);
-  if (words.length < 1 || words.length > 5) return false;
-  if (!words.every((w) => /^[a-zA-Z\u0900-\u097F]+/.test(w))) return false;
-  // All words capitalized or all lowercase → likely a name
-  return true;
+  const nameStr = nameWords.join(" ").toLowerCase();
+  if (songKeywords.some((k) => nameStr.includes(k))) return null;
+
+  // Name words: 1–5 words, each word starts with a letter (alphabetic)
+  if (nameWords.length < 1 || nameWords.length > 5) return null;
+  if (!nameWords.every((w) => /^[a-zA-Z\u0900-\u097F]+/.test(w))) return null;
+
+  return { name: nameWords.join(" "), language };
 }
 
 function sleep(ms: number): Promise<void> {
@@ -598,11 +612,23 @@ async function fetchAllPages(query: string, maxPages = 60, seen?: Set<string>): 
   return all;
 }
 
-async function fetchAllArtistSongs(artistName: string): Promise<Song[]> {
-  const queries = [
-    `${artistName} songs`, `${artistName} hits`, `${artistName} movie songs`,
-    `${artistName} romantic songs`, `${artistName} album songs`,
-  ];
+async function fetchAllArtistSongs(artistName: string, language?: string | null): Promise<Song[]> {
+  const lang = language?.toLowerCase().trim();
+  const queries = lang
+    ? [
+        `${artistName} ${lang} songs`,
+        `${artistName} ${lang} hits`,
+        `${artistName} ${lang} film songs`,
+        `${artistName} ${lang} romantic songs`,
+        `${artistName} ${lang} latest songs`,
+      ]
+    : [
+        `${artistName} songs`,
+        `${artistName} hits`,
+        `${artistName} movie songs`,
+        `${artistName} romantic songs`,
+        `${artistName} album songs`,
+      ];
   const seen = new Set<string>();
   const all: Song[] = [];
   for (const q of queries) {
@@ -620,6 +646,7 @@ interface Artist {
   name: string;
   coverArt: string;
   songs: Song[];
+  language?: string | null;
 }
 
 function ArtistModal({
@@ -652,8 +679,8 @@ function ArtistModal({
         })
         .catch(() => {
           if (unmounted) return;
-          // Fallback
-          fetchAllArtistSongs(artist.name)
+          // Fallback with language
+          fetchAllArtistSongs(artist.name, artist.language)
             .then((fetched: Song[]) => {
               if (!unmounted) {
                 if (fetched.length > 0) setSongs(fetched);
@@ -665,7 +692,7 @@ function ArtistModal({
             });
         });
     } else {
-      fetchAllArtistSongs(artist.name)
+      fetchAllArtistSongs(artist.name, artist.language)
         .then((fetched: Song[]) => {
           if (!unmounted) {
             if (fetched.length > 0) setSongs(fetched);
@@ -938,6 +965,7 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
   const [activeAlbum, setActiveAlbum]       = useState<Album | null>(null);
   const [activeArtist, setActiveArtist]     = useState<Artist | null>(null);
   const [autoArtistQuery, setAutoArtistQuery] = useState<string | null>(null);
+  const [autoArtistLang, setAutoArtistLang]   = useState<string | null>(null);
 
   // Load and dynamically resolve generic stock category cover art with correct album arts
   const [categoryCovers, setCategoryCovers] = useState<Record<string, string>>(() => {
@@ -1008,14 +1036,18 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
       return;
     }
 
-    // If query looks like a person name, track it so we can show artist album card
-    if (detectPersonSearch(clean)) {
-      setAutoArtistQuery(clean);
+    // Check if query looks like a person name (with optional language suffix)
+    const personMatch = detectPersonSearchWithLang(clean);
+    if (personMatch) {
+      setAutoArtistQuery(personMatch.name);
+      setAutoArtistLang(personMatch.language);
     } else {
       setAutoArtistQuery(null);
+      setAutoArtistLang(null);
     }
 
     setLoading(true);
+    // Search using the full original query (including language word) for best results
     api.searchSongs(clean, 1, 60)
       .then((res) => {
         const raw = extractResults(res);
@@ -1159,7 +1191,12 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                 activeOpacity={0.8}
                 onPress={() => {
                   const coverArt = jioSongs[0]?.albumArt || "";
-                  setActiveArtist({ name: autoArtistQuery, coverArt, songs: jioSongs });
+                  setActiveArtist({
+                    name: autoArtistQuery,
+                    coverArt,
+                    songs: jioSongs,
+                    language: autoArtistLang,
+                  });
                 }}
                 style={styles.artistAlbumCard}
               >
@@ -1173,9 +1210,17 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                   )}
                 </View>
                 <View style={styles.artistAlbumCardMeta}>
-                  <Text style={styles.artistAlbumCardLabel}>Album</Text>
+                  <Text style={styles.artistAlbumCardLabel}>
+                    {autoArtistLang
+                      ? `${autoArtistLang.charAt(0).toUpperCase() + autoArtistLang.slice(1)} Album`
+                      : "Album"}
+                  </Text>
                   <Text style={styles.artistAlbumCardName} numberOfLines={1}>{autoArtistQuery}</Text>
-                  <Text style={styles.artistAlbumCardSub}>See all songs →</Text>
+                  <Text style={styles.artistAlbumCardSub}>
+                    {autoArtistLang
+                      ? `See all ${autoArtistLang} songs →`
+                      : "See all songs →"}
+                  </Text>
                 </View>
                 <MaterialCommunityIcons name="chevron-right" size={22} color="#1DB954" />
               </TouchableOpacity>

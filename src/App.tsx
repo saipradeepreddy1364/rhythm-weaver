@@ -1,4 +1,4 @@
-import { View, StyleSheet, SafeAreaView, StatusBar, Dimensions, ScrollView, Text, TouchableOpacity, Platform, useWindowDimensions, DeviceEventEmitter } from 'react-native'
+import { View, StyleSheet, SafeAreaView, StatusBar, Dimensions, ScrollView, Text, TouchableOpacity, Platform, useWindowDimensions, DeviceEventEmitter, AppState, AppStateStatus } from 'react-native'
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { NavigationContainer, DarkTheme } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
@@ -85,6 +85,8 @@ function AppContent() {
   const [isInitializing, setIsInitializing] = useState(true);
   // Tracks whether the device is offline so we can render the correct layout
   const [isOffline, setIsOffline] = useState(false);
+  // Track AppState to re-apply scroll position when resuming from background
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   const setParentScroll = useCallback((enabled: boolean) => {
     scrollViewRef.current?.setNativeProps({ scrollEnabled: enabled });
@@ -141,6 +143,22 @@ function AppContent() {
     });
     return () => { subscription.remove(); };
   }, [screenWidth]);
+
+  // Re-apply scroll position when app resumes from background (prevents tab reset to Home)
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState: AppStateStatus) => {
+      const wasBackground = appStateRef.current.match(/inactive|background/);
+      if (wasBackground && nextState === 'active') {
+        // App resumed — re-scroll to current tab without animation
+        const index = activeTab === 'Home' ? 0 : activeTab === 'Search' ? 1 : 2;
+        setTimeout(() => {
+          scrollViewRef.current?.scrollTo({ x: index * screenWidth, animated: false });
+        }, 50);
+      }
+      appStateRef.current = nextState;
+    });
+    return () => sub.remove();
+  }, [activeTab, screenWidth]);
 
   // While initializing keep a plain dark screen visible (native splash still covers it)
   if (isInitializing) {
