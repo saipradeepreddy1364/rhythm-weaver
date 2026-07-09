@@ -12,9 +12,10 @@ type Tab = "liked" | "liked-detail" | "downloads" | { type: "playlist"; id: stri
 
 interface LibraryPageProps {
   onRequireAuth: () => void;
+  initialTab?: Tab;
 }
 
-export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
+export default function LibraryPage({ onRequireAuth, initialTab }: LibraryPageProps) {
   const { user, loading, logout } = useAuth();
   const {
     likedSongs,
@@ -34,7 +35,7 @@ export default function LibraryPage({ onRequireAuth }: LibraryPageProps) {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
 
-  const [tab, setTab] = useState<Tab>("liked");
+  const [tab, setTab] = useState<Tab>(initialTab ?? "liked");
   const [playlistSongs, setPlaylistSongs] = useState<Song[]>([]);
   const [loadingPlaylist, setLoadingPlaylist] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);

@@ -46,7 +46,7 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
   render() {
     if (this.state.hasError) {
       return (
-        <SafeAreaView style={{ flex: 1, backgroundColor: '#121212', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#0d0d0d', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
           <MaterialCommunityIcons name="alert-circle-outline" size={64} color="#E91E63" style={{ marginBottom: 16 }} />
           <Text style={{ color: '#fff', fontSize: 18, fontWeight: 'bold', marginBottom: 8 }}>App crashed on render</Text>
           <ScrollView style={{ maxHeight: 300, width: '100%', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: 12, marginBottom: 20 }}>
@@ -81,6 +81,11 @@ function AppContent() {
   const { width: screenWidth } = useWindowDimensions();
   const navigationRef = useRef<any>(null);
 
+  // Initialization state — keeps a dark screen visible while we check connectivity
+  const [isInitializing, setIsInitializing] = useState(true);
+  // Tracks whether the device is offline so we can render the correct layout
+  const [isOffline, setIsOffline] = useState(false);
+
   const setParentScroll = useCallback((enabled: boolean) => {
     scrollViewRef.current?.setNativeProps({ scrollEnabled: enabled });
   }, []);
@@ -89,10 +94,40 @@ function AppContent() {
     if (!user) setShowAuthModal(true);
   };
 
-  // Check auth once on mount, and hide splash screen once mounted
+  // Consolidated init: Auth → Connectivity check → set correct state → hide splash
   useEffect(() => {
-    checkAuth();
-    SplashScreen.hideAsync().catch(() => {});
+    const initialize = async () => {
+      // 1. Auth check (non-blocking if it fails)
+      try { await checkAuth(); } catch {}
+
+      // 2. Connectivity check — 2s timeout
+      let offline = false;
+      try {
+        await Promise.race([
+          fetch("https://clients3.google.com/generate_204", { method: "HEAD" }),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 2000)),
+        ]);
+      } catch {
+        offline = true;
+      }
+
+      // 3. Set correct state BEFORE revealing the UI
+      if (offline) {
+        setIsOffline(true);
+        setActiveTab('Library');
+      }
+
+      // 4. Un-hide the app (the correct layout is already in state)
+      setIsInitializing(false);
+
+      // 5. Hide native splash screen after one frame so the dark background is visible
+      requestAnimationFrame(() => {
+        SplashScreen.hideAsync().catch(() => {});
+      });
+    };
+
+    initialize();
+
     const interval = setInterval(checkAuth, 10 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
@@ -104,40 +139,48 @@ function AppContent() {
       const index = tabName === 'Home' ? 0 : tabName === 'Search' ? 1 : 2;
       scrollViewRef.current?.scrollTo({ x: index * screenWidth, animated: true });
     });
-    return () => {
-      subscription.remove();
-    };
+    return () => { subscription.remove(); };
   }, [screenWidth]);
 
-  // Auto-navigate to Library→Downloads if device is offline on launch
-  useEffect(() => {
-    const checkOffline = async () => {
-      try {
-        await Promise.race([
-          fetch("https://clients3.google.com/generate_204", { method: "HEAD" }),
-          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3000)),
-        ]);
-        // Online — do nothing
-      } catch {
-        // Offline — go straight to Library → Downloads tab
-        setActiveTab('Library');
-        scrollViewRef.current?.scrollTo({ x: 2 * screenWidth, animated: false });
-        setTimeout(() => DeviceEventEmitter.emit("NAVIGATE_TO_DOWNLOADS"), 200);
-      }
-    };
-    checkOffline();
-  }, [screenWidth]);
+  // While initializing keep a plain dark screen visible (native splash still covers it)
+  if (isInitializing) {
+    return <View style={{ flex: 1, backgroundColor: "#0d0d0d" }} />;
+  }
 
+  // ── OFFLINE MODE: render ONLY the Downloads page, no tab bar, no other pages ──
+  if (isOffline) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor="#0d0d0d" />
+        <NavigationContainer ref={navigationRef} theme={DarkTheme}>
+          <Tab.Navigator screenOptions={{ headerShown: false, tabBarStyle: { display: 'none' } }}>
+            <Tab.Screen name="Main">
+              {() => (
+                <View style={{ flex: 1, backgroundColor: "#0d0d0d" }}>
+                  <LibraryPage onRequireAuth={handleRequireAuth} initialTab="downloads" />
+                  {currentSong && <MiniPlayer onRequireAuth={handleRequireAuth} />}
+                  {showPlayer && <FullPlayer onRequireAuth={handleRequireAuth} />}
+                  <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} />
+                </View>
+              )}
+            </Tab.Screen>
+          </Tab.Navigator>
+        </NavigationContainer>
+      </SafeAreaView>
+    );
+  }
+
+  // ── ONLINE MODE: full 3-tab layout ────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#121212" />
-      
+      <StatusBar barStyle="light-content" backgroundColor="#0d0d0d" />
+
       <NavigationContainer ref={navigationRef} theme={DarkTheme}>
         <Tab.Navigator screenOptions={{ headerShown: false, tabBarStyle: { display: 'none' } }}>
           <Tab.Screen name="Main">
             {() => (
-              <View style={{ flex: 1, backgroundColor: "#121212" }}>
-                 <ScrollView
+              <View style={{ flex: 1, backgroundColor: "#0d0d0d" }}>
+                <ScrollView
                   ref={scrollViewRef}
                   horizontal
                   pagingEnabled
@@ -204,24 +247,26 @@ function AppContent() {
 
 export default function App() {
   return (
-    <ErrorBoundary>
-      <PaperProvider>
-        <AuthProvider>
-          <PlayerProvider>
-            <LibraryProvider>
-              <AppContent />
-            </LibraryProvider>
-          </PlayerProvider>
-        </AuthProvider>
-      </PaperProvider>
-    </ErrorBoundary>
+    <View style={{ flex: 1, backgroundColor: "#0d0d0d" }}>
+      <ErrorBoundary>
+        <PaperProvider>
+          <AuthProvider>
+            <PlayerProvider>
+              <LibraryProvider>
+                <AppContent />
+              </LibraryProvider>
+            </PlayerProvider>
+          </AuthProvider>
+        </PaperProvider>
+      </ErrorBoundary>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#121212",
+    backgroundColor: "#0d0d0d",
   },
   tabBarStyle: {
     backgroundColor: "#181818",
