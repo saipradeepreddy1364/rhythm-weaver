@@ -720,6 +720,30 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     load();
   }, []);
 
+  // Listen for EQ & Bass Boost settings to dynamically boost volume gain
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener("EQ_SETTINGS_CHANGED", async (data: any) => {
+      try {
+        const { bass = 80, enabled = true, bands = [0, 0, 0, 0, 0] } = data || {};
+        if (!enabled) {
+          await TrackPlayer.setVolume(1.0);
+          return;
+        }
+
+        // Heavy Bass boost gain multiplier: 0% -> 1.0, 100% -> 2.5 (250% deep bass output!)
+        const bassGain = 1.0 + ((bass / 100) * 1.5);
+        const maxBand = Math.max(...(bands || [0]), 0);
+        const eqGain = 1.0 + (maxBand / 10) * 0.5;
+
+        const finalVolume = Math.min(2.5, Math.max(0.5, bassGain * eqGain));
+        await TrackPlayer.setVolume(finalVolume);
+      } catch (err) {
+        console.warn("[PlayerContext] Failed to apply EQ gain:", err);
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
   // Background task to try to fetch a high-res original movie/album cover image for YouTube tracks
   useEffect(() => {
     if (currentSong && currentSong.id.startsWith("yt-") && (!currentSong.albumArt || currentSong.albumArt.includes("ytimg.com") || currentSong.albumArt.includes("i.ytimg"))) {

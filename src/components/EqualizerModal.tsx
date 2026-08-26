@@ -10,6 +10,7 @@ import {
   Dimensions,
   Platform,
   DeviceEventEmitter,
+  PanResponder,
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -45,6 +46,38 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({ visible, onClose
   const [surroundEnabled, setSurroundEnabled] = useState<boolean>(true);
   const [eqEnabled, setEqEnabled] = useState<boolean>(true);
   const [meterWidth, setMeterWidth] = useState<number>(0);
+
+  const bandsRef = React.useRef(bands);
+  bandsRef.current = bands;
+  const surroundRef = React.useRef(surroundEnabled);
+  surroundRef.current = surroundEnabled;
+  const eqRef = React.useRef(eqEnabled);
+  eqRef.current = eqEnabled;
+
+  const bassPanResponder = React.useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt) => {
+        if (!eqRef.current) return;
+        const touchX = evt.nativeEvent.locationX;
+        const w = meterWidth || (width - 64);
+        const pct = Math.max(0, Math.min(100, Math.round((touchX / w) * 100)));
+        setBassLevel(pct);
+        setSelectedPreset("Custom");
+        saveSettings("Custom", pct, bandsRef.current, surroundRef.current, eqRef.current);
+      },
+      onPanResponderMove: (evt) => {
+        if (!eqRef.current) return;
+        const touchX = evt.nativeEvent.locationX;
+        const w = meterWidth || (width - 64);
+        const pct = Math.max(0, Math.min(100, Math.round((touchX / w) * 100)));
+        setBassLevel(pct);
+        setSelectedPreset("Custom");
+        saveSettings("Custom", pct, bandsRef.current, surroundRef.current, eqRef.current);
+      },
+    })
+  ).current;
 
   // Load saved EQ settings on mount
   useEffect(() => {
@@ -146,21 +179,10 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({ visible, onClose
                 <Text style={styles.sectionValue}>{bassLevel}%</Text>
               </View>
 
-              {/* Dynamic Bass Level Bar (Interactive Touch Slider) */}
-              <TouchableOpacity
-                delayPressIn={0}
-                activeOpacity={0.9}
-                disabled={!eqEnabled}
+              {/* Dynamic Bass Level Bar (Interactive Touch & Drag Slider) */}
+              <View
+                {...(eqEnabled ? bassPanResponder.panHandlers : {})}
                 onLayout={(e) => setMeterWidth(e.nativeEvent.layout.width)}
-                onPress={(e) => {
-                  if (!eqEnabled) return;
-                  const touchX = e.nativeEvent.locationX;
-                  const w = meterWidth || (width - 64);
-                  const pct = Math.max(0, Math.min(100, Math.round((touchX / w) * 100)));
-                  setBassLevel(pct);
-                  setSelectedPreset("Custom");
-                  saveSettings("Custom", pct, bands, surroundEnabled, eqEnabled);
-                }}
                 style={styles.meterTrack}
               >
                 <View
@@ -170,7 +192,7 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({ visible, onClose
                     !eqEnabled && { backgroundColor: "#555" },
                   ]}
                 />
-              </TouchableOpacity>
+              </View>
 
               {/* Adjust Buttons */}
               <View style={styles.controlRow}>

@@ -159,22 +159,53 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
   const [activeVideo, setActiveVideo] = useState<VideoItem | null>(null);
   const [isMinimized, setIsMinimized] = useState(false);
   const [selectedInstanceIndex, setSelectedInstanceIndex] = useState(0);
+  const [pipWidth, setPipWidth] = useState(160);
+  const pipWidthRef = useRef(160);
+  pipWidthRef.current = pipWidth;
+  const baseWidthRef = useRef(160);
+  const initialPinchDistRef = useRef<number | null>(null);
+
+  const calcDistance = (touches: any[]) => {
+    if (!touches || touches.length < 2) return 0;
+    const [t1, t2] = touches;
+    const dx = t1.pageX - t2.pageX;
+    const dy = t1.pageY - t2.pageY;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
 
   const pan = useRef(new Animated.ValueXY()).current;
 
   const panResponder = useRef(
     PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: () => {
-        pan.setOffset({
-          x: (pan.x as any)._value || 0,
-          y: (pan.y as any)._value || 0,
-        });
+      onPanResponderGrant: (evt) => {
+        if (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2) {
+          initialPinchDistRef.current = calcDistance(evt.nativeEvent.touches);
+          baseWidthRef.current = pipWidthRef.current;
+        } else {
+          initialPinchDistRef.current = null;
+          pan.setOffset({
+            x: (pan.x as any)._value || 0,
+            y: (pan.y as any)._value || 0,
+          });
+        }
       },
-      onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], {
-        useNativeDriver: false,
-      }),
+      onPanResponderMove: (evt, gestureState) => {
+        if (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2) {
+          const currentDist = calcDistance(evt.nativeEvent.touches);
+          if (initialPinchDistRef.current && initialPinchDistRef.current > 0) {
+            const scale = currentDist / initialPinchDistRef.current;
+            const newWidth = Math.max(120, Math.min(width - 24, Math.round(baseWidthRef.current * scale)));
+            setPipWidth(newWidth);
+          }
+        } else {
+          pan.x.setValue(gestureState.dx);
+          pan.y.setValue(gestureState.dy);
+        }
+      },
       onPanResponderRelease: () => {
+        initialPinchDistRef.current = null;
         pan.flattenOffset();
       },
     })
@@ -367,6 +398,8 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
               ? [
                   styles.floatingPipContainer,
                   {
+                    width: pipWidth,
+                    height: Math.round(pipWidth * (9 / 16)),
                     transform: pan.getTranslateTransform(),
                   },
                 ]
@@ -403,7 +436,14 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
           )}
 
           {/* THE SINGLE PERSISTENT UNMOUNTABLE WEBVIEW INSTANCE */}
-          <View style={isMinimized ? styles.pipVideoBox : styles.videoPlayerBox}>
+          <TouchableOpacity
+            delayPressIn={0}
+            activeOpacity={0.95}
+            onPress={() => {
+              if (isMinimized) setIsMinimized(false);
+            }}
+            style={isMinimized ? styles.pipVideoBox : styles.videoPlayerBox}
+          >
             {isResolvingVideo ? (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size={isMinimized ? "small" : "large"} color="#1DB954" />
@@ -432,47 +472,44 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
                   baseUrl: "https://www.google.com",
                 }}
                 style={{ flex: 1, backgroundColor: "#000" }}
-                allowsFullscreenVideo={true}
+                allowsInlineMediaPlayback={true}
                 mediaPlaybackRequiresUserAction={false}
+                allowsFullscreenVideo={true}
                 javaScriptEnabled={true}
                 domStorageEnabled={true}
+                androidLayerType="hardware"
+                mixedContentMode="always"
                 onError={() => {
                   setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length);
                 }}
               />
             )}
-          </View>
 
-          {isMinimized ? (
-            /* Mini Floating PiP Title, Artist & Controls Row */
-            <View style={styles.pipContent}>
-              <TouchableOpacity
-                delayPressIn={0}
-                activeOpacity={0.8}
-                onPress={() => setIsMinimized(false)}
-                style={styles.pipMeta}
-              >
-                <Text style={styles.pipTitle} numberOfLines={1}>{activeVideo.title}</Text>
-                <Text style={styles.pipArtist} numberOfLines={1}>{activeVideo.artist}</Text>
-              </TouchableOpacity>
+            {/* Overlaid Minimized Quick Controls (Expand / Close) */}
+            {isMinimized && (
+              <View style={styles.pipOverlayControls}>
+                <TouchableOpacity
+                  delayPressIn={0}
+                  onPress={() => setIsMinimized(false)}
+                  style={styles.pipIconBadge}
+                  activeOpacity={0.8}
+                >
+                  <MaterialCommunityIcons name="fullscreen" size={16} color="#fff" />
+                </TouchableOpacity>
 
-              <TouchableOpacity
-                delayPressIn={0}
-                onPress={() => setIsMinimized(false)}
-                style={{ padding: 6 }}
-              >
-                <MaterialCommunityIcons name="fullscreen" size={22} color="#fff" />
-              </TouchableOpacity>
+                <TouchableOpacity
+                  delayPressIn={0}
+                  onPress={() => { setActiveVideo(null); setIsMinimized(false); }}
+                  style={[styles.pipIconBadge, { backgroundColor: "rgba(0,0,0,0.75)" }]}
+                  activeOpacity={0.8}
+                >
+                  <MaterialCommunityIcons name="close" size={15} color="#fff" />
+                </TouchableOpacity>
+              </View>
+            )}
+          </TouchableOpacity>
 
-              <TouchableOpacity
-                delayPressIn={0}
-                onPress={() => { setActiveVideo(null); setIsMinimized(false); }}
-                style={{ padding: 6, marginLeft: 4 }}
-              >
-                <MaterialCommunityIcons name="close" size={20} color="#fff" />
-              </TouchableOpacity>
-            </View>
-          ) : (
+          {!isMinimized && (
             /* Full Screen Player Body (Up Next Songs & Info) */
             <ScrollView style={styles.modalBody} contentContainerStyle={{ padding: 16 }}>
               <Text style={styles.infoHeading}>{activeVideo.title}</Text>
@@ -761,47 +798,41 @@ const styles = StyleSheet.create({
   },
   floatingPipContainer: {
     position: "absolute",
-    bottom: Platform.OS === "ios" ? 85 : 75,
-    right: 12,
-    width: width - 24,
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#181818",
-    borderRadius: 14,
-    padding: 6,
+    bottom: Platform.OS === "ios" ? 85 : 70,
+    right: 14,
+    width: 155,
+    height: 90,
+    borderRadius: 12,
+    overflow: "hidden",
+    backgroundColor: "#000",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.6,
-    shadowRadius: 12,
+    shadowOpacity: 0.7,
+    shadowRadius: 10,
     elevation: 16,
-    borderWidth: 1.5,
+    borderWidth: 2,
     borderColor: "#1DB954",
     zIndex: 9999,
   },
-  pipContent: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
   pipVideoBox: {
-    width: 110,
-    height: 62,
-    borderRadius: 8,
-    overflow: "hidden",
+    width: "100%",
+    height: "100%",
     backgroundColor: "#000",
   },
-  pipMeta: {
-    flex: 1,
-    marginLeft: 10,
-    marginRight: 6,
+  pipOverlayControls: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    flexDirection: "row",
+    gap: 4,
+    zIndex: 100,
   },
-  pipTitle: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "bold",
-  },
-  pipArtist: {
-    color: "rgba(255,255,255,0.5)",
-    fontSize: 11,
-    marginTop: 2,
+  pipIconBadge: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    alignItems: "center",
+    justifyContent: "center",
   },
 });
