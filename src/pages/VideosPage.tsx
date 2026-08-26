@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, TextInput, ActivityIndicator, Platform, Modal, Dimensions, DeviceEventEmitter, Animated, PanResponder } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, TextInput, ActivityIndicator, Platform, Modal, Dimensions, DeviceEventEmitter, Animated, PanResponder, Linking } from 'react-native'
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { WebView } from "react-native-webview";
@@ -22,7 +22,9 @@ interface VideoItem {
 const VIDEO_EMBED_PROVIDERS = [
   "https://www.youtube-nocookie.com/embed",
   "https://piped.video/embed",
-  "https://inv.tux.pizza/embed"
+  "https://inv.tux.pizza/embed",
+  "https://invidious.nerdvpn.de/embed",
+  "https://vid.puffyan.us/embed"
 ];
 
 async function getYouTubeVideoId(title: string, artist: string): Promise<string> {
@@ -604,6 +606,11 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
                                       window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_ENDED' }));
                                     }
                                   }
+                                },
+                                'onError': function(event) {
+                                  if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                                    window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_BLOCKED' }));
+                                  }
                                 }
                               }
                             });
@@ -628,6 +635,8 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
                     const data = JSON.parse(event.nativeEvent.data);
                     if (data && data.event === "VIDEO_ENDED") {
                       playNextVideo();
+                    } else if (data && data.event === "VIDEO_BLOCKED") {
+                      setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length);
                     }
                   } catch {}
                 }}
@@ -667,14 +676,28 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
               <Text style={styles.infoHeading}>{activeVideo.title}</Text>
               <Text style={styles.infoSub}>{activeVideo.artist}</Text>
 
-              <TouchableOpacity
-                delayPressIn={0}
-                style={styles.switchInstanceBtn}
-                onPress={() => setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length)}
-              >
-                <MaterialCommunityIcons name="swap-horizontal" size={18} color="#fff" style={{ marginRight: 8 }} />
-                <Text style={styles.switchInstanceText}>If video doesn't play, tap to Switch Server ({selectedInstanceIndex + 1}/{VIDEO_EMBED_PROVIDERS.length})</Text>
-              </TouchableOpacity>
+              <View style={{ flexDirection: "row", gap: 10, marginBottom: 12 }}>
+                <TouchableOpacity
+                  delayPressIn={0}
+                  style={[styles.switchInstanceBtn, { flex: 1 }]}
+                  onPress={() => setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length)}
+                >
+                  <MaterialCommunityIcons name="swap-horizontal" size={18} color="#fff" style={{ marginRight: 6 }} />
+                  <Text style={styles.switchInstanceText}>Server ({selectedInstanceIndex + 1}/{VIDEO_EMBED_PROVIDERS.length})</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  delayPressIn={0}
+                  style={[styles.switchInstanceBtn, { flex: 1, backgroundColor: "#E50914" }]}
+                  onPress={() => {
+                    const ytUrl = `https://www.youtube.com/watch?v=${targetId || activeVideo.videoId}`;
+                    Linking.openURL(ytUrl).catch(() => {});
+                  }}
+                >
+                  <MaterialCommunityIcons name="youtube" size={18} color="#fff" style={{ marginRight: 6 }} />
+                  <Text style={styles.switchInstanceText}>Open in YouTube</Text>
+                </TouchableOpacity>
+              </View>
 
               {/* Up Next / Related Songs List */}
               <View style={styles.upNextSection}>
