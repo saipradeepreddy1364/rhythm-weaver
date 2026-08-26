@@ -730,12 +730,20 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        // Ultra Bass boost gain multiplier: 0% -> 1.0, 100% -> 4.5 (450% heavy sub-bass output!)
-        const bassGain = 1.0 + ((bass / 100) * 3.5);
-        const maxBand = Math.max(...(bands || [0]), 0);
-        const eqGain = 1.0 + (maxBand / 10) * 0.8;
+        // Low, Mid, and High frequency weighted gain profile
+        const b = Array.isArray(bands) && bands.length >= 5 ? bands : [0, 0, 0, 0, 0];
+        const lowWeight = (b[0] * 0.4) + (b[1] * 0.3);
+        const midWeight = (b[2] * 0.5) + (b[3] * 0.3);
+        const highWeight = b[4] * 0.4;
 
-        const finalVolume = Math.min(4.5, Math.max(0.5, bassGain * eqGain));
+        const bassBoostFactor = (bass / 100) * 3.2;
+        const bandEqFactor = (lowWeight * 0.12) + (midWeight * 0.15) + (highWeight * 0.12);
+
+        // Vocal mode boost detection (when mids are high and bass is low)
+        const isVocalProfile = midWeight > 4 && bass < 30;
+        const baseVolume = isVocalProfile ? 1.6 : 1.0;
+
+        const finalVolume = Math.min(4.5, Math.max(0.4, baseVolume + bassBoostFactor + bandEqFactor));
         await TrackPlayer.setVolume(finalVolume);
       } catch (err) {
         console.warn("[PlayerContext] Failed to apply EQ gain:", err);

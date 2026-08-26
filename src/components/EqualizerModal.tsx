@@ -26,12 +26,12 @@ export interface EQPreset {
 
 export const EQ_PRESETS: EQPreset[] = [
   { name: "Flat", bass: 0, bands: [0, 0, 0, 0, 0], surround: false },
-  { name: "Bass Booster", bass: 85, bands: [8, 6, 2, 0, 0], surround: true },
-  { name: "Electronic", bass: 70, bands: [6, 4, 0, 4, 6], surround: true },
-  { name: "Pop", bass: 50, bands: [2, 4, 6, 4, 2], surround: false },
-  { name: "Rock", bass: 65, bands: [5, 3, -1, 3, 5], surround: true },
-  { name: "Hip-Hop", bass: 90, bands: [7, 5, 1, 3, 4], surround: true },
-  { name: "Vocal", bass: 20, bands: [-2, 1, 6, 4, 1], surround: false },
+  { name: "Bass Booster", bass: 100, bands: [12, 10, 2, -2, -4], surround: true },
+  { name: "Vocal", bass: 10, bands: [-6, -4, 10, 8, 2], surround: false },
+  { name: "Rock", bass: 75, bands: [8, 5, -2, 6, 9], surround: true },
+  { name: "Pop", bass: 45, bands: [2, 5, 8, 5, 2], surround: false },
+  { name: "Hip-Hop", bass: 95, bands: [11, 8, 2, 4, 6], surround: true },
+  { name: "Electronic", bass: 85, bands: [9, 6, -1, 6, 10], surround: true },
 ];
 
 interface EqualizerModalProps {

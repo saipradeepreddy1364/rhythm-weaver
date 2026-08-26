@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, TextInput, ActivityIndicator, Platform, Modal, Dimensions, DeviceEventEmitter, Animated, PanResponder, Linking } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, TextInput, ActivityIndicator, Platform, Modal, Dimensions, DeviceEventEmitter, Animated, PanResponder, Linking, Keyboard } from 'react-native'
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { WebView } from "react-native-webview";
@@ -226,13 +226,19 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
       },
       onPanResponderMove: (evt, gestureState) => {
         if (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2) {
+          if (!initialPinchDistRef.current || initialPinchDistRef.current <= 0) {
+            initialPinchDistRef.current = calcDistance(evt.nativeEvent.touches);
+            baseWidthRef.current = pipWidthRef.current;
+            return;
+          }
           const currentDist = calcDistance(evt.nativeEvent.touches);
-          if (initialPinchDistRef.current && initialPinchDistRef.current > 0) {
+          if (currentDist > 0 && initialPinchDistRef.current > 0) {
             const scale = currentDist / initialPinchDistRef.current;
             const newWidth = Math.max(130, Math.min(width - 28, Math.round(baseWidthRef.current * scale)));
             setPipWidth(newWidth);
           }
         } else {
+          initialPinchDistRef.current = null;
           const curWidth = pipWidthRef.current;
 
           // Screen bounds clamping to prevent mini video frame from going out of screen
@@ -263,6 +269,9 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
   }, []);
 
   const fetchTrendingVideos = async (searchQuery: string) => {
+    setShowSuggestions(false);
+    setSuggestions([]);
+    Keyboard.dismiss();
     setLoading(true);
     try {
       // 1. Direct YouTube search for 100% accurate results on any channel/video (e.g. rawtalkswithvk)
@@ -421,6 +430,8 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
                   onPress={() => {
                     setQuery(item);
                     setShowSuggestions(false);
+                    setSuggestions([]);
+                    Keyboard.dismiss();
                     fetchTrendingVideos(item);
                   }}
                   activeOpacity={0.7}
@@ -566,7 +577,7 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
           )}
 
           {/* THE SINGLE PERSISTENT UNMOUNTABLE WEBVIEW INSTANCE */}
-          <View style={isMinimized ? styles.pipVideoBox : styles.videoPlayerBox} pointerEvents={isMinimized ? "none" : "auto"}>
+          <View style={isMinimized ? styles.pipVideoBox : styles.videoPlayerBox}>
             {isResolvingVideo ? (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size={isMinimized ? "small" : "large"} color="#1DB954" />
@@ -575,6 +586,7 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
             ) : (
               <WebView
                 key={`${activeVideo.videoId}_${selectedInstanceIndex}`}
+                pointerEvents={isMinimized ? "none" : "auto"}
                 source={{
                   html: `
                     <!DOCTYPE html>
@@ -635,8 +647,18 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
                                 var ratio = e.clientX / window.innerWidth;
                                 player.seekTo(duration * ratio, true);
                               }
-                            }
-                          });
+                            });
+
+                          if ('mediaSession' in navigator) {
+                            try {
+                              navigator.mediaSession.metadata = new MediaMetadata({
+                                title: "${activeVideo.title.replace(/"/g, '\\"')}",
+                                artist: "${activeVideo.artist.replace(/"/g, '\\"')}",
+                              });
+                              navigator.mediaSession.setActionHandler('play', function() { if (player && player.playVideo) player.playVideo(); });
+                              navigator.mediaSession.setActionHandler('pause', function() { if (player && player.pauseVideo) player.pauseVideo(); });
+                            } catch (e) {}
+                          }
                         </script>
                       </body>
                     </html>
@@ -644,6 +666,7 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
                   baseUrl: "https://www.google.com",
                 }}
                 style={{ flex: 1, backgroundColor: "#000" }}
+                allowsPictureInPicture={true}
                 allowsInlineMediaPlayback={true}
                 mediaPlaybackRequiresUserAction={false}
                 allowsFullscreenVideo={true}
@@ -672,7 +695,7 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
 
             {/* Overlaid Minimized Quick Controls (Expand / Close) */}
             {isMinimized && (
-              <View style={styles.pipOverlayControls}>
+              <View style={styles.pipOverlayControls} pointerEvents="auto">
                 <TouchableOpacity
                   delayPressIn={0}
                   onPress={() => setIsMinimized(false)}
