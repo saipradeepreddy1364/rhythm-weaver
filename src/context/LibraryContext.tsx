@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image, AppState } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image, AppState, DeviceEventEmitter } from 'react-native'
 import React, {
   createContext,
   useContext,

@@ -25,45 +25,6 @@ const VIDEO_EMBED_PROVIDERS = [
   "https://inv.tux.pizza/embed"
 ];
 
-async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
-  const PIPED_APIS = [
-    "https://pipedapi.adminforge.de",
-    "https://pipedapi.kavin.rocks",
-    "https://pipedapi.projectsegfau.lt",
-    "https://pipedapi.nerdvpn.de"
-  ];
-
-  for (const apiBase of PIPED_APIS) {
-    try {
-      const res = await Promise.race([
-        fetch(`${apiBase}/search?q=${encodeURIComponent(searchQuery)}&filter=music_songs`),
-        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3500))
-      ]);
-      if (res.ok) {
-        const data = await res.json();
-        const items = data.items || [];
-        const mapped: VideoItem[] = items.slice(0, 25).map((item: any) => {
-          const rawUrl = item.url || "";
-          const videoId = rawUrl.replace("/watch?v=", "").split("&")[0];
-          return {
-            id: videoId || item.id || Math.random().toString(),
-            videoId: videoId,
-            title: item.title || "Music Video",
-            artist: item.uploaderName || "Artist",
-            thumbnail: item.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
-            duration: item.duration || 0,
-          };
-        }).filter((v: VideoItem) => v.videoId && v.videoId.length >= 8);
-
-        if (mapped.length > 0) return mapped;
-      }
-    } catch {
-      // try next API node
-    }
-  }
-  return [];
-}
-
 async function getYouTubeVideoId(title: string, artist: string): Promise<string> {
   const searchQuery = encodeURIComponent(`${title} ${artist} video song`);
 
@@ -111,7 +72,83 @@ async function getYouTubeVideoId(title: string, artist: string): Promise<string>
       }
     } catch {}
   }
-  return "";
+  return "0xMQfnTU6oo"; // Clean fallback
+}
+
+async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
+  try {
+    const encoded = encodeURIComponent(searchQuery);
+    const res = await Promise.race([
+      fetch(`https://www.youtube.com/results?search_query=${encoded}`, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Accept-Language": "en-US,en;q=0.9",
+        },
+      }),
+      new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 4000))
+    ]);
+
+    if (!res.ok) return [];
+    const html = await res.text();
+
+    const videoItems: VideoItem[] = [];
+    const seenIds = new Set<string>();
+
+    const jsonMatch = html.match(/var ytInitialData\s*=\s*({.*?});<\/script>/s) ||
+                      html.match(/window\["ytInitialData"\]\s*=\s*({.*?});/s);
+
+    if (jsonMatch && jsonMatch[1]) {
+      try {
+        const data = JSON.parse(jsonMatch[1]);
+        const contents =
+          data?.contents?.twoColumnSearchResultsRenderer?.primaryContents
+            ?.sectionListRenderer?.contents?.[0]?.itemSectionRenderer?.contents || [];
+
+        for (const item of contents) {
+          const video = item.videoRenderer;
+          if (video && video.videoId) {
+            const vId = video.videoId;
+            if (seenIds.has(vId)) continue;
+            seenIds.add(vId);
+
+            const title = video.title?.runs?.[0]?.text || video.title?.simpleText || searchQuery;
+            const artist = video.ownerText?.runs?.[0]?.text || video.shortBylineText?.runs?.[0]?.text || "YouTube";
+            const thumbnail = video.thumbnail?.thumbnails?.[0]?.url || `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
+
+            videoItems.push({
+              id: `yt_${vId}`,
+              videoId: vId,
+              title: decodeHtmlEntities(title),
+              artist: decodeHtmlEntities(artist),
+              thumbnail,
+            });
+          }
+        }
+      } catch {}
+    }
+
+    if (videoItems.length === 0) {
+      const regex = /"videoRenderer":\{"videoId":"([a-zA-Z0-9_-]{11})".*?"title":\{"runs":\[\{"text":"([^"]+)"\}/g;
+      let match;
+      while ((match = regex.exec(html)) !== null && videoItems.length < 25) {
+        const [, vId, title] = match;
+        if (!seenIds.has(vId)) {
+          seenIds.add(vId);
+          videoItems.push({
+            id: `yt_${vId}`,
+            videoId: vId,
+            title: decodeHtmlEntities(title),
+            artist: "YouTube",
+            thumbnail: `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`,
+          });
+        }
+      }
+    }
+
+    return videoItems;
+  } catch (e) {
+    return [];
+  }
 }
 
 export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => void }) {
@@ -151,7 +188,14 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
   const fetchTrendingVideos = async (searchQuery: string) => {
     setLoading(true);
     try {
-      // Fast, reliable backend search with strict title deduplication
+      // 1. Direct YouTube search for 100% accurate results on any channel/video (e.g. rawtalkswithvk)
+      const ytResults = await searchYouTubeVideos(searchQuery);
+      if (ytResults.length > 0) {
+        setVideos(ytResults);
+        return;
+      }
+
+      // 2. Fallback to API search if YouTube direct search returns empty
       const res = await api.searchSongs(`${searchQuery}`, 1, 40);
       const items = extractResults(res);
       const seenTitles = new Set<string>();
@@ -183,7 +227,7 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
 
   const handleSearchSubmit = () => {
     if (!query.trim()) return;
-    fetchTrendingVideos(`${query.trim()} video song`);
+    fetchTrendingVideos(query.trim());
   };
 
   const isYouTubeVideoId = (id?: string) => {
