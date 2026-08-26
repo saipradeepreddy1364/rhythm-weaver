@@ -4,6 +4,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { WebView } from "react-native-webview";
 import { Song, mapApiSong, decodeHtmlEntities } from "../data/songs";
 import { api, extractResults } from "../services/api";
+import { useLibrary } from "../context/LibraryContext";
 
 const { width } = Dimensions.get("window");
 
@@ -114,6 +115,7 @@ async function getYouTubeVideoId(title: string, artist: string): Promise<string>
 }
 
 export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => void }) {
+  const { likedVideos, toggleLikeVideo, isVideoLiked } = useLibrary();
   const [query, setQuery] = useState("");
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -288,8 +290,25 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
               </View>
 
               <View style={styles.videoMeta}>
-                <Text style={styles.videoTitle} numberOfLines={2}>{item.title}</Text>
-                <Text style={styles.videoArtist} numberOfLines={1}>{item.artist}</Text>
+                <View style={{ flex: 1, marginRight: 8 }}>
+                  <Text style={styles.videoTitle} numberOfLines={2}>{item.title}</Text>
+                  <Text style={styles.videoArtist} numberOfLines={1}>{item.artist}</Text>
+                </View>
+                <TouchableOpacity
+                  delayPressIn={0}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    toggleLikeVideo(item);
+                  }}
+                  style={{ padding: 6 }}
+                  activeOpacity={0.7}
+                >
+                  <MaterialCommunityIcons
+                    name={isVideoLiked(item) ? "heart" : "heart-outline"}
+                    size={24}
+                    color={isVideoLiked(item) ? "#1DB954" : "rgba(255,255,255,0.6)"}
+                  />
+                </TouchableOpacity>
               </View>
             </TouchableOpacity>
           ))}
@@ -311,55 +330,87 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
           }
           {...(isMinimized ? panResponder.panHandlers : {})}
         >
-          {isMinimized ? (
-            /* Mini Floating PiP Header & Controls */
-            <TouchableOpacity
-              delayPressIn={0}
-              activeOpacity={0.9}
-              onPress={() => setIsMinimized(false)}
-              style={styles.pipContent}
-            >
-              {/* Mini Video Box */}
-              <View style={styles.pipVideoBox}>
-                {isResolvingVideo ? (
-                  <View style={styles.loadingContainer}>
-                    <ActivityIndicator size="small" color="#1DB954" />
-                  </View>
-                ) : (
-                  <WebView
-                    key={`${activeVideo.videoId}_${selectedInstanceIndex}`}
-                    source={{
-                      html: `
-                        <!DOCTYPE html>
-                        <html>
-                          <head>
-                            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-                            <style>
-                              * { box-sizing: border-box; margin: 0; padding: 0; }
-                              body, html { background-color: #000; width: 100%; height: 100%; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-                              iframe { width: 100%; height: 100%; border: none; }
-                            </style>
-                          </head>
-                          <body>
-                            <iframe src="${embedUrl}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
-                          </body>
-                        </html>
-                      `,
-                      baseUrl: "https://www.google.com",
-                    }}
-                    style={{ flex: 1, backgroundColor: "#000" }}
-                    allowsFullscreenVideo={true}
-                    mediaPlaybackRequiresUserAction={false}
-                    javaScriptEnabled={true}
-                    domStorageEnabled={true}
-                  />
-                )}
+          {!isMinimized && (
+            /* Full Screen Header */
+            <View style={styles.modalHeader}>
+              <TouchableOpacity delayPressIn={0} onPress={() => setIsMinimized(true)} style={styles.closeBtn}>
+                <MaterialCommunityIcons name="chevron-down" size={28} color="#fff" />
+              </TouchableOpacity>
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={styles.modalVideoTitle} numberOfLines={1}>{activeVideo.title}</Text>
+                <Text style={styles.modalVideoArtist} numberOfLines={1}>{activeVideo.artist}</Text>
               </View>
+              <TouchableOpacity
+                delayPressIn={0}
+                onPress={() => toggleLikeVideo(activeVideo)}
+                style={{ padding: 6, marginRight: 6 }}
+                activeOpacity={0.7}
+              >
+                <MaterialCommunityIcons
+                  name={isVideoLiked(activeVideo) ? "heart" : "heart-outline"}
+                  size={22}
+                  color={isVideoLiked(activeVideo) ? "#1DB954" : "#fff"}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity delayPressIn={0} onPress={() => { setActiveVideo(null); setIsMinimized(false); }} style={styles.closeBtn}>
+                <MaterialCommunityIcons name="close" size={22} color="#fff" />
+              </TouchableOpacity>
+            </View>
+          )}
 
-              <View style={styles.pipMeta}>
+          {/* THE SINGLE PERSISTENT UNMOUNTABLE WEBVIEW INSTANCE */}
+          <View style={isMinimized ? styles.pipVideoBox : styles.videoPlayerBox}>
+            {isResolvingVideo ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size={isMinimized ? "small" : "large"} color="#1DB954" />
+                {!isMinimized && <Text style={styles.loadingText}>Fetching official music video...</Text>}
+              </View>
+            ) : (
+              <WebView
+                key={`${activeVideo.videoId}_${selectedInstanceIndex}`}
+                source={{
+                  html: `
+                    <!DOCTYPE html>
+                    <html>
+                      <head>
+                        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                        <style>
+                          * { box-sizing: border-box; margin: 0; padding: 0; }
+                          body, html { background-color: #000; width: 100%; height: 100%; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+                          iframe { width: 100%; height: 100%; border: none; }
+                        </style>
+                      </head>
+                      <body>
+                        <iframe src="${embedUrl}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+                      </body>
+                    </html>
+                  `,
+                  baseUrl: "https://www.google.com",
+                }}
+                style={{ flex: 1, backgroundColor: "#000" }}
+                allowsFullscreenVideo={true}
+                mediaPlaybackRequiresUserAction={false}
+                javaScriptEnabled={true}
+                domStorageEnabled={true}
+                onError={() => {
+                  setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length);
+                }}
+              />
+            )}
+          </View>
+
+          {isMinimized ? (
+            /* Mini Floating PiP Title, Artist & Controls Row */
+            <View style={styles.pipContent}>
+              <TouchableOpacity
+                delayPressIn={0}
+                activeOpacity={0.8}
+                onPress={() => setIsMinimized(false)}
+                style={styles.pipMeta}
+              >
                 <Text style={styles.pipTitle} numberOfLines={1}>{activeVideo.title}</Text>
                 <Text style={styles.pipArtist} numberOfLines={1}>{activeVideo.artist}</Text>
-              </View>
+              </TouchableOpacity>
 
               <TouchableOpacity
                 delayPressIn={0}
@@ -376,103 +427,45 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
               >
                 <MaterialCommunityIcons name="close" size={20} color="#fff" />
               </TouchableOpacity>
-            </TouchableOpacity>
-          ) : (
-            /* Full Screen Player Layout */
-            <View style={styles.modalContainer}>
-              {/* Modal Header */}
-              <View style={styles.modalHeader}>
-                <TouchableOpacity delayPressIn={0} onPress={() => setIsMinimized(true)} style={styles.closeBtn}>
-                  <MaterialCommunityIcons name="chevron-down" size={28} color="#fff" />
-                </TouchableOpacity>
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={styles.modalVideoTitle} numberOfLines={1}>{activeVideo.title}</Text>
-                  <Text style={styles.modalVideoArtist} numberOfLines={1}>{activeVideo.artist}</Text>
-                </View>
-                <TouchableOpacity delayPressIn={0} onPress={() => { setActiveVideo(null); setIsMinimized(false); }} style={styles.closeBtn}>
-                  <MaterialCommunityIcons name="close" size={22} color="#fff" />
-                </TouchableOpacity>
-              </View>
-
-              {/* In-App Video Player Box */}
-              <View style={styles.videoPlayerBox}>
-                {isResolvingVideo ? (
-                  <View style={styles.loadingContainer}>
-                    <ActivityIndicator size="large" color="#1DB954" />
-                    <Text style={styles.loadingText}>Fetching official music video...</Text>
-                  </View>
-                ) : (
-                  <WebView
-                    key={`${activeVideo.videoId}_${selectedInstanceIndex}`}
-                    source={{
-                      html: `
-                        <!DOCTYPE html>
-                        <html>
-                          <head>
-                            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-                            <style>
-                              * { box-sizing: border-box; margin: 0; padding: 0; }
-                              body, html { background-color: #000; width: 100%; height: 100%; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-                              iframe { width: 100%; height: 100%; border: none; }
-                            </style>
-                          </head>
-                          <body>
-                            <iframe src="${embedUrl}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
-                          </body>
-                        </html>
-                      `,
-                      baseUrl: "https://www.google.com",
-                    }}
-                    style={{ flex: 1, backgroundColor: "#000" }}
-                    allowsFullscreenVideo={true}
-                    mediaPlaybackRequiresUserAction={false}
-                    javaScriptEnabled={true}
-                    domStorageEnabled={true}
-                    onError={() => {
-                      setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length);
-                    }}
-                  />
-                )}
-              </View>
-
-              {/* Video Info & Up Next Songs */}
-              <ScrollView style={styles.modalBody} contentContainerStyle={{ padding: 16 }}>
-                <Text style={styles.infoHeading}>{activeVideo.title}</Text>
-                <Text style={styles.infoSub}>{activeVideo.artist}</Text>
-
-                <TouchableOpacity
-                  delayPressIn={0}
-                  style={styles.switchInstanceBtn}
-                  onPress={() => setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length)}
-                >
-                  <MaterialCommunityIcons name="swap-horizontal" size={18} color="#fff" style={{ marginRight: 8 }} />
-                  <Text style={styles.switchInstanceText}>If video doesn't play, tap to Switch Server ({selectedInstanceIndex + 1}/{VIDEO_EMBED_PROVIDERS.length})</Text>
-                </TouchableOpacity>
-
-                {/* Up Next / Related Songs List */}
-                <View style={styles.upNextSection}>
-                  <Text style={styles.upNextTitle}>Up Next / Related Songs</Text>
-                  {videos
-                    .filter((v) => v.id !== activeVideo.id)
-                    .map((item) => (
-                      <TouchableOpacity
-                        delayPressIn={0}
-                        key={item.id}
-                        style={styles.upNextCard}
-                        onPress={() => handleVideoCardPress(item)}
-                        activeOpacity={0.8}
-                      >
-                        <Image source={{ uri: item.thumbnail }} style={styles.upNextThumb} />
-                        <View style={styles.upNextMeta}>
-                          <Text style={styles.upNextSongTitle} numberOfLines={2}>{item.title}</Text>
-                          <Text style={styles.upNextSongArtist} numberOfLines={1}>{item.artist}</Text>
-                        </View>
-                        <MaterialCommunityIcons name="play-circle-outline" size={24} color="#1DB954" />
-                      </TouchableOpacity>
-                    ))}
-                </View>
-              </ScrollView>
             </View>
+          ) : (
+            /* Full Screen Player Body (Up Next Songs & Info) */
+            <ScrollView style={styles.modalBody} contentContainerStyle={{ padding: 16 }}>
+              <Text style={styles.infoHeading}>{activeVideo.title}</Text>
+              <Text style={styles.infoSub}>{activeVideo.artist}</Text>
+
+              <TouchableOpacity
+                delayPressIn={0}
+                style={styles.switchInstanceBtn}
+                onPress={() => setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length)}
+              >
+                <MaterialCommunityIcons name="swap-horizontal" size={18} color="#fff" style={{ marginRight: 8 }} />
+                <Text style={styles.switchInstanceText}>If video doesn't play, tap to Switch Server ({selectedInstanceIndex + 1}/{VIDEO_EMBED_PROVIDERS.length})</Text>
+              </TouchableOpacity>
+
+              {/* Up Next / Related Songs List */}
+              <View style={styles.upNextSection}>
+                <Text style={styles.upNextTitle}>Up Next / Related Songs</Text>
+                {videos
+                  .filter((v) => v.id !== activeVideo.id)
+                  .map((item) => (
+                    <TouchableOpacity
+                      delayPressIn={0}
+                      key={item.id}
+                      style={styles.upNextCard}
+                      onPress={() => handleVideoCardPress(item)}
+                      activeOpacity={0.8}
+                    >
+                      <Image source={{ uri: item.thumbnail }} style={styles.upNextThumb} />
+                      <View style={styles.upNextMeta}>
+                        <Text style={styles.upNextSongTitle} numberOfLines={2}>{item.title}</Text>
+                        <Text style={styles.upNextSongArtist} numberOfLines={1}>{item.artist}</Text>
+                      </View>
+                      <MaterialCommunityIcons name="play-circle-outline" size={24} color="#1DB954" />
+                    </TouchableOpacity>
+                  ))}
+              </View>
+            </ScrollView>
           )}
         </Animated.View>
       )}
@@ -726,7 +719,9 @@ const styles = StyleSheet.create({
     position: "absolute",
     bottom: Platform.OS === "ios" ? 85 : 75,
     right: 12,
-    width: width * 0.85,
+    width: width - 24,
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: "#181818",
     borderRadius: 14,
     padding: 6,

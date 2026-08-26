@@ -61,6 +61,10 @@ interface LibraryContextType {
   likedAlbums: AlbumData[];
   toggleLikeAlbum: (album: AlbumData) => Promise<void>;
   isAlbumLiked: (album: AlbumData) => boolean;
+  likedVideos: any[];
+  toggleLikeVideo: (video: any) => Promise<void>;
+  isVideoLiked: (video: any) => boolean;
+  loadLikedVideos: () => Promise<void>;
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -132,6 +136,11 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const [likedAlbums, setLikedAlbums]         = useState<AlbumData[]>([]);
   const likedAlbumsRef = useRef<AlbumData[]>([]);
   likedAlbumsRef.current = likedAlbums;
+
+  const [likedVideos, setLikedVideos]         = useState<any[]>([]);
+  const likedVideosRef = useRef<any[]>([]);
+  likedVideosRef.current = likedVideos;
+  const likedVideosSeq = useRef(0);
 
 
   // ── Single sequential liked-songs initializer ─────────────────────────────
@@ -404,6 +413,58 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // ── Load liked videos ────────────────────────────────────────────────────────
+
+  const loadLikedVideos = useCallback(async () => {
+    const seqAtStart = likedVideosSeq.current;
+    try {
+      const raw = await AsyncStorage.getItem("rw_liked_videos");
+      if (likedVideosSeq.current !== seqAtStart) return;
+      if (raw) {
+        const val = JSON.parse(raw);
+        if (Array.isArray(val)) {
+          setLikedVideos(val);
+          return;
+        }
+      }
+    } catch {}
+    if (likedVideosSeq.current === seqAtStart) {
+      setLikedVideos([]);
+    }
+  }, []);
+
+  const isVideoLiked = useCallback((video: any) => {
+    if (!video || (!video.id && !video.videoId)) return false;
+    return likedVideosRef.current.some(
+      (v) => (v.id && video.id && String(v.id) === String(video.id)) ||
+             (v.videoId && video.videoId && String(v.videoId) === String(video.videoId))
+    );
+  }, []);
+
+  const toggleLikeVideo = useCallback(async (video: any) => {
+    if (!video) return;
+    try {
+      const current = likedVideosRef.current;
+      const liked = current.some(
+        (v) => (v.id && video.id && String(v.id) === String(video.id)) ||
+               (v.videoId && video.videoId && String(v.videoId) === String(video.videoId))
+      );
+      const nextLiked = liked
+        ? current.filter(
+            (v) => !(v.id && video.id && String(v.id) === String(video.id)) &&
+                   !(v.videoId && video.videoId && String(v.videoId) === String(video.videoId))
+          )
+        : [video, ...current];
+
+      likedVideosSeq.current += 1;
+      likedVideosRef.current = nextLiked;
+      setLikedVideos(nextLiked);
+      await AsyncStorage.setItem("rw_liked_videos", JSON.stringify(nextLiked));
+    } catch (err) {
+      console.warn("Failed to toggle like video:", err);
+    }
+  }, []);
+
   // ── Load recently played ─────────────────────────────────────────────────────
 
   const loadRecentlyPlayed = useCallback(async () => {
@@ -469,12 +530,15 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const isSongMatch = (a: Song, b: Song) => {
     if (!a || !b) return false;
-    if (a.id && b.id && String(a.id) === String(b.id)) return true;
+    if (a.id && b.id && String(a.id).trim() === String(b.id).trim()) return true;
     const aTitle = (a.title || "").toLowerCase().trim();
     const bTitle = (b.title || "").toLowerCase().trim();
-    const aArtist = (a.artist || "").toLowerCase().trim();
-    const bArtist = (b.artist || "").toLowerCase().trim();
-    return aTitle.length > 0 && aTitle === bTitle && (aArtist === bArtist || !aArtist || !bArtist);
+    if (!aTitle || !bTitle) return false;
+    if (aTitle === bTitle) return true;
+
+    const normA = normalizeSongTitle(a.title, a.movie, a.album);
+    const normB = normalizeSongTitle(b.title, b.movie, b.album);
+    return normA.length > 0 && normA === normB;
   };
 
   const isLiked = useCallback(
@@ -487,7 +551,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const toggleLike = useCallback(
     async (song: Song) => {
-      if (!song) return;
+      if (!song || !song.title) return;
       try {
         const current = likedSongsRef.current;
         const liked = current.some((s) => isSongMatch(s, song));
@@ -499,6 +563,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         likedSongsRef.current = nextLiked;
         setLikedSongs(nextLiked);
         await AsyncStorage.setItem("rw_liked_songs", JSON.stringify(nextLiked));
+        DeviceEventEmitter.emit("LIKED_SONGS_UPDATED");
       } catch (err) {
         console.warn("Failed to toggle like:", err);
       }
@@ -677,6 +742,10 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         likedAlbums,
         toggleLikeAlbum,
         isAlbumLiked,
+        likedVideos,
+        toggleLikeVideo,
+        isVideoLiked,
+        loadLikedVideos,
       }}
     >
       {children}

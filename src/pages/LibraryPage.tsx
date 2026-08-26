@@ -8,7 +8,7 @@ import { SongRow } from "../components/SongRow";
 import { AuthModal } from "../components/AuthModal";
 import type { Song } from "../data/songs";
 
-type Tab = "liked" | "liked-detail" | "downloads" | { type: "playlist"; id: string } | { type: "album"; title: string };
+type Tab = "liked" | "liked-detail" | "downloads" | "videos" | { type: "playlist"; id: string } | { type: "album"; title: string };
 
 interface LibraryPageProps {
   onRequireAuth: () => void;
@@ -30,6 +30,9 @@ export default function LibraryPage({ onRequireAuth, initialTab }: LibraryPagePr
     downloadedSongs,
     likedAlbums,
     toggleLikeAlbum,
+    likedVideos,
+    loadLikedVideos,
+    toggleLikeVideo,
   } = useLibrary();
   const { playSong } = usePlayer();
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -47,7 +50,12 @@ export default function LibraryPage({ onRequireAuth, initialTab }: LibraryPagePr
     loadLikedSongs();
     loadPlaylists();
     loadLikedAlbums();
-  }, [user]);
+    loadLikedVideos();
+    const sub = DeviceEventEmitter.addListener("LIKED_SONGS_UPDATED", () => {
+      loadLikedSongs();
+    });
+    return () => sub.remove();
+  }, [user, loadLikedSongs]);
 
   const [isOffline, setIsOffline] = useState(false);
 
@@ -315,7 +323,7 @@ export default function LibraryPage({ onRequireAuth, initialTab }: LibraryPagePr
   }
 
   // ── Library Dashboard Tab View ──
-  const activeTabStr = tab === "downloads" ? "downloads" : "liked";
+  const activeTabStr = typeof tab === "string" ? tab : "liked";
 
   const handleCreatePlaylist = async () => {
     if (!newPlaylistName.trim()) return;
@@ -383,6 +391,16 @@ export default function LibraryPage({ onRequireAuth, initialTab }: LibraryPagePr
         >
           <Text style={[styles.tabBtnText, activeTabStr === "downloads" && styles.activeTabBtnText]}>
             Downloads
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity delayPressIn={0}
+          onPress={() => setTab("videos")}
+          style={[styles.tabBtn, activeTabStr === "videos" && styles.activeTabBtn]}
+          activeOpacity={0.7}
+        >
+          <Text style={[styles.tabBtnText, activeTabStr === "videos" && styles.activeTabBtnText]}>
+            Liked Videos ({likedVideos.length})
           </Text>
         </TouchableOpacity>
       </View>
@@ -614,6 +632,37 @@ export default function LibraryPage({ onRequireAuth, initialTab }: LibraryPagePr
                   onRequireAuth={handleRequireAuth}
                   fromLibrary={true}
                 />
+              ))
+            )}
+          </View>
+        )}
+
+        {/* Tab content: Liked Videos */}
+        {activeTabStr === "videos" && (
+          <View style={{ paddingBottom: 60 }}>
+            {likedVideos.length === 0 ? (
+              <LibraryEmpty
+                icon="video-outline"
+                title="No liked videos yet"
+                subtitle="Tap the heart icon on any music video to save it here."
+              />
+            ) : (
+              likedVideos.map((item) => (
+                <View key={item.id || item.videoId} style={styles.likedVideoCard}>
+                  <Image source={{ uri: item.thumbnail }} style={styles.likedVideoThumb} />
+                  <View style={{ flex: 1, marginLeft: 12, marginRight: 8 }}>
+                    <Text style={styles.likedVideoTitle} numberOfLines={2}>{item.title}</Text>
+                    <Text style={styles.likedVideoArtist} numberOfLines={1}>{item.artist}</Text>
+                  </View>
+                  <TouchableOpacity
+                    delayPressIn={0}
+                    onPress={() => toggleLikeVideo(item)}
+                    style={{ padding: 8 }}
+                    activeOpacity={0.7}
+                  >
+                    <MaterialCommunityIcons name="heart" size={24} color="#1DB954" />
+                  </TouchableOpacity>
+                </View>
               ))
             )}
           </View>
@@ -1053,5 +1102,31 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.4)",
     fontSize: 13,
     marginTop: 10,
+  },
+  likedVideoCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.06)",
+  },
+  likedVideoThumb: {
+    width: 90,
+    height: 54,
+    borderRadius: 6,
+    backgroundColor: "#000",
+  },
+  likedVideoTitle: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "bold",
+  },
+  likedVideoArtist: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 12,
+    marginTop: 2,
   },
 });
