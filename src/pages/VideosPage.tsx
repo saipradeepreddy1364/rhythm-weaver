@@ -158,11 +158,17 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const isSelectingSuggestionRef = useRef(false);
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [loading, setLoading] = useState(false);
 
   // Live YouTube Autocomplete Search Suggestions
   useEffect(() => {
+    if (isSelectingSuggestionRef.current) {
+      isSelectingSuggestionRef.current = false;
+      return;
+    }
+
     if (!query.trim() || query.length < 2) {
       setSuggestions([]);
       setShowSuggestions(false);
@@ -204,6 +210,7 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
   };
 
   const pan = useRef(new Animated.ValueXY()).current;
+  const pinchScale = useRef(new Animated.Value(1)).current;
 
   const panResponder = useRef(
     PanResponder.create({
@@ -215,6 +222,7 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
         if (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2) {
           initialPinchDistRef.current = calcDistance(evt.nativeEvent.touches);
           baseWidthRef.current = pipWidthRef.current;
+          pinchScale.setValue(1);
         } else {
           initialPinchDistRef.current = null;
           pan.setOffset({
@@ -229,13 +237,13 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
           if (!initialPinchDistRef.current || initialPinchDistRef.current <= 0) {
             initialPinchDistRef.current = calcDistance(evt.nativeEvent.touches);
             baseWidthRef.current = pipWidthRef.current;
+            pinchScale.setValue(1);
             return;
           }
           const currentDist = calcDistance(evt.nativeEvent.touches);
           if (currentDist > 0 && initialPinchDistRef.current > 0) {
             const scale = currentDist / initialPinchDistRef.current;
-            const newWidth = Math.max(130, Math.min(width - 28, Math.round(baseWidthRef.current * scale)));
-            setPipWidth(newWidth);
+            pinchScale.setValue(scale);
           }
         } else {
           initialPinchDistRef.current = null;
@@ -257,7 +265,15 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
         }
       },
       onPanResponderRelease: () => {
-        initialPinchDistRef.current = null;
+        if (initialPinchDistRef.current) {
+          const finalScale = (pinchScale as any)._value || 1;
+          if (finalScale !== 1) {
+            const newWidth = Math.max(130, Math.min(width - 28, Math.round(baseWidthRef.current * finalScale)));
+            setPipWidth(newWidth);
+          }
+          pinchScale.setValue(1);
+          initialPinchDistRef.current = null;
+        }
         pan.flattenOffset();
       },
     })
@@ -428,6 +444,7 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
                   key={`${item}_${idx}`}
                   style={styles.suggestionRow}
                   onPress={() => {
+                    isSelectingSuggestionRef.current = true;
                     setQuery(item);
                     setShowSuggestions(false);
                     setSuggestions([]);
@@ -452,7 +469,14 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
           <TouchableOpacity
             delayPressIn={0}
             key={cat}
-            onPress={() => { setQuery(cat); fetchTrendingVideos(`${cat} video songs`); }}
+            onPress={() => {
+              isSelectingSuggestionRef.current = true;
+              setQuery(cat);
+              setShowSuggestions(false);
+              setSuggestions([]);
+              Keyboard.dismiss();
+              fetchTrendingVideos(`${cat} video songs`);
+            }}
             style={styles.chipBtn}
             activeOpacity={0.7}
           >
@@ -522,7 +546,10 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
                   {
                     width: pipWidth,
                     height: Math.round(pipWidth * (110 / 175)),
-                    transform: pan.getTranslateTransform(),
+                    transform: [
+                      ...pan.getTranslateTransform(),
+                      { scale: pinchScale },
+                    ],
                   },
                 ]
               : styles.fullScreenPlayerOverlay
