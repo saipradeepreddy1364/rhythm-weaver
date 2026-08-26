@@ -106,9 +106,13 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
     fetchTrendingVideos(`${query.trim()} video song`);
   };
 
+  const isYouTubeVideoId = (id?: string) => {
+    return !!id && typeof id === 'string' && /^[a-zA-Z0-9_-]{11}$/.test(id);
+  };
+
   const providerBase = VIDEO_EMBED_PROVIDERS[selectedInstanceIndex];
   const embedUrl = activeVideo
-    ? activeVideo.videoId && activeVideo.videoId.length >= 8
+    ? isYouTubeVideoId(activeVideo.videoId)
       ? `${providerBase}/${activeVideo.videoId}?autoplay=1&controls=1&modestbranding=1&rel=0&playsinline=1`
       : `https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(activeVideo.title + " " + activeVideo.artist + " official video")}&autoplay=1`
     : "";
