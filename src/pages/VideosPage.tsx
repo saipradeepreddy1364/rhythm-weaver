@@ -154,8 +154,35 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
 export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => void }) {
   const { likedVideos, toggleLikeVideo, isVideoLiked } = useLibrary();
   const [query, setQuery] = useState("");
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // Live YouTube Autocomplete Search Suggestions
+  useEffect(() => {
+    if (!query.trim() || query.length < 2) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        const encoded = encodeURIComponent(query.trim());
+        const res = await fetch(`https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=${encoded}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data) && Array.isArray(data[1])) {
+            setSuggestions(data[1].slice(0, 8));
+            setShowSuggestions(data[1].length > 0);
+          }
+        }
+      } catch {}
+    }, 200);
+
+    return () => clearTimeout(timer);
+  }, [query]);
   const [activeVideo, setActiveVideo] = useState<VideoItem | null>(null);
   const [isMinimized, setIsMinimized] = useState(false);
   const [selectedInstanceIndex, setSelectedInstanceIndex] = useState(0);
@@ -325,22 +352,66 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
         </TouchableOpacity>
       </View>
 
-      {/* Search Input */}
-      <View style={styles.searchBarContainer}>
-        <MaterialCommunityIcons name="magnify" size={20} color="rgba(255,255,255,0.4)" style={{ marginRight: 8 }} />
-        <TextInput
-          value={query}
-          onChangeText={setQuery}
-          onSubmitEditing={handleSearchSubmit}
-          placeholder="Search videos (Telugu, Hindi, English...)"
-          placeholderTextColor="rgba(255,255,255,0.3)"
-          style={styles.searchInput}
-          returnKeyType="search"
-        />
-        {query.length > 0 && (
-          <TouchableOpacity delayPressIn={0} onPress={() => { setQuery(""); fetchTrendingVideos("Telugu music videos"); }}>
-            <MaterialCommunityIcons name="close-circle" size={18} color="rgba(255,255,255,0.4)" />
-          </TouchableOpacity>
+      {/* Search Input Container with Autocomplete Dropdown */}
+      <View style={{ zIndex: 1000 }}>
+        <View style={styles.searchBarContainer}>
+          <MaterialCommunityIcons name="magnify" size={20} color="rgba(255,255,255,0.4)" style={{ marginRight: 8 }} />
+          <TextInput
+            value={query}
+            onChangeText={(text) => {
+              setQuery(text);
+              if (!text.trim()) setShowSuggestions(false);
+            }}
+            onFocus={() => {
+              if (suggestions.length > 0) setShowSuggestions(true);
+            }}
+            onSubmitEditing={() => {
+              setShowSuggestions(false);
+              handleSearchSubmit();
+            }}
+            placeholder="Search videos (Telugu, Hindi, English...)"
+            placeholderTextColor="rgba(255,255,255,0.3)"
+            style={styles.searchInput}
+            returnKeyType="search"
+          />
+          {query.length > 0 && (
+            <TouchableOpacity
+              delayPressIn={0}
+              onPress={() => {
+                setQuery("");
+                setSuggestions([]);
+                setShowSuggestions(false);
+                fetchTrendingVideos("Telugu music videos");
+              }}
+            >
+              <MaterialCommunityIcons name="close-circle" size={18} color="rgba(255,255,255,0.4)" />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Live Autocomplete Suggestions Dropdown Box */}
+        {showSuggestions && suggestions.length > 0 && (
+          <View style={styles.suggestionsBox}>
+            <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled style={{ maxHeight: 240 }}>
+              {suggestions.map((item, idx) => (
+                <TouchableOpacity
+                  delayPressIn={0}
+                  key={`${item}_${idx}`}
+                  style={styles.suggestionRow}
+                  onPress={() => {
+                    setQuery(item);
+                    setShowSuggestions(false);
+                    fetchTrendingVideos(item);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <MaterialCommunityIcons name="magnify" size={18} color="rgba(255,255,255,0.4)" style={{ marginRight: 12 }} />
+                  <Text style={styles.suggestionText} numberOfLines={1}>{item}</Text>
+                  <MaterialCommunityIcons name="arrow-top-left" size={16} color="rgba(255,255,255,0.3)" />
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
         )}
       </View>
 
@@ -551,6 +622,7 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
                 domStorageEnabled={true}
                 androidLayerType="hardware"
                 mixedContentMode="always"
+                playInBackground={true}
                 onMessage={(event) => {
                   try {
                     const data = JSON.parse(event.nativeEvent.data);
@@ -875,6 +947,37 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.5)",
     fontSize: 11,
     marginTop: 2,
+  },
+  suggestionsBox: {
+    position: "absolute",
+    top: 52,
+    left: 16,
+    right: 16,
+    backgroundColor: "#1f1f1f",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    elevation: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.8,
+    shadowRadius: 12,
+    zIndex: 9999,
+    overflow: "hidden",
+  },
+  suggestionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 0.5,
+    borderBottomColor: "rgba(255,255,255,0.06)",
+  },
+  suggestionText: {
+    flex: 1,
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "500",
   },
   floatingPipContainer: {
     position: "absolute",
