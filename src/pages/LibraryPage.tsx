@@ -2,7 +2,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, TextInput,
 import React, { useState, useEffect } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useAuth } from "../context/AuthContext";
-import { useLibrary, Playlist } from "../context/LibraryContext";
+import { useLibrary, Playlist, deduplicateSongs } from "../context/LibraryContext";
 import { usePlayer } from "../context/PlayerContext";
 import { SongRow } from "../components/SongRow";
 import { AuthModal } from "../components/AuthModal";
@@ -186,6 +186,7 @@ export default function LibraryPage({ onRequireAuth, initialTab }: LibraryPagePr
       : null;
 
   if (currentAlbum) {
+    const albumSongs = deduplicateSongs(currentAlbum.songs || []);
     const handleUnlikeAlbum = async () => {
       await toggleLikeAlbum(currentAlbum);
       setTab("liked");
@@ -219,13 +220,13 @@ export default function LibraryPage({ onRequireAuth, initialTab }: LibraryPagePr
             </View>
             <Text style={styles.detailTitle}>{currentAlbum.title}</Text>
             <Text style={styles.detailSubtitle}>
-              {currentAlbum.songs.length} songs
+              {albumSongs.length} songs
             </Text>
 
             <View style={{ flexDirection: "row", gap: 12, marginTop: 16 }}>
-              {currentAlbum.songs.length > 0 ? (
+              {albumSongs.length > 0 ? (
                 <TouchableOpacity delayPressIn={0}
-                  onPress={() => playSong(currentAlbum.songs[0], currentAlbum.songs, true)}
+                  onPress={() => playSong(albumSongs[0], albumSongs, true)}
                   style={styles.playAllBtn}
                   activeOpacity={0.8}
                 >
@@ -236,7 +237,7 @@ export default function LibraryPage({ onRequireAuth, initialTab }: LibraryPagePr
             </View>
           </View>
 
-          {currentAlbum.songs.length === 0 ? (
+          {albumSongs.length === 0 ? (
             <LibraryEmpty
               icon="disc"
               title="This album is empty"
@@ -244,11 +245,11 @@ export default function LibraryPage({ onRequireAuth, initialTab }: LibraryPagePr
             />
           ) : (
             <View style={{ paddingBottom: 60 }}>
-              {currentAlbum.songs.map((song) => (
+              {albumSongs.map((song) => (
                 <SongRow
                   key={song.id}
                   song={song}
-                  queue={currentAlbum.songs}
+                  queue={albumSongs}
                   onRequireAuth={handleRequireAuth}
                   fromLibrary={true}
                 />

@@ -96,6 +96,19 @@ export function normalizeSongTitle(title: string, movie?: string, album?: string
   return s;
 }
 
+export function deduplicateSongs(songs: Song[]): Song[] {
+  if (!Array.isArray(songs)) return [];
+  const seen = new Set<string>();
+  return songs.filter((s) => {
+    if (!s || !s.title) return false;
+    const normKey = normalizeSongTitle(s.title, s.movie || s.album);
+    const key = normKey || s.title.toLowerCase().trim();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 // ─── Context ───────────────────────────────────────────────────────────────────
 
 const LibraryContext = createContext<LibraryContextType | undefined>(undefined);
@@ -105,13 +118,14 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const [likedSongs, setLikedSongs]           = useState<Song[]>([]);
   const likedSongsRef = useRef<Song[]>([]);
-  // Keep ref always in sync with state so memoized callbacks can read latest value
   likedSongsRef.current = likedSongs;
   const [recentlyPlayed, setRecentlyPlayed]   = useState<Song[]>([]);
   const [storedPlaylists, setStoredPlaylists] = useState<StoredPlaylist[]>([]);
   const [downloadedSongs, setDownloadedSongs] = useState<Song[]>([]);
   const [downloadingIds, setDownloadingIds]   = useState<string[]>([]);
   const [likedAlbums, setLikedAlbums]         = useState<AlbumData[]>([]);
+  const likedAlbumsRef = useRef<AlbumData[]>([]);
+  likedAlbumsRef.current = likedAlbums;
 
 
   // ── Single sequential liked-songs initializer ─────────────────────────────
@@ -584,9 +598,10 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const isAlbumLiked = useCallback(
     (album: AlbumData) => {
-      if (!album) return false;
-      return likedAlbums.some(
-        (a) => a.title.toLowerCase().trim() === album.title.toLowerCase().trim()
+      if (!album || !album.title) return false;
+      const targetTitle = album.title.toLowerCase().trim();
+      return likedAlbumsRef.current.some(
+        (a) => a.title && a.title.toLowerCase().trim() === targetTitle
       );
     },
     [likedAlbums]
@@ -594,18 +609,26 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const toggleLikeAlbum = useCallback(
     async (album: AlbumData) => {
-      if (!album) return;
+      if (!album || !album.title) return;
       try {
-        const raw = await AsyncStorage.getItem("rw_liked_albums");
-        const current: AlbumData[] = raw ? JSON.parse(raw) : [];
+        const current = likedAlbumsRef.current;
+        const targetTitle = album.title.toLowerCase().trim();
         const isLiked = current.some(
-          (a) => a.title.toLowerCase().trim() === album.title.toLowerCase().trim()
+          (a) => a.title && a.title.toLowerCase().trim() === targetTitle
         );
+
+        const cleanAlbum: AlbumData = {
+          ...album,
+          songs: deduplicateSongs(album.songs || []),
+        };
+
         const nextLiked = isLiked
-          ? current.filter((a) => a.title.toLowerCase().trim() !== album.title.toLowerCase().trim())
-          : [album, ...current];
-        await AsyncStorage.setItem("rw_liked_albums", JSON.stringify(nextLiked));
+          ? current.filter((a) => a.title && a.title.toLowerCase().trim() !== targetTitle)
+          : [cleanAlbum, ...current.filter((a) => a.title && a.title.toLowerCase().trim() !== targetTitle)];
+
+        likedAlbumsRef.current = nextLiked;
         setLikedAlbums(nextLiked);
+        await AsyncStorage.setItem("rw_liked_albums", JSON.stringify(nextLiked));
       } catch (err) {
         console.warn("Failed to toggle liked album:", err);
       }

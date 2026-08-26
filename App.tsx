@@ -7,6 +7,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Updates from "expo-updates";
 import * as SplashScreen from "expo-splash-screen";
 import TrackPlayer from "react-native-track-player";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { PlaybackService } from "./playbackService";
 
 // Prevent the splash screen from auto-hiding before storage is initialized
@@ -83,19 +84,27 @@ function AppContent() {
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
 
-  const [activeTab, setActiveTab] = useState<'Home' | 'Search' | 'Library'>('Home');
+  const [activeTab, setActiveTabState] = useState<'Home' | 'Search' | 'Library'>('Home');
   const navigationRef = useRef<any>(null);
   const appState = useRef(AppState.currentState);
 
-  // Reset navigation to Home when app is closed (backgrounded) and opened again (foregrounded)
+  // Load saved tab on mount
+  useEffect(() => {
+    AsyncStorage.getItem("rw_active_tab").then((savedTab) => {
+      if (savedTab === 'Home' || savedTab === 'Search' || savedTab === 'Library') {
+        setActiveTabState(savedTab);
+      }
+    }).catch(() => {});
+  }, []);
+
+  const setActiveTab = useCallback((tabName: 'Home' | 'Search' | 'Library') => {
+    setActiveTabState(tabName);
+    AsyncStorage.setItem("rw_active_tab", tabName).catch(() => {});
+  }, []);
+
+  // Track app state changes without resetting user tab location
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextAppState) => {
-      if (
-        appState.current.match(/inactive|background/) &&
-        nextAppState === "active"
-      ) {
-        setActiveTab("Home");
-      }
       appState.current = nextAppState;
     });
 

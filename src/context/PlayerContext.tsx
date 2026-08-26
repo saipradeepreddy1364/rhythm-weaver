@@ -20,7 +20,7 @@ import TrackPlayer, {
 } from "react-native-track-player";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Song, mapApiSong } from "../data/songs";
-import { api } from "../services/api";
+import { api, extractResults } from "../services/api";
 import { localStorage } from "../lib/storage";
 import { normalizeSongTitle } from "./LibraryContext";
 import * as FileSystem from "expo-file-system";
@@ -1412,15 +1412,39 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       if (repeatRef.current === "all") {
         await skipToReactIndex(0);
       } else if (repeatRef.current === "off") {
-        const seed = q[idx];
+        const seed = q[idx] || q[0];
         if (seed) {
           console.log("[PlayerContext] nextSongInternal: At queue end. Fetching and playing next recommendations...");
-          const newSongs = await fetchAndAppendRecommendations(seed);
-          if (newSongs && newSongs.length > 0) {
-            const newIdx = idx + 1;
-            if (newIdx < queueRef.current.length) {
-              await skipToReactIndex(newIdx);
+          let newSongs = await fetchAndAppendRecommendations(seed);
+          if (!newSongs || newSongs.length === 0) {
+            // Fallback: search for trending songs or shuffle existing queue
+            try {
+              const query = seed.artist || seed.language || "hit songs";
+              const res = await api.searchSongs(`${query} songs`, 1, 30);
+              const items = extractResults(res);
+              const fallbackMapped = items.map(mapApiSong).filter((s: Song) => s.audioUrl && s.id);
+              if (fallbackMapped.length > 0) {
+                const existingIds = new Set(queueRef.current.map((s: Song) => s.id));
+                const uniqueFallback = fallbackMapped.filter((s: Song) => !existingIds.has(s.id));
+                if (uniqueFallback.length > 0) {
+                  const updated = [...queueRef.current, ...uniqueFallback];
+                  setQueue(updated);
+                  const tracksToAdd = uniqueFallback.map((s: Song) => resolveTrack(s));
+                  await TrackPlayer.add(tracksToAdd);
+                }
+              }
+            } catch (err) {
+              console.warn("Fallback recommendation search error:", err);
             }
+          }
+
+          const currentLen = queueRef.current.length;
+          if (idx < currentLen - 1) {
+            await skipToReactIndex(idx + 1);
+          } else if (currentLen > 0) {
+            // Loop back or play random track from queue so music never stops
+            const randomIdx = Math.floor(Math.random() * currentLen);
+            await skipToReactIndex(randomIdx);
           }
         }
       }

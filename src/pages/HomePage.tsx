@@ -5,7 +5,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Song, mapApiSong } from "../data/songs";
 import { api, extractResults } from "../services/api";
 import { useAuth } from "../context/AuthContext";
-import { useLibrary, Playlist, normalizeSongTitle } from "../context/LibraryContext";
+import { useLibrary, Playlist, normalizeSongTitle, deduplicateSongs } from "../context/LibraryContext";
 import { usePlayer } from "../context/PlayerContext";
 import { SongRow } from "../components/SongRow";
 import { AuthModal } from "../components/AuthModal";
