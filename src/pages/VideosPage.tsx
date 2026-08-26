@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, TextInput, ActivityIndicator, Platform, Modal, Dimensions, DeviceEventEmitter } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, TextInput, ActivityIndicator, Platform, Modal, Dimensions, DeviceEventEmitter, Animated, PanResponder } from 'react-native'
 import React, { useState, useEffect, useRef } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { WebView } from "react-native-webview";
@@ -120,6 +120,26 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
   const [activeVideo, setActiveVideo] = useState<VideoItem | null>(null);
   const [isMinimized, setIsMinimized] = useState(false);
   const [selectedInstanceIndex, setSelectedInstanceIndex] = useState(0);
+
+  const pan = useRef(new Animated.ValueXY()).current;
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        pan.setOffset({
+          x: (pan.x as any)._value || 0,
+          y: (pan.y as any)._value || 0,
+        });
+      },
+      onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], {
+        useNativeDriver: false,
+      }),
+      onPanResponderRelease: () => {
+        pan.flattenOffset();
+      },
+    })
+  ).current;
 
   // Initial trending music videos load
   useEffect(() => {
@@ -276,14 +296,20 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
         </ScrollView>
       )}
 
-      {/* Persistent Single Video Player (Full Screen or Mini Floating PiP) */}
+      {/* Persistent Single Video Player (Full Screen or Mini Draggable PiP) */}
       {activeVideo && (
-        <View
+        <Animated.View
           style={
             isMinimized
-              ? styles.floatingPipContainer
+              ? [
+                  styles.floatingPipContainer,
+                  {
+                    transform: pan.getTranslateTransform(),
+                  },
+                ]
               : styles.fullScreenPlayerOverlay
           }
+          {...(isMinimized ? panResponder.panHandlers : {})}
         >
           {isMinimized ? (
             /* Mini Floating PiP Header & Controls */
@@ -340,7 +366,7 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
                 onPress={() => setIsMinimized(false)}
                 style={{ padding: 6 }}
               >
-                <MaterialCommunityIcons name="chevron-up" size={22} color="#fff" />
+                <MaterialCommunityIcons name="fullscreen" size={22} color="#fff" />
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -448,7 +474,7 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
               </ScrollView>
             </View>
           )}
-        </View>
+        </Animated.View>
       )}
     </View>
   );
@@ -698,29 +724,29 @@ const styles = StyleSheet.create({
   },
   floatingPipContainer: {
     position: "absolute",
-    bottom: Platform.OS === "ios" ? 75 : 65,
+    bottom: Platform.OS === "ios" ? 85 : 75,
     right: 12,
-    left: 12,
-    backgroundColor: "#1c1c1c",
-    borderRadius: 12,
+    width: width * 0.85,
+    backgroundColor: "#181818",
+    borderRadius: 14,
     padding: 6,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.5,
-    shadowRadius: 10,
-    elevation: 12,
-    borderWidth: 1,
-    borderColor: "rgba(29, 185, 84, 0.4)",
-    zIndex: 999,
+    shadowOpacity: 0.6,
+    shadowRadius: 12,
+    elevation: 16,
+    borderWidth: 1.5,
+    borderColor: "#1DB954",
+    zIndex: 9999,
   },
   pipContent: {
     flexDirection: "row",
     alignItems: "center",
   },
   pipVideoBox: {
-    width: 80,
-    height: 48,
-    borderRadius: 6,
+    width: 110,
+    height: 62,
+    borderRadius: 8,
     overflow: "hidden",
     backgroundColor: "#000",
   },

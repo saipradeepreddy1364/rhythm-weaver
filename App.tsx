@@ -283,8 +283,8 @@ function AppContent() {
         </Tab.Navigator>
       </NavigationContainer>
 
-      {/* Floating Mini Player (native version of MiniPlayer component) */}
-      {currentSong && <MiniPlayer onRequireAuth={handleRequireAuth} />}
+      {/* Floating Mini Player (hidden on Videos tab) */}
+      {currentSong && activeTab !== 'Videos' && <MiniPlayer onRequireAuth={handleRequireAuth} />}
 
       {/* Full screen overlay player (native version of FullPlayer component) */}
       {showPlayer && <FullPlayer onRequireAuth={handleRequireAuth} />}

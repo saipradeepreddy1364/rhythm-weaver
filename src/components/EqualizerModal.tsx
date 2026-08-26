@@ -9,6 +9,7 @@ import {
   Switch,
   Dimensions,
   Platform,
+  DeviceEventEmitter,
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -43,6 +44,7 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({ visible, onClose
   const [bands, setBands] = useState<number[]>([8, 6, 2, 0, 0]); // 5 bands: -10 to +10
   const [surroundEnabled, setSurroundEnabled] = useState<boolean>(true);
   const [eqEnabled, setEqEnabled] = useState<boolean>(true);
+  const [meterWidth, setMeterWidth] = useState<number>(0);
 
   // Load saved EQ settings on mount
   useEffect(() => {
@@ -75,6 +77,7 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({ visible, onClose
         "rw_eq_settings",
         JSON.stringify({ preset, bass, bands: b, surround, enabled })
       );
+      DeviceEventEmitter.emit("EQ_SETTINGS_CHANGED");
     } catch {}
   };
 
@@ -143,8 +146,23 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({ visible, onClose
                 <Text style={styles.sectionValue}>{bassLevel}%</Text>
               </View>
 
-              {/* Dynamic Bass Level Bar */}
-              <View style={styles.meterTrack}>
+              {/* Dynamic Bass Level Bar (Interactive Touch Slider) */}
+              <TouchableOpacity
+                delayPressIn={0}
+                activeOpacity={0.9}
+                disabled={!eqEnabled}
+                onLayout={(e) => setMeterWidth(e.nativeEvent.layout.width)}
+                onPress={(e) => {
+                  if (!eqEnabled) return;
+                  const touchX = e.nativeEvent.locationX;
+                  const w = meterWidth || (width - 64);
+                  const pct = Math.max(0, Math.min(100, Math.round((touchX / w) * 100)));
+                  setBassLevel(pct);
+                  setSelectedPreset("Custom");
+                  saveSettings("Custom", pct, bands, surroundEnabled, eqEnabled);
+                }}
+                style={styles.meterTrack}
+              >
                 <View
                   style={[
                     styles.meterFill,
@@ -152,7 +170,7 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({ visible, onClose
                     !eqEnabled && { backgroundColor: "#555" },
                   ]}
                 />
-              </View>
+              </TouchableOpacity>
 
               {/* Adjust Buttons */}
               <View style={styles.controlRow}>

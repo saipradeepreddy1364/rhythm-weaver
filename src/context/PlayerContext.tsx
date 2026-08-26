@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image, DeviceEventEmitter } from 'react-native'
 import React, {
   createContext,
   useContext,
@@ -1503,6 +1503,23 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     }
   }, [progress, skipToReactIndex, loadHistoryFromStorage, saveHistoryToStorage, playSong]);
 
+  const applyEQSettings = useCallback(async () => {
+    try {
+      const raw = await AsyncStorage.getItem("rw_eq_settings");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.enabled !== false) {
+          const bassBoost = ((parsed.bass || 0) / 100) * 0.5;
+          const bandBoost = (((parsed.bands?.[0] || 0) + (parsed.bands?.[1] || 0)) / 20) * 0.35;
+          const targetVol = Math.min(1.0, Math.max(0.3, volume * (1 + bassBoost + bandBoost)));
+          TrackPlayer.setVolume(targetVol).catch(() => {});
+        } else {
+          TrackPlayer.setVolume(volume).catch(() => {});
+        }
+      }
+    } catch {}
+  }, [volume]);
+
   // TrackPlayer Setup on mount
   useEffect(() => {
     let active = true;
@@ -1531,8 +1548,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           ],
         });
         await TrackPlayer.setVolume(volume);
+        applyEQSettings();
 
         if (active) {
+          const eqSub = DeviceEventEmitter.addListener("EQ_SETTINGS_CHANGED", applyEQSettings);
           queueEndedListener = TrackPlayer.addEventListener(
             Event.PlaybackQueueEnded,
             async (event) => {
