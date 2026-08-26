@@ -58,7 +58,12 @@ export function LikeButton({
     lg: 24,
   };
 
-  const handlePress = () => {
+  const handlePress = async () => {
+    animateHeart();
+    await toggleLike(song);
+  };
+
+  const handleLongPress = () => {
     animateHeart();
     setModalOpen(true);
   };
@@ -100,6 +105,7 @@ export function LikeButton({
     <View style={styles.wrapper}>
       <TouchableOpacity delayPressIn={0}
         onPress={handlePress}
+        onLongPress={handleLongPress}
         activeOpacity={0.7}
         style={styles.button}
       >

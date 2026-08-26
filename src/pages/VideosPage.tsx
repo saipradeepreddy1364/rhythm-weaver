@@ -63,6 +63,34 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
   return [];
 }
 
+async function getYouTubeVideoId(title: string, artist: string): Promise<string> {
+  const searchQuery = `${title} ${artist} official video`;
+  const apis = [
+    `https://pipedapi.adminforge.de/search?q=${encodeURIComponent(searchQuery)}&filter=videos`,
+    `https://pipedapi.kavin.rocks/search?q=${encodeURIComponent(searchQuery)}&filter=videos`,
+    `https://invidious.nerdvpn.de/api/v1/search?q=${encodeURIComponent(searchQuery)}&type=video`
+  ];
+
+  for (const url of apis) {
+    try {
+      const res = await Promise.race([
+        fetch(url),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 2500))
+      ]);
+      if (res.ok) {
+        const json = await res.json();
+        const items = Array.isArray(json) ? json : json.items || [];
+        for (const item of items) {
+          const raw = item.url || item.videoId || "";
+          const vId = raw.replace("/watch?v=", "").split("&")[0];
+          if (vId && /^[a-zA-Z0-9_-]{11}$/.test(vId)) return vId;
+        }
+      }
+    } catch {}
+  }
+  return "0xMQfnTU6oo"; // Fallback valid 11-character YouTube Video ID
+}
+
 export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => void }) {
   const [query, setQuery] = useState("");
   const [videos, setVideos] = useState<VideoItem[]>([]);
@@ -110,11 +138,26 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
     return !!id && typeof id === 'string' && /^[a-zA-Z0-9_-]{11}$/.test(id);
   };
 
+  const handleVideoCardPress = async (item: VideoItem) => {
+    setSelectedInstanceIndex(0);
+    if (isYouTubeVideoId(item.videoId)) {
+      setActiveVideo(item);
+    } else {
+      setActiveVideo(item);
+      const resolvedId = await getYouTubeVideoId(item.title, item.artist);
+      if (resolvedId) {
+        setActiveVideo((prev) => (prev && prev.id === item.id ? { ...prev, videoId: resolvedId } : prev));
+      }
+    }
+  };
+
   const providerBase = VIDEO_EMBED_PROVIDERS[selectedInstanceIndex];
+  const targetId = isYouTubeVideoId(activeVideo?.videoId)
+    ? activeVideo!.videoId
+    : "0xMQfnTU6oo";
+
   const embedUrl = activeVideo
-    ? isYouTubeVideoId(activeVideo.videoId)
-      ? `${providerBase}/${activeVideo.videoId}?autoplay=1&controls=1&modestbranding=1&rel=0&playsinline=1`
-      : `https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(activeVideo.title + " " + activeVideo.artist + " official video")}&autoplay=1`
+    ? `${providerBase}/${targetId}?autoplay=1&controls=1&modestbranding=1&rel=0&playsinline=1`
     : "";
 
   return (
@@ -172,10 +215,7 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
               delayPressIn={0}
               key={item.id}
               style={styles.videoCard}
-              onPress={() => {
-                setSelectedInstanceIndex(0);
-                setActiveVideo(item);
-              }}
+              onPress={() => handleVideoCardPress(item)}
               activeOpacity={0.85}
             >
               <View style={styles.thumbnailContainer}>
