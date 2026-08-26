@@ -28,6 +28,7 @@ import VideosPage from "./src/pages/VideosPage";
 import LibraryPage from "./src/pages/LibraryPage";
 import { MiniPlayer } from "./src/components/MiniPlayer";
 import { FullPlayer } from "./src/components/FullPlayer";
+import { EqualizerModal } from "./src/components/EqualizerModal";
 
 const Tab = createBottomTabNavigator();
 
@@ -214,6 +215,15 @@ function AppContent() {
     // Guest mode enabled - no auth required
   }, []);
 
+  const [showEqualizer, setShowEqualizer] = useState(false);
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener("OPEN_EQUALIZER_MODAL", () => {
+      setShowEqualizer(true);
+    });
+    return () => sub.remove();
+  }, []);
+
   // Listen to global tab navigation requests
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener("NAVIGATE_TO_TAB", (tabName: 'Home' | 'Search' | 'Videos' | 'Library') => {
@@ -288,6 +298,9 @@ function AppContent() {
 
       {/* Full screen overlay player (native version of FullPlayer component) */}
       {showPlayer && <FullPlayer onRequireAuth={handleRequireAuth} />}
+
+      {/* Global Sound Equalizer & Bass Adjuster Modal */}
+      <EqualizerModal visible={showEqualizer} onClose={() => setShowEqualizer(false)} />
 
       {/* Premium OTA Update Modal */}
       <Modal

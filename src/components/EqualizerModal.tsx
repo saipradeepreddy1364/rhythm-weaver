@@ -1,0 +1,506 @@
+import React, { useState, useEffect } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Modal,
+  ScrollView,
+  Switch,
+  Dimensions,
+  Platform,
+} from "react-native";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+const { width } = Dimensions.get("window");
+
+export interface EQPreset {
+  name: string;
+  bass: number; // 0 to 100
+  bands: number[]; // 5 bands: 60Hz, 230Hz, 910Hz, 4kHz, 14kHz (-10 to +10 dB)
+  surround: boolean;
+}
+
+export const EQ_PRESETS: EQPreset[] = [
+  { name: "Flat", bass: 0, bands: [0, 0, 0, 0, 0], surround: false },
+  { name: "Bass Booster", bass: 85, bands: [8, 6, 2, 0, 0], surround: true },
+  { name: "Electronic", bass: 70, bands: [6, 4, 0, 4, 6], surround: true },
+  { name: "Pop", bass: 50, bands: [2, 4, 6, 4, 2], surround: false },
+  { name: "Rock", bass: 65, bands: [5, 3, -1, 3, 5], surround: true },
+  { name: "Hip-Hop", bass: 90, bands: [7, 5, 1, 3, 4], surround: true },
+  { name: "Vocal", bass: 20, bands: [-2, 1, 6, 4, 1], surround: false },
+];
+
+interface EqualizerModalProps {
+  visible: boolean;
+  onClose: () => void;
+}
+
+export const EqualizerModal: React.FC<EqualizerModalProps> = ({ visible, onClose }) => {
+  const [selectedPreset, setSelectedPreset] = useState<string>("Bass Booster");
+  const [bassLevel, setBassLevel] = useState<number>(85); // 0 to 100
+  const [bands, setBands] = useState<number[]>([8, 6, 2, 0, 0]); // 5 bands: -10 to +10
+  const [surroundEnabled, setSurroundEnabled] = useState<boolean>(true);
+  const [eqEnabled, setEqEnabled] = useState<boolean>(true);
+
+  // Load saved EQ settings on mount
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const raw = await AsyncStorage.getItem("rw_eq_settings");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed.preset) setSelectedPreset(parsed.preset);
+          if (typeof parsed.bass === "number") setBassLevel(parsed.bass);
+          if (Array.isArray(parsed.bands)) setBands(parsed.bands);
+          if (typeof parsed.surround === "boolean") setSurroundEnabled(parsed.surround);
+          if (typeof parsed.enabled === "boolean") setEqEnabled(parsed.enabled);
+        }
+      } catch {}
+    };
+    loadSettings();
+  }, []);
+
+  // Save settings whenever changed
+  const saveSettings = async (
+    preset: string,
+    bass: number,
+    b: number[],
+    surround: boolean,
+    enabled: boolean
+  ) => {
+    try {
+      await AsyncStorage.setItem(
+        "rw_eq_settings",
+        JSON.stringify({ preset, bass, bands: b, surround, enabled })
+      );
+    } catch {}
+  };
+
+  const handleSelectPreset = (preset: EQPreset) => {
+    setSelectedPreset(preset.name);
+    setBassLevel(preset.bass);
+    setBands([...preset.bands]);
+    setSurroundEnabled(preset.surround);
+    saveSettings(preset.name, preset.bass, preset.bands, preset.surround, eqEnabled);
+  };
+
+  const handleBassChange = (delta: number) => {
+    const next = Math.max(0, Math.min(100, bassLevel + delta));
+    setBassLevel(next);
+    setSelectedPreset("Custom");
+    saveSettings("Custom", next, bands, surroundEnabled, eqEnabled);
+  };
+
+  const handleBandChange = (index: number, delta: number) => {
+    const nextBands = [...bands];
+    nextBands[index] = Math.max(-10, Math.min(10, nextBands[index] + delta));
+    setBands(nextBands);
+    setSelectedPreset("Custom");
+    saveSettings("Custom", bassLevel, nextBands, surroundEnabled, eqEnabled);
+  };
+
+  const bandLabels = ["60 Hz", "230 Hz", "910 Hz", "4 kHz", "14 kHz"];
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={styles.backdrop}>
+        <View style={styles.modalContent}>
+          {/* Header */}
+          <View style={styles.header}>
+            <View style={styles.titleRow}>
+              <MaterialCommunityIcons name="tune-vertical" size={24} color="#1DB954" style={{ marginRight: 8 }} />
+              <View>
+                <Text style={styles.title}>Sound Equalizer & Bass</Text>
+                <Text style={styles.subtitle}>Audio Enhancer & 3D Bass Boost</Text>
+              </View>
+            </View>
+
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <Switch
+                value={eqEnabled}
+                onValueChange={(val) => {
+                  setEqEnabled(val);
+                  saveSettings(selectedPreset, bassLevel, bands, surroundEnabled, val);
+                }}
+                trackColor={{ false: "#333", true: "rgba(29, 185, 84, 0.5)" }}
+                thumbColor={eqEnabled ? "#1DB954" : "#888"}
+                style={{ marginRight: 12 }}
+              />
+              <TouchableOpacity delayPressIn={0} onPress={onClose} style={styles.closeBtn} activeOpacity={0.7}>
+                <MaterialCommunityIcons name="close" size={22} color="#fff" />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
+            {/* 1. Bass Booster Meter */}
+            <View style={styles.sectionCard}>
+              <View style={styles.sectionHeaderRow}>
+                <MaterialCommunityIcons name="speaker" size={20} color="#1DB954" style={{ marginRight: 6 }} />
+                <Text style={styles.sectionTitle}>Bass Boost Controller</Text>
+                <Text style={styles.sectionValue}>{bassLevel}%</Text>
+              </View>
+
+              {/* Dynamic Bass Level Bar */}
+              <View style={styles.meterTrack}>
+                <View
+                  style={[
+                    styles.meterFill,
+                    { width: `${bassLevel}%` },
+                    !eqEnabled && { backgroundColor: "#555" },
+                  ]}
+                />
+              </View>
+
+              {/* Adjust Buttons */}
+              <View style={styles.controlRow}>
+                <TouchableOpacity
+                  delayPressIn={0}
+                  onPress={() => handleBassChange(-10)}
+                  style={styles.adjustBtn}
+                  disabled={!eqEnabled}
+                  activeOpacity={0.7}
+                >
+                  <MaterialCommunityIcons name="minus" size={20} color={eqEnabled ? "#fff" : "#555"} />
+                </TouchableOpacity>
+
+                <View style={styles.bassPresetBadges}>
+                  {[0, 30, 65, 85, 100].map((level) => (
+                    <TouchableOpacity
+                      delayPressIn={0}
+                      key={level}
+                      onPress={() => {
+                        setBassLevel(level);
+                        setSelectedPreset("Custom");
+                        saveSettings("Custom", level, bands, surroundEnabled, eqEnabled);
+                      }}
+                      style={[
+                        styles.badgeBtn,
+                        bassLevel === level && styles.activeBadgeBtn,
+                      ]}
+                      disabled={!eqEnabled}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.badgeText, bassLevel === level && styles.activeBadgeText]}>
+                        {level === 0 ? "Off" : level === 100 ? "MAX" : `${level}%`}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <TouchableOpacity
+                  delayPressIn={0}
+                  onPress={() => handleBassChange(10)}
+                  style={styles.adjustBtn}
+                  disabled={!eqEnabled}
+                  activeOpacity={0.7}
+                >
+                  <MaterialCommunityIcons name="plus" size={20} color={eqEnabled ? "#fff" : "#555"} />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* 2. 5-Band Equalizer */}
+            <View style={styles.sectionCard}>
+              <View style={styles.sectionHeaderRow}>
+                <MaterialCommunityIcons name="equalizer" size={20} color="#1DB954" style={{ marginRight: 6 }} />
+                <Text style={styles.sectionTitle}>5-Band Frequency Response</Text>
+              </View>
+
+              <View style={styles.bandsContainer}>
+                {bandLabels.map((label, idx) => (
+                  <View key={label} style={styles.bandCol}>
+                    <Text style={styles.bandDbText}>
+                      {bands[idx] > 0 ? `+${bands[idx]}` : bands[idx]}dB
+                    </Text>
+
+                    <TouchableOpacity
+                      delayPressIn={0}
+                      onPress={() => handleBandChange(idx, 1)}
+                      style={styles.bandBtn}
+                      disabled={!eqEnabled}
+                      activeOpacity={0.7}
+                    >
+                      <MaterialCommunityIcons name="chevron-up" size={20} color={eqEnabled ? "#1DB954" : "#555"} />
+                    </TouchableOpacity>
+
+                    {/* Band Visual Slider Track */}
+                    <View style={styles.bandTrack}>
+                      <View
+                        style={[
+                          styles.bandThumb,
+                          { bottom: `${((bands[idx] + 10) / 20) * 80}%` },
+                          !eqEnabled && { backgroundColor: "#555" },
+                        ]}
+                      />
+                    </View>
+
+                    <TouchableOpacity
+                      delayPressIn={0}
+                      onPress={() => handleBandChange(idx, -1)}
+                      style={styles.bandBtn}
+                      disabled={!eqEnabled}
+                      activeOpacity={0.7}
+                    >
+                      <MaterialCommunityIcons name="chevron-down" size={20} color={eqEnabled ? "#1DB954" : "#555"} />
+                    </TouchableOpacity>
+
+                    <Text style={styles.bandLabelText}>{label}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+
+            {/* 3. 3D Surround Sound Toggle */}
+            <View style={styles.sectionCard}>
+              <View style={styles.surroundRow}>
+                <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
+                  <MaterialCommunityIcons name="surround-sound" size={24} color="#1DB954" style={{ marginRight: 10 }} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.surroundTitle}>3D Surround & Spatial Audio</Text>
+                    <Text style={styles.surroundSub}>Immersive headphone sound stage</Text>
+                  </View>
+                </View>
+                <Switch
+                  value={surroundEnabled && eqEnabled}
+                  disabled={!eqEnabled}
+                  onValueChange={(val) => {
+                    setSurroundEnabled(val);
+                    saveSettings(selectedPreset, bassLevel, bands, val, eqEnabled);
+                  }}
+                  trackColor={{ false: "#333", true: "rgba(29, 185, 84, 0.5)" }}
+                  thumbColor={surroundEnabled && eqEnabled ? "#1DB954" : "#888"}
+                />
+              </View>
+            </View>
+
+            {/* 4. EQ Presets */}
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionTitle}>Equalizer Presets</Text>
+              <View style={styles.presetGrid}>
+                {EQ_PRESETS.map((preset) => (
+                  <TouchableOpacity
+                    delayPressIn={0}
+                    key={preset.name}
+                    onPress={() => handleSelectPreset(preset)}
+                    disabled={!eqEnabled}
+                    style={[
+                      styles.presetChip,
+                      selectedPreset === preset.name && styles.activePresetChip,
+                    ]}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.presetText, selectedPreset === preset.name && styles.activePresetText]}>
+                      {preset.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+const styles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.75)",
+    justifyContent: "flex-end",
+  },
+  modalContent: {
+    backgroundColor: "#121212",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: "88%",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "#181818",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+  },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  title: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#fff",
+  },
+  subtitle: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.5)",
+  },
+  closeBtn: {
+    padding: 4,
+  },
+  body: {
+    flex: 1,
+  },
+  bodyContent: {
+    padding: 16,
+    gap: 14,
+  },
+  sectionCard: {
+    backgroundColor: "#1a1a1a",
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.06)",
+  },
+  sectionHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+    flex: 1,
+  },
+  sectionValue: {
+    color: "#1DB954",
+    fontSize: 14,
+    fontWeight: "bold",
+  },
+  meterTrack: {
+    width: "100%",
+    height: 10,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: 5,
+    overflow: "hidden",
+    marginBottom: 12,
+  },
+  meterFill: {
+    height: "100%",
+    backgroundColor: "#1DB954",
+    borderRadius: 5,
+  },
+  controlRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  adjustBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  bassPresetBadges: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  badgeBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.06)",
+  },
+  activeBadgeBtn: {
+    backgroundColor: "#1DB954",
+  },
+  badgeText: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  activeBadgeText: {
+    color: "#000",
+    fontWeight: "bold",
+  },
+  bandsContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingTop: 8,
+  },
+  bandCol: {
+    alignItems: "center",
+    flex: 1,
+  },
+  bandDbText: {
+    color: "#1DB954",
+    fontSize: 11,
+    fontWeight: "bold",
+    marginBottom: 4,
+  },
+  bandBtn: {
+    padding: 2,
+  },
+  bandTrack: {
+    width: 6,
+    height: 80,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: 3,
+    position: "relative",
+    marginVertical: 4,
+  },
+  bandThumb: {
+    position: "absolute",
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: "#1DB954",
+    left: -4,
+  },
+  bandLabelText: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 10,
+    marginTop: 4,
+  },
+  surroundRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  surroundTitle: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  surroundSub: {
+    color: "rgba(255,255,255,0.4)",
+    fontSize: 11,
+    marginTop: 2,
+  },
+  presetGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 10,
+  },
+  presetChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.06)",
+  },
+  activePresetChip: {
+    backgroundColor: "#1DB954",
+  },
+  presetText: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 12,
+    fontWeight: "500",
+  },
+  activePresetText: {
+    color: "#000",
+    fontWeight: "bold",
+  },
+});

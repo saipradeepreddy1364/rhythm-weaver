@@ -874,6 +874,10 @@ function AlbumModal({
             </Text>
           </View>
 
+          <TouchableOpacity delayPressIn={0} onPress={() => DeviceEventEmitter.emit("OPEN_EQUALIZER_MODAL")} style={[modalStyles.backBtn, { marginRight: 8 }]} activeOpacity={0.7}>
+            <MaterialCommunityIcons name="equalizer" size={20} color="#1DB954" />
+          </TouchableOpacity>
+
           <TouchableOpacity delayPressIn={0} onPress={handleLikePress} style={[modalStyles.backBtn, { marginRight: 12 }]} activeOpacity={0.7}>
             <MaterialCommunityIcons
               name={isLiked ? "heart" : "heart-outline"}
@@ -1542,11 +1546,11 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
 
           <View style={styles.headerRight}>
             <TouchableOpacity delayPressIn={0}
-              onPress={() => setShowSettingsModal(true)}
+              onPress={() => DeviceEventEmitter.emit("OPEN_EQUALIZER_MODAL")}
               style={styles.settingsBtn}
               activeOpacity={0.7}
             >
-              <MaterialCommunityIcons name="equalizer" size={22} color="#fff" />
+              <MaterialCommunityIcons name="equalizer" size={22} color="#1DB954" />
             </TouchableOpacity>
           </View>
         </View>

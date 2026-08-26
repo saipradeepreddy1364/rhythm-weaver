@@ -341,14 +341,25 @@ export default function LibraryPage({ onRequireAuth, initialTab }: LibraryPagePr
       <View style={styles.header}>
         <Text style={styles.dashboardTitle}>Your Library</Text>
 
-        <TouchableOpacity
-          delayPressIn={0}
-          onPress={() => (global as any).triggerOTAUpdateModal?.()}
-          style={{ marginRight: 12, padding: 8 }}
-          activeOpacity={0.7}
-        >
-          <MaterialCommunityIcons name="cloud-refresh" size={22} color="#fff" />
-        </TouchableOpacity>
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <TouchableOpacity
+            delayPressIn={0}
+            onPress={() => DeviceEventEmitter.emit("OPEN_EQUALIZER_MODAL")}
+            style={{ marginRight: 12, padding: 6 }}
+            activeOpacity={0.7}
+          >
+            <MaterialCommunityIcons name="equalizer" size={22} color="#1DB954" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            delayPressIn={0}
+            onPress={() => (global as any).triggerOTAUpdateModal?.()}
+            style={{ padding: 6 }}
+            activeOpacity={0.7}
+          >
+            <MaterialCommunityIcons name="cloud-refresh" size={22} color="#fff" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Tabs */}

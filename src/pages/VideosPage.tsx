@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, TextInput, ActivityIndicator, Platform, Modal, Dimensions } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, TextInput, ActivityIndicator, Platform, Modal, Dimensions, DeviceEventEmitter } from 'react-native'
 import React, { useState, useEffect, useRef } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { WebView } from "react-native-webview";
@@ -118,6 +118,7 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeVideo, setActiveVideo] = useState<VideoItem | null>(null);
+  const [isMinimized, setIsMinimized] = useState(false);
   const [selectedInstanceIndex, setSelectedInstanceIndex] = useState(0);
 
   // Initial trending music videos load
@@ -169,6 +170,7 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
 
   const handleVideoCardPress = async (item: VideoItem) => {
     setSelectedInstanceIndex(0);
+    setIsMinimized(false);
     if (isYouTubeVideoId(item.videoId)) {
       setActiveVideo(item);
     } else {
@@ -192,8 +194,18 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Music Videos</Text>
-        <Text style={styles.headerSubtitle}>Watch in-app videos</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.headerTitle}>Music Videos</Text>
+          <Text style={styles.headerSubtitle}>Watch in-app videos</Text>
+        </View>
+        <TouchableOpacity
+          delayPressIn={0}
+          onPress={() => DeviceEventEmitter.emit("OPEN_EQUALIZER_MODAL")}
+          style={{ padding: 6 }}
+          activeOpacity={0.7}
+        >
+          <MaterialCommunityIcons name="equalizer" size={22} color="#1DB954" />
+        </TouchableOpacity>
       </View>
 
       {/* Search Input */}
@@ -266,22 +278,25 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
 
       {/* In-App Clean Video Player Modal */}
       <Modal
-        visible={!!activeVideo}
+        visible={!!activeVideo && !isMinimized}
         animationType="slide"
         transparent={false}
-        onRequestClose={() => setActiveVideo(null)}
+        onRequestClose={() => setIsMinimized(true)}
       >
         {activeVideo && (
           <View style={styles.modalContainer}>
             {/* Modal Header */}
             <View style={styles.modalHeader}>
-              <TouchableOpacity delayPressIn={0} onPress={() => setActiveVideo(null)} style={styles.closeBtn}>
-                <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
+              <TouchableOpacity delayPressIn={0} onPress={() => setIsMinimized(true)} style={styles.closeBtn}>
+                <MaterialCommunityIcons name="chevron-down" size={28} color="#fff" />
               </TouchableOpacity>
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={styles.modalVideoTitle} numberOfLines={1}>{activeVideo.title}</Text>
                 <Text style={styles.modalVideoArtist} numberOfLines={1}>{activeVideo.artist}</Text>
               </View>
+              <TouchableOpacity delayPressIn={0} onPress={() => { setActiveVideo(null); setIsMinimized(false); }} style={styles.closeBtn}>
+                <MaterialCommunityIcons name="close" size={22} color="#fff" />
+              </TouchableOpacity>
             </View>
 
             {/* In-App Video Player Box */}
@@ -330,7 +345,7 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
               )}
             </View>
 
-            {/* Video Info & Fallback Switcher */}
+            {/* Video Info & Up Next Songs */}
             <ScrollView style={styles.modalBody} contentContainerStyle={{ padding: 16 }}>
               <Text style={styles.infoHeading}>{activeVideo.title}</Text>
               <Text style={styles.infoSub}>{activeVideo.artist}</Text>
@@ -343,10 +358,94 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
                 <MaterialCommunityIcons name="swap-horizontal" size={18} color="#fff" style={{ marginRight: 8 }} />
                 <Text style={styles.switchInstanceText}>If video doesn't play, tap to Switch Server ({selectedInstanceIndex + 1}/{VIDEO_EMBED_PROVIDERS.length})</Text>
               </TouchableOpacity>
+
+              {/* Up Next / Related Songs List */}
+              <View style={styles.upNextSection}>
+                <Text style={styles.upNextTitle}>Up Next / Related Songs</Text>
+                {videos
+                  .filter((v) => v.id !== activeVideo.id)
+                  .map((item) => (
+                    <TouchableOpacity
+                      delayPressIn={0}
+                      key={item.id}
+                      style={styles.upNextCard}
+                      onPress={() => handleVideoCardPress(item)}
+                      activeOpacity={0.8}
+                    >
+                      <Image source={{ uri: item.thumbnail }} style={styles.upNextThumb} />
+                      <View style={styles.upNextMeta}>
+                        <Text style={styles.upNextSongTitle} numberOfLines={2}>{item.title}</Text>
+                        <Text style={styles.upNextSongArtist} numberOfLines={1}>{item.artist}</Text>
+                      </View>
+                      <MaterialCommunityIcons name="play-circle-outline" size={24} color="#1DB954" />
+                    </TouchableOpacity>
+                  ))}
+              </View>
             </ScrollView>
           </View>
         )}
       </Modal>
+
+      {/* Floating Mini PiP Video Player Window */}
+      {activeVideo && isMinimized && (
+        <TouchableOpacity
+          delayPressIn={0}
+          activeOpacity={0.9}
+          onPress={() => setIsMinimized(false)}
+          style={styles.floatingPipContainer}
+        >
+          <View style={styles.pipContent}>
+            <View style={styles.pipVideoBox}>
+              <WebView
+                key={`pip_${activeVideo.videoId}_${selectedInstanceIndex}`}
+                source={{
+                  html: `
+                    <!DOCTYPE html>
+                    <html>
+                      <head>
+                        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                        <style>
+                          * { box-sizing: border-box; margin: 0; padding: 0; }
+                          body, html { background-color: #000; width: 100%; height: 100%; overflow: hidden; }
+                          iframe { width: 100%; height: 100%; border: none; }
+                        </style>
+                      </head>
+                      <body>
+                        <iframe src="${embedUrl}" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+                      </body>
+                    </html>
+                  `,
+                  baseUrl: "https://www.google.com",
+                }}
+                style={{ flex: 1, backgroundColor: "#000" }}
+                javaScriptEnabled={true}
+                domStorageEnabled={true}
+              />
+            </View>
+
+            <View style={styles.pipMeta}>
+              <Text style={styles.pipTitle} numberOfLines={1}>{activeVideo.title}</Text>
+              <Text style={styles.pipArtist} numberOfLines={1}>{activeVideo.artist}</Text>
+            </View>
+
+            <TouchableOpacity
+              delayPressIn={0}
+              onPress={() => setIsMinimized(false)}
+              style={{ padding: 4 }}
+            >
+              <MaterialCommunityIcons name="chevron-up" size={22} color="#fff" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              delayPressIn={0}
+              onPress={() => { setActiveVideo(null); setIsMinimized(false); }}
+              style={{ padding: 4, marginLeft: 4 }}
+            >
+              <MaterialCommunityIcons name="close" size={20} color="#fff" />
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -544,5 +643,91 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 12,
     fontWeight: "600",
+  },
+  upNextSection: {
+    marginTop: 24,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.08)",
+  },
+  upNextTitle: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "bold",
+    marginBottom: 14,
+  },
+  upNextCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#181818",
+    borderRadius: 10,
+    padding: 8,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.05)",
+  },
+  upNextThumb: {
+    width: 90,
+    height: 54,
+    borderRadius: 6,
+    backgroundColor: "#000",
+  },
+  upNextMeta: {
+    flex: 1,
+    marginLeft: 12,
+    marginRight: 8,
+  },
+  upNextSongTitle: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  upNextSongArtist: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 11,
+    marginTop: 2,
+  },
+  floatingPipContainer: {
+    position: "absolute",
+    bottom: Platform.OS === "ios" ? 75 : 65,
+    right: 12,
+    left: 12,
+    backgroundColor: "#1c1c1c",
+    borderRadius: 12,
+    padding: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
+    elevation: 12,
+    borderWidth: 1,
+    borderColor: "rgba(29, 185, 84, 0.4)",
+    zIndex: 999,
+  },
+  pipContent: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  pipVideoBox: {
+    width: 80,
+    height: 48,
+    borderRadius: 6,
+    overflow: "hidden",
+    backgroundColor: "#000",
+  },
+  pipMeta: {
+    flex: 1,
+    marginLeft: 10,
+    marginRight: 6,
+  },
+  pipTitle: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "bold",
+  },
+  pipArtist: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 11,
+    marginTop: 2,
   },
 });

@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image, Modal, ActivityIndicator, Dimensions, Platform } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image, Modal, ActivityIndicator, Dimensions, Platform, DeviceEventEmitter } from 'react-native'
 import React, { useState, useEffect, useRef } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Song, mapApiSong } from "../data/songs";
@@ -1131,7 +1131,12 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Search</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <Text style={styles.headerTitle}>Search</Text>
+          <TouchableOpacity delayPressIn={0} onPress={() => DeviceEventEmitter.emit("OPEN_EQUALIZER_MODAL")} activeOpacity={0.7} style={{ padding: 4 }}>
+            <MaterialCommunityIcons name="equalizer" size={22} color="#1DB954" />
+          </TouchableOpacity>
+        </View>
 
         {/* Search TextInput Input bar */}
         <View style={styles.searchBar}>
