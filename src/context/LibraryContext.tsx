@@ -443,15 +443,20 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   // ── Like / Unlike ─────────────────────────────────────────────────────────────
 
+  const isSongMatch = (a: Song, b: Song) => {
+    if (!a || !b) return false;
+    if (a.id && b.id && String(a.id) === String(b.id)) return true;
+    const aTitle = (a.title || "").toLowerCase().trim();
+    const bTitle = (b.title || "").toLowerCase().trim();
+    const aArtist = (a.artist || "").toLowerCase().trim();
+    const bArtist = (b.artist || "").toLowerCase().trim();
+    return aTitle.length > 0 && aTitle === bTitle && (aArtist === bArtist || !aArtist || !bArtist);
+  };
+
   const isLiked = useCallback(
     (song: Song) => {
       if (!song) return false;
-      const queryNorm = normalizeSongTitle(song.title, song.movie || song.album);
-      return likedSongsRef.current.some((s) => {
-        if (String(s.id) === String(song.id)) return true;
-        const sNorm = normalizeSongTitle(s.title, s.movie || s.album);
-        return sNorm && queryNorm && sNorm === queryNorm;
-      });
+      return likedSongsRef.current.some((s) => isSongMatch(s, song));
     },
     [likedSongs]
   );
@@ -460,28 +465,13 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     async (song: Song) => {
       if (!song) return;
       try {
-        // Read from ref — always the latest, even mid-render or rapid calls
         const current = likedSongsRef.current;
-        const queryNorm = normalizeSongTitle(song.title, song.movie || song.album);
-        const matched = current.filter((s) => {
-          if (String(s.id) === String(song.id)) return true;
-          const sNorm = normalizeSongTitle(s.title, s.movie || s.album);
-          return sNorm && queryNorm && sNorm === queryNorm;
-        });
-        const liked = matched.length > 0;
+        const liked = current.some((s) => isSongMatch(s, song));
         const nextLiked = liked
-          ? current.filter((s) => {
-              if (String(s.id) === String(song.id)) return false;
-              const sNorm = normalizeSongTitle(s.title, s.movie || s.album);
-              return !(sNorm && queryNorm && sNorm === queryNorm);
-            })
-          : [song, ...current];
+          ? current.filter((s) => !isSongMatch(s, song))
+          : [song, ...current.filter((s) => !isSongMatch(s, song))];
 
-        // ⚡ Update ref immediately so back-to-back calls see the new list
-        // even if React hasn't re-rendered yet
         likedSongsRef.current = nextLiked;
-
-        // Optimistic state update (instant UI), then persist to AsyncStorage
         setLikedSongs(nextLiked);
         await AsyncStorage.setItem("rw_liked_songs", JSON.stringify(nextLiked));
       } catch (err) {

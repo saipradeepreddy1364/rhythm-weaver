@@ -17,13 +17,11 @@ interface VideoItem {
 }
 
 // ─── Piped / Invidious Embed Helper ──────────────────────────────────────────
-// Piped & Invidious instances bypass YouTube CORS/ad-blocks and play in-app seamlessly
-const PIPED_EMBED_INSTANCES = [
+// Clean Video Embed Providers
+const VIDEO_EMBED_PROVIDERS = [
+  "https://www.youtube-nocookie.com/embed",
   "https://piped.video/embed",
-  "https://inv.tux.pizza/embed",
-  "https://invidious.privacydev.net/embed",
-  "https://invidious.nerdvpn.de/embed",
-  "https://inv.riverside.rocks/embed"
+  "https://inv.tux.pizza/embed"
 ];
 
 export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => void }) {
@@ -68,8 +66,11 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
     fetchTrendingVideos(`${query.trim()} video song`);
   };
 
+  const providerBase = VIDEO_EMBED_PROVIDERS[selectedInstanceIndex];
   const embedUrl = activeVideo
-    ? `${PIPED_EMBED_INSTANCES[selectedInstanceIndex]}/${activeVideo.videoId}?autoplay=1&controls=1`
+    ? providerBase.includes("youtube-nocookie.com")
+      ? `${providerBase}/${activeVideo.videoId}?autoplay=1&controls=1&modestbranding=1&rel=0&playsinline=1`
+      : `${providerBase}/${activeVideo.videoId}?autoplay=1&controls=1`
     : "";
 
   return (
@@ -77,7 +78,7 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Music Videos</Text>
-        <Text style={styles.headerSubtitle}>Watch in-app ad-free videos</Text>
+        <Text style={styles.headerSubtitle}>Watch in-app videos</Text>
       </View>
 
       {/* Search Input */}
@@ -127,7 +128,10 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
               delayPressIn={0}
               key={item.id}
               style={styles.videoCard}
-              onPress={() => setActiveVideo(item)}
+              onPress={() => {
+                setSelectedInstanceIndex(0);
+                setActiveVideo(item);
+              }}
               activeOpacity={0.85}
             >
               <View style={styles.thumbnailContainer}>
@@ -148,7 +152,7 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
         </ScrollView>
       )}
 
-      {/* In-App Video Player Modal powered by Piped/Invidious */}
+      {/* In-App Clean Video Player Modal */}
       <Modal
         visible={!!activeVideo}
         animationType="slide"
@@ -168,7 +172,7 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
               </View>
             </View>
 
-            {/* In-App Piped Video Stream WebView Player */}
+            {/* In-App Video Player Box */}
             <View style={styles.videoPlayerBox}>
               <WebView
                 source={{ uri: embedUrl }}
@@ -177,33 +181,26 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
                 mediaPlaybackRequiresUserAction={false}
                 javaScriptEnabled={true}
                 domStorageEnabled={true}
+                injectedJavaScript={`
+                  const hideElements = () => {
+                    const nav = document.querySelector('header, nav, .navbar, #navbar, .piped-header, .site-header');
+                    if (nav) nav.style.display = 'none';
+                  };
+                  hideElements();
+                  setTimeout(hideElements, 1000);
+                  setTimeout(hideElements, 2000);
+                  true;
+                `}
                 onError={() => {
-                  // Fallback to next Piped/Invidious instance if blocked
-                  setSelectedInstanceIndex((prev) => (prev + 1) % PIPED_EMBED_INSTANCES.length);
+                  setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length);
                 }}
               />
             </View>
 
-            {/* Video Info & Server Switcher */}
+            {/* Video Info */}
             <ScrollView style={styles.modalBody} contentContainerStyle={{ padding: 16 }}>
               <Text style={styles.infoHeading}>{activeVideo.title}</Text>
               <Text style={styles.infoSub}>{activeVideo.artist}</Text>
-
-              <View style={styles.instanceNotice}>
-                <MaterialCommunityIcons name="shield-check" size={16} color="#1DB954" style={{ marginRight: 6 }} />
-                <Text style={styles.instanceNoticeText}>
-                  Streaming via ad-free Piped/Invidious proxy node.
-                </Text>
-              </View>
-
-              <TouchableOpacity
-                delayPressIn={0}
-                style={styles.switchInstanceBtn}
-                onPress={() => setSelectedInstanceIndex((prev) => (prev + 1) % PIPED_EMBED_INSTANCES.length)}
-              >
-                <MaterialCommunityIcons name="swap-horizontal" size={18} color="#fff" style={{ marginRight: 8 }} />
-                <Text style={styles.switchInstanceText}>Switch Server Proxy Node ({selectedInstanceIndex + 1}/{PIPED_EMBED_INSTANCES.length})</Text>
-              </TouchableOpacity>
             </ScrollView>
           </View>
         )}
