@@ -67,12 +67,7 @@ export default function LibraryPage({ onRequireAuth, initialTab }: LibraryPagePr
     checkConn();
   }, []);
 
-  // Switch to downloads tab automatically when offline
-  useEffect(() => {
-    if (isOffline) {
-      setTab("downloads");
-    }
-  }, [isOffline]);
+  // Keep initialTab / liked tab as default so user always sees local storage liked songs & folders
 
   // Listen for explicit "go to downloads" navigation from other screens
   useEffect(() => {

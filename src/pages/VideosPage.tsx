@@ -238,7 +238,7 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
                       </body>
                     </html>
                   `,
-                  baseUrl: "https://www.youtube.com",
+                  baseUrl: "https://www.google.com",
                 }}
                 style={{ flex: 1, backgroundColor: "#000" }}
                 allowsFullscreenVideo={true}

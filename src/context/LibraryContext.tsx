@@ -183,6 +183,17 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         }
       } catch {}
       setLikedAlbums(parsedAlbums);
+
+      // Step 5: Load custom playlists / folders
+      const rawPlaylists = await AsyncStorage.getItem("rw_playlists");
+      let parsedPlaylists = [];
+      try {
+        if (rawPlaylists) {
+          const val = JSON.parse(rawPlaylists);
+          if (Array.isArray(val)) parsedPlaylists = val;
+        }
+      } catch {}
+      setStoredPlaylists(parsedPlaylists);
     } catch (err) {
       console.warn("initLikedSongs failed:", err);
       setLikedSongs([]);
