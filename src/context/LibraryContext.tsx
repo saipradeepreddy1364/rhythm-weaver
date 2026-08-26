@@ -98,13 +98,18 @@ export function normalizeSongTitle(title: string, movie?: string, album?: string
 
 export function deduplicateSongs(songs: Song[]): Song[] {
   if (!Array.isArray(songs)) return [];
-  const seen = new Set<string>();
+  const seenIds = new Set<string>();
+  const seenTitleArtist = new Set<string>();
   return songs.filter((s) => {
     if (!s || !s.title) return false;
-    const normKey = normalizeSongTitle(s.title, s.movie || s.album);
-    const key = normKey || s.title.toLowerCase().trim();
-    if (seen.has(key)) return false;
-    seen.add(key);
+    const idKey = s.id ? String(s.id).trim() : "";
+    if (idKey && seenIds.has(idKey)) return false;
+
+    const exactTitleArtist = `${s.title.toLowerCase().trim()}___${(s.artist || '').toLowerCase().trim()}`;
+    if (seenTitleArtist.has(exactTitleArtist)) return false;
+
+    if (idKey) seenIds.add(idKey);
+    seenTitleArtist.add(exactTitleArtist);
     return true;
   });
 }

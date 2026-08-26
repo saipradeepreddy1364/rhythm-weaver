@@ -23,6 +23,19 @@ export function formatDuration(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+export function decodeHtmlEntities(str: string): string {
+  if (!str || typeof str !== "string") return "";
+  return str
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, " ");
+}
+
 /**
  * Maps any API song object to our Song interface.
  * Handles both JioSaavn API v2 shapes and any backend wrapper variations.

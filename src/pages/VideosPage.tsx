@@ -2,7 +2,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, TextInput,
 import React, { useState, useEffect, useRef } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { WebView } from "react-native-webview";
-import { Song, mapApiSong } from "../data/songs";
+import { Song, mapApiSong, decodeHtmlEntities } from "../data/songs";
 import { api, extractResults } from "../services/api";
 
 const { width } = Dimensions.get("window");
@@ -128,22 +128,29 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
   const fetchTrendingVideos = async (searchQuery: string) => {
     setLoading(true);
     try {
-      // Fast, reliable backend search
-      const res = await api.searchSongs(`${searchQuery}`, 1, 30);
+      // Fast, reliable backend search with strict title deduplication
+      const res = await api.searchSongs(`${searchQuery}`, 1, 40);
       const items = extractResults(res);
-      const mapped: VideoItem[] = items.map((item: any) => {
+      const seenTitles = new Set<string>();
+      const deduppedMapped: VideoItem[] = [];
+
+      for (const item of items) {
         const song = mapApiSong(item);
+        const titleKey = (song.title || '').toLowerCase().trim();
+        if (!titleKey || seenTitles.has(titleKey)) continue;
+        seenTitles.add(titleKey);
+
         const ytId = item.id?.startsWith("yt-") ? item.id.replace("yt-", "") : "";
-        return {
+        deduppedMapped.push({
           id: song.id,
           videoId: ytId,
-          title: song.title,
-          artist: song.artist,
+          title: decodeHtmlEntities(song.title),
+          artist: decodeHtmlEntities(song.artist),
           thumbnail: song.albumArt || `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`,
           duration: song.duration,
-        };
-      });
-      setVideos(mapped);
+        });
+      }
+      setVideos(deduppedMapped);
     } catch (err) {
       console.warn("Failed to fetch videos:", err);
     } finally {
@@ -494,8 +501,9 @@ const styles = StyleSheet.create({
   },
   videoPlayerBox: {
     width: "100%",
-    height: 230,
+    height: Math.round(width * (9 / 16)),
     backgroundColor: "#000",
+    overflow: "hidden",
   },
   modalBody: {
     flex: 1,
