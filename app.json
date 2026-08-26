@@ -27,6 +27,7 @@
       },
       "backgroundColor": "#0d0d0d",
       "package": "com.medley.app",
+      "supportsPictureInPicture": true,
       "permissions": [
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_MEDIA_PLAYBACK",

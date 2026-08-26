@@ -188,6 +188,7 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
   const [activeVideo, setActiveVideo] = useState<VideoItem | null>(null);
   const [isMinimized, setIsMinimized] = useState(false);
   const [selectedInstanceIndex, setSelectedInstanceIndex] = useState(0);
+  const [isVideoBlocked, setIsVideoBlocked] = useState(false);
   const [pipWidth, setPipWidth] = useState(160);
   const pipWidthRef = useRef(160);
   pipWidthRef.current = pipWidth;
@@ -296,6 +297,7 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
 
   const handleVideoCardPress = async (item: VideoItem) => {
     setSelectedInstanceIndex(0);
+    setIsVideoBlocked(false);
     setIsMinimized(false);
     if (isYouTubeVideoId(item.videoId)) {
       setActiveVideo(item);
@@ -548,15 +550,7 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
           )}
 
           {/* THE SINGLE PERSISTENT UNMOUNTABLE WEBVIEW INSTANCE */}
-          <TouchableOpacity
-            delayPressIn={0}
-            activeOpacity={isMinimized ? 0.8 : 1}
-            disabled={!isMinimized}
-            onPress={() => {
-              if (isMinimized) setIsMinimized(false);
-            }}
-            style={isMinimized ? styles.pipVideoBox : styles.videoPlayerBox}
-          >
+          <View style={isMinimized ? styles.pipVideoBox : styles.videoPlayerBox}>
             {isResolvingVideo ? (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size={isMinimized ? "small" : "large"} color="#1DB954" />
@@ -636,11 +630,13 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
                     if (data && data.event === "VIDEO_ENDED") {
                       playNextVideo();
                     } else if (data && data.event === "VIDEO_BLOCKED") {
+                      setIsVideoBlocked(true);
                       setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length);
                     }
                   } catch {}
                 }}
                 onError={() => {
+                  setIsVideoBlocked(true);
                   setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length);
                 }}
               />
@@ -668,7 +664,7 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
                 </TouchableOpacity>
               </View>
             )}
-          </TouchableOpacity>
+          </View>
 
           {!isMinimized && (
             /* Full Screen Player Body (Up Next Songs & Info) */
@@ -676,28 +672,31 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
               <Text style={styles.infoHeading}>{activeVideo.title}</Text>
               <Text style={styles.infoSub}>{activeVideo.artist}</Text>
 
-              <View style={{ flexDirection: "row", gap: 10, marginBottom: 12 }}>
-                <TouchableOpacity
-                  delayPressIn={0}
-                  style={[styles.switchInstanceBtn, { flex: 1 }]}
-                  onPress={() => setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length)}
-                >
-                  <MaterialCommunityIcons name="swap-horizontal" size={18} color="#fff" style={{ marginRight: 6 }} />
-                  <Text style={styles.switchInstanceText}>Server ({selectedInstanceIndex + 1}/{VIDEO_EMBED_PROVIDERS.length})</Text>
-                </TouchableOpacity>
+              {/* Only render Server Switcher & Open in YouTube buttons when YouTube blocks the video */}
+              {isVideoBlocked && (
+                <View style={{ flexDirection: "row", gap: 10, marginTop: 12, marginBottom: 8 }}>
+                  <TouchableOpacity
+                    delayPressIn={0}
+                    style={[styles.switchInstanceBtn, { flex: 1 }]}
+                    onPress={() => setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length)}
+                  >
+                    <MaterialCommunityIcons name="swap-horizontal" size={18} color="#fff" style={{ marginRight: 6 }} />
+                    <Text style={styles.switchInstanceText}>Server ({selectedInstanceIndex + 1}/{VIDEO_EMBED_PROVIDERS.length})</Text>
+                  </TouchableOpacity>
 
-                <TouchableOpacity
-                  delayPressIn={0}
-                  style={[styles.switchInstanceBtn, { flex: 1, backgroundColor: "#E50914" }]}
-                  onPress={() => {
-                    const ytUrl = `https://www.youtube.com/watch?v=${targetId || activeVideo.videoId}`;
-                    Linking.openURL(ytUrl).catch(() => {});
-                  }}
-                >
-                  <MaterialCommunityIcons name="youtube" size={18} color="#fff" style={{ marginRight: 6 }} />
-                  <Text style={styles.switchInstanceText}>Open in YouTube</Text>
-                </TouchableOpacity>
-              </View>
+                  <TouchableOpacity
+                    delayPressIn={0}
+                    style={[styles.switchInstanceBtn, { flex: 1, backgroundColor: "#E50914" }]}
+                    onPress={() => {
+                      const ytUrl = `https://www.youtube.com/watch?v=${targetId || activeVideo.videoId}`;
+                      Linking.openURL(ytUrl).catch(() => {});
+                    }}
+                  >
+                    <MaterialCommunityIcons name="youtube" size={18} color="#fff" style={{ marginRight: 6 }} />
+                    <Text style={styles.switchInstanceText}>Open in YouTube</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
 
               {/* Up Next / Related Songs List */}
               <View style={styles.upNextSection}>
