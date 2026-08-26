@@ -24,6 +24,45 @@ const VIDEO_EMBED_PROVIDERS = [
   "https://inv.tux.pizza/embed"
 ];
 
+async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
+  const PIPED_APIS = [
+    "https://pipedapi.adminforge.de",
+    "https://pipedapi.kavin.rocks",
+    "https://pipedapi.projectsegfau.lt",
+    "https://pipedapi.nerdvpn.de"
+  ];
+
+  for (const apiBase of PIPED_APIS) {
+    try {
+      const res = await Promise.race([
+        fetch(`${apiBase}/search?q=${encodeURIComponent(searchQuery)}&filter=music_songs`),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3500))
+      ]);
+      if (res.ok) {
+        const data = await res.json();
+        const items = data.items || [];
+        const mapped: VideoItem[] = items.slice(0, 25).map((item: any) => {
+          const rawUrl = item.url || "";
+          const videoId = rawUrl.replace("/watch?v=", "").split("&")[0];
+          return {
+            id: videoId || item.id || Math.random().toString(),
+            videoId: videoId,
+            title: item.title || "Music Video",
+            artist: item.uploaderName || "Artist",
+            thumbnail: item.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+            duration: item.duration || 0,
+          };
+        }).filter((v: VideoItem) => v.videoId && v.videoId.length >= 8);
+
+        if (mapped.length > 0) return mapped;
+      }
+    } catch {
+      // try next API node
+    }
+  }
+  return [];
+}
+
 export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => void }) {
   const [query, setQuery] = useState("");
   const [videos, setVideos] = useState<VideoItem[]>([]);
@@ -39,21 +78,26 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
   const fetchTrendingVideos = async (searchQuery: string) => {
     setLoading(true);
     try {
-      const res = await api.searchSongs(`${searchQuery}`, 1, 30);
-      const items = extractResults(res);
-      const mapped: VideoItem[] = items.map((item: any) => {
-        const song = mapApiSong(item);
-        const ytId = item.id?.startsWith("yt-") ? item.id.replace("yt-", "") : item.id;
-        return {
-          id: song.id,
-          videoId: ytId || "dQw4w9WgXcQ",
-          title: song.title,
-          artist: song.artist,
-          thumbnail: song.albumArt || `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`,
-          duration: song.duration,
-        };
-      });
-      setVideos(mapped);
+      const results = await searchYouTubeVideos(searchQuery);
+      if (results.length > 0) {
+        setVideos(results);
+      } else {
+        // Fallback search
+        const fallbackRes = await api.searchSongs(searchQuery, 1, 20);
+        const items = extractResults(fallbackRes);
+        const fallbackMapped: VideoItem[] = items.map((item: any) => {
+          const song = mapApiSong(item);
+          return {
+            id: song.id,
+            videoId: "dQw4w9WgXcQ",
+            title: song.title,
+            artist: song.artist,
+            thumbnail: song.albumArt,
+            duration: song.duration,
+          };
+        });
+        setVideos(fallbackMapped);
+      }
     } catch (err) {
       console.warn("Failed to fetch videos:", err);
     } finally {
