@@ -1,5 +1,5 @@
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, TextInput, ActivityIndicator, Platform, Modal, Dimensions, DeviceEventEmitter, Animated, PanResponder } from 'react-native'
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { WebView } from "react-native-webview";
 import { Song, mapApiSong, decodeHtmlEntities } from "../data/songs";
@@ -279,6 +279,26 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
     }
   };
 
+  const playNextVideo = useCallback(() => {
+    if (!activeVideo || videos.length === 0) return;
+    const currentIndex = videos.findIndex((v) => v.id === activeVideo.id || (v.videoId && v.videoId === activeVideo.videoId));
+    const nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % videos.length;
+    const nextVideo = videos[nextIndex];
+    if (nextVideo) {
+      handleVideoCardPress(nextVideo);
+    }
+  }, [activeVideo, videos]);
+
+  const playPrevVideo = useCallback(() => {
+    if (!activeVideo || videos.length === 0) return;
+    const currentIndex = videos.findIndex((v) => v.id === activeVideo.id || (v.videoId && v.videoId === activeVideo.videoId));
+    const prevIndex = currentIndex <= 0 ? videos.length - 1 : currentIndex - 1;
+    const prevVideo = videos[prevIndex];
+    if (prevVideo) {
+      handleVideoCardPress(prevVideo);
+    }
+  }, [activeVideo, videos]);
+
   const providerBase = VIDEO_EMBED_PROVIDERS[selectedInstanceIndex];
   const isResolvingVideo = activeVideo && !isYouTubeVideoId(activeVideo.videoId);
   const targetId = isYouTubeVideoId(activeVideo?.videoId) ? activeVideo!.videoId : "";
@@ -417,6 +437,25 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
                 <Text style={styles.modalVideoTitle} numberOfLines={1}>{activeVideo.title}</Text>
                 <Text style={styles.modalVideoArtist} numberOfLines={1}>{activeVideo.artist}</Text>
               </View>
+
+              <TouchableOpacity
+                delayPressIn={0}
+                onPress={playPrevVideo}
+                style={{ padding: 6, marginRight: 2 }}
+                activeOpacity={0.7}
+              >
+                <MaterialCommunityIcons name="skip-previous" size={24} color="#fff" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                delayPressIn={0}
+                onPress={playNextVideo}
+                style={{ padding: 6, marginRight: 4 }}
+                activeOpacity={0.7}
+              >
+                <MaterialCommunityIcons name="skip-next" size={24} color="#fff" />
+              </TouchableOpacity>
+
               <TouchableOpacity
                 delayPressIn={0}
                 onPress={() => toggleLikeVideo(activeVideo)}
@@ -438,7 +477,8 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
           {/* THE SINGLE PERSISTENT UNMOUNTABLE WEBVIEW INSTANCE */}
           <TouchableOpacity
             delayPressIn={0}
-            activeOpacity={0.95}
+            activeOpacity={isMinimized ? 0.8 : 1}
+            disabled={!isMinimized}
             onPress={() => {
               if (isMinimized) setIsMinimized(false);
             }}
@@ -461,11 +501,43 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
                         <style>
                           * { box-sizing: border-box; margin: 0; padding: 0; }
                           body, html { background-color: #000; width: 100%; height: 100%; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+                          #player { width: 100%; height: 100%; border: none; }
                           iframe { width: 100%; height: 100%; border: none; }
                         </style>
                       </head>
                       <body>
-                        <iframe src="${embedUrl}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+                        <div id="player"></div>
+                        <script>
+                          var tag = document.createElement('script');
+                          tag.src = "https://www.youtube.com/iframe_api";
+                          var firstScriptTag = document.getElementsByTagName('script')[0];
+                          firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+                          var player;
+                          function onYouTubeIframeAPIReady() {
+                            player = new YT.Player('player', {
+                              height: '100%',
+                              width: '100%',
+                              videoId: '${targetId}',
+                              playerVars: {
+                                'autoplay': 1,
+                                'controls': 1,
+                                'rel': 0,
+                                'modestbranding': 1,
+                                'playsinline': 1
+                              },
+                              events: {
+                                'onStateChange': function(event) {
+                                  if (event && event.data === 0) {
+                                    if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                                      window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_ENDED' }));
+                                    }
+                                  }
+                                }
+                              }
+                            });
+                          }
+                        </script>
                       </body>
                     </html>
                   `,
@@ -479,6 +551,14 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
                 domStorageEnabled={true}
                 androidLayerType="hardware"
                 mixedContentMode="always"
+                onMessage={(event) => {
+                  try {
+                    const data = JSON.parse(event.nativeEvent.data);
+                    if (data && data.event === "VIDEO_ENDED") {
+                      playNextVideo();
+                    }
+                  } catch {}
+                }}
                 onError={() => {
                   setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length);
                 }}
