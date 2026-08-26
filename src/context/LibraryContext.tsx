@@ -11,6 +11,7 @@ import React, {
 import type { Song } from "../data/songs";
 import { useAuth } from "./AuthContext";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { localStorage } from "../lib/storage";
 import * as FileSystem from "expo-file-system";
 
 // ─── Types ────────────────=====================================================
@@ -179,7 +180,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
       // Step 3: Load liked songs from canonical key (migration is done by now)
       const seqAtStart = likedSongsSeq.current;
-      const raw = await AsyncStorage.getItem("rw_liked_songs");
+      const raw = localStorage.getItem("rw_liked_songs") || await AsyncStorage.getItem("rw_liked_songs");
       let parsedSongs = [];
       try {
         if (raw) {
@@ -192,7 +193,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       }
 
       // Step 4: Load liked albums
-      const rawAlbums = await AsyncStorage.getItem("rw_liked_albums");
+      const rawAlbums = localStorage.getItem("rw_liked_albums") || await AsyncStorage.getItem("rw_liked_albums");
       let parsedAlbums = [];
       try {
         if (rawAlbums) {
@@ -203,7 +204,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       setLikedAlbums(parsedAlbums);
 
       // Step 5: Load custom playlists / folders
-      const rawPlaylists = await AsyncStorage.getItem("rw_playlists");
+      const rawPlaylists = localStorage.getItem("rw_playlists") || await AsyncStorage.getItem("rw_playlists");
       let parsedPlaylists = [];
       try {
         if (rawPlaylists) {
@@ -398,7 +399,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const loadLikedSongs = useCallback(async () => {
     const seqAtStart = likedSongsSeq.current;
     try {
-      const raw = await AsyncStorage.getItem("rw_liked_songs");
+      const raw = localStorage.getItem("rw_liked_songs") || await AsyncStorage.getItem("rw_liked_songs");
       if (likedSongsSeq.current !== seqAtStart) return; // a toggle happened mid-read — discard
       if (raw) {
         const val = JSON.parse(raw);
@@ -562,6 +563,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         likedSongsSeq.current += 1;
         likedSongsRef.current = nextLiked;
         setLikedSongs(nextLiked);
+        localStorage.setItem("rw_liked_songs", JSON.stringify(nextLiked));
         await AsyncStorage.setItem("rw_liked_songs", JSON.stringify(nextLiked));
         DeviceEventEmitter.emit("LIKED_SONGS_UPDATED");
       } catch (err) {

@@ -208,7 +208,9 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponderCapture: () => isMinimized,
       onMoveShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponderCapture: () => isMinimized,
       onPanResponderGrant: (evt) => {
         if (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2) {
           initialPinchDistRef.current = calcDistance(evt.nativeEvent.touches);
@@ -219,6 +221,7 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
             x: (pan.x as any)._value || 0,
             y: (pan.y as any)._value || 0,
           });
+          pan.setValue({ x: 0, y: 0 });
         }
       },
       onPanResponderMove: (evt, gestureState) => {
@@ -226,12 +229,25 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
           const currentDist = calcDistance(evt.nativeEvent.touches);
           if (initialPinchDistRef.current && initialPinchDistRef.current > 0) {
             const scale = currentDist / initialPinchDistRef.current;
-            const newWidth = Math.max(120, Math.min(width - 24, Math.round(baseWidthRef.current * scale)));
+            const newWidth = Math.max(130, Math.min(width - 28, Math.round(baseWidthRef.current * scale)));
             setPipWidth(newWidth);
           }
         } else {
-          pan.x.setValue(gestureState.dx);
-          pan.y.setValue(gestureState.dy);
+          const curWidth = pipWidthRef.current;
+
+          // Screen bounds clamping to prevent mini video frame from going out of screen
+          const minTranslateX = -(width - curWidth - 28);
+          const maxTranslateX = 0;
+          const currentOffsetX = (pan.x as any)._offset || 0;
+          const clampedDx = Math.max(minTranslateX - currentOffsetX, Math.min(maxTranslateX - currentOffsetX, gestureState.dx));
+
+          const minTranslateY = -(Dimensions.get("window").height - (Platform.OS === 'ios' ? 170 : 150));
+          const maxTranslateY = 0;
+          const currentOffsetY = (pan.y as any)._offset || 0;
+          const clampedDy = Math.max(minTranslateY - currentOffsetY, Math.min(maxTranslateY - currentOffsetY, gestureState.dy));
+
+          pan.x.setValue(clampedDx);
+          pan.y.setValue(clampedDy);
         }
       },
       onPanResponderRelease: () => {
@@ -591,7 +607,9 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
                                 'controls': 1,
                                 'rel': 0,
                                 'modestbranding': 1,
-                                'playsinline': 1
+                                'playsinline': 1,
+                                'enablejsapi': 1,
+                                'fs': 1
                               },
                               events: {
                                 'onStateChange': function(event) {
@@ -609,6 +627,16 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
                               }
                             });
                           }
+
+                          document.addEventListener('click', function(e) {
+                            if (player && typeof player.getDuration === 'function') {
+                              var duration = player.getDuration();
+                              if (duration > 0 && e.clientY > (window.innerHeight - 55)) {
+                                var ratio = e.clientX / window.innerWidth;
+                                player.seekTo(duration * ratio, true);
+                              }
+                            }
+                          });
                         </script>
                       </body>
                     </html>
