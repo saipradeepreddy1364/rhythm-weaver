@@ -72,32 +72,28 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
 
   // Initial trending music videos load
   useEffect(() => {
-    fetchTrendingVideos("Telugu music videos");
+    fetchTrendingVideos("Telugu video songs");
   }, []);
 
   const fetchTrendingVideos = async (searchQuery: string) => {
     setLoading(true);
     try {
-      const results = await searchYouTubeVideos(searchQuery);
-      if (results.length > 0) {
-        setVideos(results);
-      } else {
-        // Fallback search
-        const fallbackRes = await api.searchSongs(searchQuery, 1, 20);
-        const items = extractResults(fallbackRes);
-        const fallbackMapped: VideoItem[] = items.map((item: any) => {
-          const song = mapApiSong(item);
-          return {
-            id: song.id,
-            videoId: "dQw4w9WgXcQ",
-            title: song.title,
-            artist: song.artist,
-            thumbnail: song.albumArt,
-            duration: song.duration,
-          };
-        });
-        setVideos(fallbackMapped);
-      }
+      // Fast, reliable backend search
+      const res = await api.searchSongs(`${searchQuery}`, 1, 30);
+      const items = extractResults(res);
+      const mapped: VideoItem[] = items.map((item: any) => {
+        const song = mapApiSong(item);
+        const ytId = item.id?.startsWith("yt-") ? item.id.replace("yt-", "") : "";
+        return {
+          id: song.id,
+          videoId: ytId,
+          title: song.title,
+          artist: song.artist,
+          thumbnail: song.albumArt || `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`,
+          duration: song.duration,
+        };
+      });
+      setVideos(mapped);
     } catch (err) {
       console.warn("Failed to fetch videos:", err);
     } finally {
@@ -112,9 +108,9 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
 
   const providerBase = VIDEO_EMBED_PROVIDERS[selectedInstanceIndex];
   const embedUrl = activeVideo
-    ? providerBase.includes("youtube-nocookie.com")
+    ? activeVideo.videoId && activeVideo.videoId.length >= 8
       ? `${providerBase}/${activeVideo.videoId}?autoplay=1&controls=1&modestbranding=1&rel=0&playsinline=1`
-      : `${providerBase}/${activeVideo.videoId}?autoplay=1&controls=1`
+      : `https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(activeVideo.title + " " + activeVideo.artist + " official video")}&autoplay=1`
     : "";
 
   return (
