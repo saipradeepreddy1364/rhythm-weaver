@@ -47,7 +47,7 @@ export default function LibraryPage({ onRequireAuth, initialTab }: LibraryPagePr
     loadLikedSongs();
     loadPlaylists();
     loadLikedAlbums();
-  }, [user, tab]);
+  }, [user]);
 
   const [isOffline, setIsOffline] = useState(false);
 

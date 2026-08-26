@@ -276,175 +276,179 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
         </ScrollView>
       )}
 
-      {/* In-App Clean Video Player Modal */}
-      <Modal
-        visible={!!activeVideo && !isMinimized}
-        animationType="slide"
-        transparent={false}
-        onRequestClose={() => setIsMinimized(true)}
-      >
-        {activeVideo && (
-          <View style={styles.modalContainer}>
-            {/* Modal Header */}
-            <View style={styles.modalHeader}>
-              <TouchableOpacity delayPressIn={0} onPress={() => setIsMinimized(true)} style={styles.closeBtn}>
-                <MaterialCommunityIcons name="chevron-down" size={28} color="#fff" />
-              </TouchableOpacity>
-              <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={styles.modalVideoTitle} numberOfLines={1}>{activeVideo.title}</Text>
-                <Text style={styles.modalVideoArtist} numberOfLines={1}>{activeVideo.artist}</Text>
+      {/* Persistent Single Video Player (Full Screen or Mini Floating PiP) */}
+      {activeVideo && (
+        <View
+          style={
+            isMinimized
+              ? styles.floatingPipContainer
+              : styles.fullScreenPlayerOverlay
+          }
+        >
+          {isMinimized ? (
+            /* Mini Floating PiP Header & Controls */
+            <TouchableOpacity
+              delayPressIn={0}
+              activeOpacity={0.9}
+              onPress={() => setIsMinimized(false)}
+              style={styles.pipContent}
+            >
+              {/* Mini Video Box */}
+              <View style={styles.pipVideoBox}>
+                {isResolvingVideo ? (
+                  <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="small" color="#1DB954" />
+                  </View>
+                ) : (
+                  <WebView
+                    key={`${activeVideo.videoId}_${selectedInstanceIndex}`}
+                    source={{
+                      html: `
+                        <!DOCTYPE html>
+                        <html>
+                          <head>
+                            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                            <style>
+                              * { box-sizing: border-box; margin: 0; padding: 0; }
+                              body, html { background-color: #000; width: 100%; height: 100%; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+                              iframe { width: 100%; height: 100%; border: none; }
+                            </style>
+                          </head>
+                          <body>
+                            <iframe src="${embedUrl}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+                          </body>
+                        </html>
+                      `,
+                      baseUrl: "https://www.google.com",
+                    }}
+                    style={{ flex: 1, backgroundColor: "#000" }}
+                    allowsFullscreenVideo={true}
+                    mediaPlaybackRequiresUserAction={false}
+                    javaScriptEnabled={true}
+                    domStorageEnabled={true}
+                  />
+                )}
               </View>
-              <TouchableOpacity delayPressIn={0} onPress={() => { setActiveVideo(null); setIsMinimized(false); }} style={styles.closeBtn}>
-                <MaterialCommunityIcons name="close" size={22} color="#fff" />
-              </TouchableOpacity>
-            </View>
 
-            {/* In-App Video Player Box */}
-            <View style={styles.videoPlayerBox}>
-              {isResolvingVideo ? (
-                <View style={styles.loadingContainer}>
-                  <ActivityIndicator size="large" color="#1DB954" />
-                  <Text style={styles.loadingText}>Fetching official music video...</Text>
-                </View>
-              ) : (
-                <WebView
-                  key={`${activeVideo.videoId}_${selectedInstanceIndex}`}
-                  source={{
-                    html: `
-                      <!DOCTYPE html>
-                      <html>
-                        <head>
-                          <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-                          <style>
-                            * { box-sizing: border-box; }
-                            body, html { margin: 0; padding: 0; background-color: #000; width: 100%; height: 100%; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-                            iframe { width: 100%; height: 100%; border: none; }
-                            header, nav, .navbar, #navbar, .site-header, .piped-header { display: none !important; }
-                          </style>
-                        </head>
-                        <body>
-                          <iframe
-                            src="${embedUrl}"
-                            allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
-                            allowfullscreen
-                          ></iframe>
-                        </body>
-                      </html>
-                    `,
-                    baseUrl: "https://www.google.com",
-                  }}
-                  style={{ flex: 1, backgroundColor: "#000" }}
-                  allowsFullscreenVideo={true}
-                  mediaPlaybackRequiresUserAction={false}
-                  javaScriptEnabled={true}
-                  domStorageEnabled={true}
-                  onError={() => {
-                    setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length);
-                  }}
-                />
-              )}
-            </View>
-
-            {/* Video Info & Up Next Songs */}
-            <ScrollView style={styles.modalBody} contentContainerStyle={{ padding: 16 }}>
-              <Text style={styles.infoHeading}>{activeVideo.title}</Text>
-              <Text style={styles.infoSub}>{activeVideo.artist}</Text>
+              <View style={styles.pipMeta}>
+                <Text style={styles.pipTitle} numberOfLines={1}>{activeVideo.title}</Text>
+                <Text style={styles.pipArtist} numberOfLines={1}>{activeVideo.artist}</Text>
+              </View>
 
               <TouchableOpacity
                 delayPressIn={0}
-                style={styles.switchInstanceBtn}
-                onPress={() => setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length)}
+                onPress={() => setIsMinimized(false)}
+                style={{ padding: 6 }}
               >
-                <MaterialCommunityIcons name="swap-horizontal" size={18} color="#fff" style={{ marginRight: 8 }} />
-                <Text style={styles.switchInstanceText}>If video doesn't play, tap to Switch Server ({selectedInstanceIndex + 1}/{VIDEO_EMBED_PROVIDERS.length})</Text>
+                <MaterialCommunityIcons name="chevron-up" size={22} color="#fff" />
               </TouchableOpacity>
 
-              {/* Up Next / Related Songs List */}
-              <View style={styles.upNextSection}>
-                <Text style={styles.upNextTitle}>Up Next / Related Songs</Text>
-                {videos
-                  .filter((v) => v.id !== activeVideo.id)
-                  .map((item) => (
-                    <TouchableOpacity
-                      delayPressIn={0}
-                      key={item.id}
-                      style={styles.upNextCard}
-                      onPress={() => handleVideoCardPress(item)}
-                      activeOpacity={0.8}
-                    >
-                      <Image source={{ uri: item.thumbnail }} style={styles.upNextThumb} />
-                      <View style={styles.upNextMeta}>
-                        <Text style={styles.upNextSongTitle} numberOfLines={2}>{item.title}</Text>
-                        <Text style={styles.upNextSongArtist} numberOfLines={1}>{item.artist}</Text>
-                      </View>
-                      <MaterialCommunityIcons name="play-circle-outline" size={24} color="#1DB954" />
-                    </TouchableOpacity>
-                  ))}
+              <TouchableOpacity
+                delayPressIn={0}
+                onPress={() => { setActiveVideo(null); setIsMinimized(false); }}
+                style={{ padding: 6, marginLeft: 4 }}
+              >
+                <MaterialCommunityIcons name="close" size={20} color="#fff" />
+              </TouchableOpacity>
+            </TouchableOpacity>
+          ) : (
+            /* Full Screen Player Layout */
+            <View style={styles.modalContainer}>
+              {/* Modal Header */}
+              <View style={styles.modalHeader}>
+                <TouchableOpacity delayPressIn={0} onPress={() => setIsMinimized(true)} style={styles.closeBtn}>
+                  <MaterialCommunityIcons name="chevron-down" size={28} color="#fff" />
+                </TouchableOpacity>
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text style={styles.modalVideoTitle} numberOfLines={1}>{activeVideo.title}</Text>
+                  <Text style={styles.modalVideoArtist} numberOfLines={1}>{activeVideo.artist}</Text>
+                </View>
+                <TouchableOpacity delayPressIn={0} onPress={() => { setActiveVideo(null); setIsMinimized(false); }} style={styles.closeBtn}>
+                  <MaterialCommunityIcons name="close" size={22} color="#fff" />
+                </TouchableOpacity>
               </View>
-            </ScrollView>
-          </View>
-        )}
-      </Modal>
 
-      {/* Floating Mini PiP Video Player Window */}
-      {activeVideo && isMinimized && (
-        <TouchableOpacity
-          delayPressIn={0}
-          activeOpacity={0.9}
-          onPress={() => setIsMinimized(false)}
-          style={styles.floatingPipContainer}
-        >
-          <View style={styles.pipContent}>
-            <View style={styles.pipVideoBox}>
-              <WebView
-                key={`pip_${activeVideo.videoId}_${selectedInstanceIndex}`}
-                source={{
-                  html: `
-                    <!DOCTYPE html>
-                    <html>
-                      <head>
-                        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-                        <style>
-                          * { box-sizing: border-box; margin: 0; padding: 0; }
-                          body, html { background-color: #000; width: 100%; height: 100%; overflow: hidden; }
-                          iframe { width: 100%; height: 100%; border: none; }
-                        </style>
-                      </head>
-                      <body>
-                        <iframe src="${embedUrl}" allow="autoplay; encrypted-media" allowfullscreen></iframe>
-                      </body>
-                    </html>
-                  `,
-                  baseUrl: "https://www.google.com",
-                }}
-                style={{ flex: 1, backgroundColor: "#000" }}
-                javaScriptEnabled={true}
-                domStorageEnabled={true}
-              />
+              {/* In-App Video Player Box */}
+              <View style={styles.videoPlayerBox}>
+                {isResolvingVideo ? (
+                  <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color="#1DB954" />
+                    <Text style={styles.loadingText}>Fetching official music video...</Text>
+                  </View>
+                ) : (
+                  <WebView
+                    key={`${activeVideo.videoId}_${selectedInstanceIndex}`}
+                    source={{
+                      html: `
+                        <!DOCTYPE html>
+                        <html>
+                          <head>
+                            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                            <style>
+                              * { box-sizing: border-box; margin: 0; padding: 0; }
+                              body, html { background-color: #000; width: 100%; height: 100%; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+                              iframe { width: 100%; height: 100%; border: none; }
+                            </style>
+                          </head>
+                          <body>
+                            <iframe src="${embedUrl}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+                          </body>
+                        </html>
+                      `,
+                      baseUrl: "https://www.google.com",
+                    }}
+                    style={{ flex: 1, backgroundColor: "#000" }}
+                    allowsFullscreenVideo={true}
+                    mediaPlaybackRequiresUserAction={false}
+                    javaScriptEnabled={true}
+                    domStorageEnabled={true}
+                    onError={() => {
+                      setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length);
+                    }}
+                  />
+                )}
+              </View>
+
+              {/* Video Info & Up Next Songs */}
+              <ScrollView style={styles.modalBody} contentContainerStyle={{ padding: 16 }}>
+                <Text style={styles.infoHeading}>{activeVideo.title}</Text>
+                <Text style={styles.infoSub}>{activeVideo.artist}</Text>
+
+                <TouchableOpacity
+                  delayPressIn={0}
+                  style={styles.switchInstanceBtn}
+                  onPress={() => setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length)}
+                >
+                  <MaterialCommunityIcons name="swap-horizontal" size={18} color="#fff" style={{ marginRight: 8 }} />
+                  <Text style={styles.switchInstanceText}>If video doesn't play, tap to Switch Server ({selectedInstanceIndex + 1}/{VIDEO_EMBED_PROVIDERS.length})</Text>
+                </TouchableOpacity>
+
+                {/* Up Next / Related Songs List */}
+                <View style={styles.upNextSection}>
+                  <Text style={styles.upNextTitle}>Up Next / Related Songs</Text>
+                  {videos
+                    .filter((v) => v.id !== activeVideo.id)
+                    .map((item) => (
+                      <TouchableOpacity
+                        delayPressIn={0}
+                        key={item.id}
+                        style={styles.upNextCard}
+                        onPress={() => handleVideoCardPress(item)}
+                        activeOpacity={0.8}
+                      >
+                        <Image source={{ uri: item.thumbnail }} style={styles.upNextThumb} />
+                        <View style={styles.upNextMeta}>
+                          <Text style={styles.upNextSongTitle} numberOfLines={2}>{item.title}</Text>
+                          <Text style={styles.upNextSongArtist} numberOfLines={1}>{item.artist}</Text>
+                        </View>
+                        <MaterialCommunityIcons name="play-circle-outline" size={24} color="#1DB954" />
+                      </TouchableOpacity>
+                    ))}
+                </View>
+              </ScrollView>
             </View>
-
-            <View style={styles.pipMeta}>
-              <Text style={styles.pipTitle} numberOfLines={1}>{activeVideo.title}</Text>
-              <Text style={styles.pipArtist} numberOfLines={1}>{activeVideo.artist}</Text>
-            </View>
-
-            <TouchableOpacity
-              delayPressIn={0}
-              onPress={() => setIsMinimized(false)}
-              style={{ padding: 4 }}
-            >
-              <MaterialCommunityIcons name="chevron-up" size={22} color="#fff" />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              delayPressIn={0}
-              onPress={() => { setActiveVideo(null); setIsMinimized(false); }}
-              style={{ padding: 4, marginLeft: 4 }}
-            >
-              <MaterialCommunityIcons name="close" size={20} color="#fff" />
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
+          )}
+        </View>
       )}
     </View>
   );
@@ -571,6 +575,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "rgba(255,255,255,0.5)",
     marginTop: 4,
+  },
+  fullScreenPlayerOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "#121212",
+    zIndex: 1000,
   },
   modalContainer: {
     flex: 1,

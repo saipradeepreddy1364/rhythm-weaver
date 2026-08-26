@@ -90,18 +90,8 @@ function AppContent() {
   const navigationRef = useRef<any>(null);
   const appState = useRef(AppState.currentState);
 
-  // Load saved tab on mount
-  useEffect(() => {
-    AsyncStorage.getItem("rw_active_tab").then((savedTab) => {
-      if (savedTab === 'Home' || savedTab === 'Search' || savedTab === 'Videos' || savedTab === 'Library') {
-        setActiveTabState(savedTab as any);
-      }
-    }).catch(() => {});
-  }, []);
-
   const setActiveTab = useCallback((tabName: 'Home' | 'Search' | 'Videos' | 'Library') => {
     setActiveTabState(tabName);
-    AsyncStorage.setItem("rw_active_tab", tabName).catch(() => {});
   }, []);
 
   // Track app state changes without resetting user tab location

@@ -124,6 +124,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const [likedSongs, setLikedSongs]           = useState<Song[]>([]);
   const likedSongsRef = useRef<Song[]>([]);
   likedSongsRef.current = likedSongs;
+  const likedSongsSeq = useRef(0); // bumps on every write; loads check this before applying
   const [recentlyPlayed, setRecentlyPlayed]   = useState<Song[]>([]);
   const [storedPlaylists, setStoredPlaylists] = useState<StoredPlaylist[]>([]);
   const [downloadedSongs, setDownloadedSongs] = useState<Song[]>([]);
@@ -168,6 +169,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       }
 
       // Step 3: Load liked songs from canonical key (migration is done by now)
+      const seqAtStart = likedSongsSeq.current;
       const raw = await AsyncStorage.getItem("rw_liked_songs");
       let parsedSongs = [];
       try {
@@ -176,7 +178,9 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
           if (Array.isArray(val)) parsedSongs = val;
         }
       } catch {}
-      setLikedSongs(parsedSongs);
+      if (likedSongsSeq.current === seqAtStart) {
+        setLikedSongs(parsedSongs);
+      }
 
       // Step 4: Load liked albums
       const rawAlbums = await AsyncStorage.getItem("rw_liked_albums");
@@ -383,8 +387,10 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   // ── Load liked songs ─────────────────────────────────────────────────────────
 
   const loadLikedSongs = useCallback(async () => {
+    const seqAtStart = likedSongsSeq.current;
     try {
       const raw = await AsyncStorage.getItem("rw_liked_songs");
+      if (likedSongsSeq.current !== seqAtStart) return; // a toggle happened mid-read — discard
       if (raw) {
         const val = JSON.parse(raw);
         if (Array.isArray(val)) {
@@ -393,7 +399,9 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         }
       }
     } catch { /* ignore */ }
-    setLikedSongs([]);
+    if (likedSongsSeq.current === seqAtStart) {
+      setLikedSongs([]);
+    }
   }, []);
 
   // ── Load recently played ─────────────────────────────────────────────────────
@@ -487,6 +495,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
           ? current.filter((s) => !isSongMatch(s, song))
           : [song, ...current.filter((s) => !isSongMatch(s, song))];
 
+        likedSongsSeq.current += 1;
         likedSongsRef.current = nextLiked;
         setLikedSongs(nextLiked);
         await AsyncStorage.setItem("rw_liked_songs", JSON.stringify(nextLiked));
