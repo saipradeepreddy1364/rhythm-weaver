@@ -175,32 +175,55 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
             {/* In-App Video Player Box */}
             <View style={styles.videoPlayerBox}>
               <WebView
-                source={{ uri: embedUrl }}
+                key={`${activeVideo.videoId}_${selectedInstanceIndex}`}
+                source={{
+                  html: `
+                    <!DOCTYPE html>
+                    <html>
+                      <head>
+                        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                        <style>
+                          * { box-sizing: border-box; }
+                          body, html { margin: 0; padding: 0; background-color: #000; width: 100%; height: 100%; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+                          iframe { width: 100%; height: 100%; border: none; }
+                          header, nav, .navbar, #navbar, .site-header, .piped-header { display: none !important; }
+                        </style>
+                      </head>
+                      <body>
+                        <iframe
+                          src="${embedUrl}"
+                          allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+                          allowfullscreen
+                        ></iframe>
+                      </body>
+                    </html>
+                  `,
+                  baseUrl: "https://www.youtube.com",
+                }}
                 style={{ flex: 1, backgroundColor: "#000" }}
                 allowsFullscreenVideo={true}
                 mediaPlaybackRequiresUserAction={false}
                 javaScriptEnabled={true}
                 domStorageEnabled={true}
-                injectedJavaScript={`
-                  const hideElements = () => {
-                    const nav = document.querySelector('header, nav, .navbar, #navbar, .piped-header, .site-header');
-                    if (nav) nav.style.display = 'none';
-                  };
-                  hideElements();
-                  setTimeout(hideElements, 1000);
-                  setTimeout(hideElements, 2000);
-                  true;
-                `}
                 onError={() => {
                   setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length);
                 }}
               />
             </View>
 
-            {/* Video Info */}
+            {/* Video Info & Fallback Switcher */}
             <ScrollView style={styles.modalBody} contentContainerStyle={{ padding: 16 }}>
               <Text style={styles.infoHeading}>{activeVideo.title}</Text>
               <Text style={styles.infoSub}>{activeVideo.artist}</Text>
+
+              <TouchableOpacity
+                delayPressIn={0}
+                style={styles.switchInstanceBtn}
+                onPress={() => setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length)}
+              >
+                <MaterialCommunityIcons name="swap-horizontal" size={18} color="#fff" style={{ marginRight: 8 }} />
+                <Text style={styles.switchInstanceText}>If video doesn't play, tap to Switch Server ({selectedInstanceIndex + 1}/{VIDEO_EMBED_PROVIDERS.length})</Text>
+              </TouchableOpacity>
             </ScrollView>
           </View>
         )}
