@@ -822,15 +822,16 @@ function AlbumModal({
       fetchAllMovieSongs(albumQuery, album.title)
         .then((fetched) => {
           if (!controller.signal.aborted) {
-            const seen = new Set<string>();
-            const dedupped = fetched.filter(s => {
-              const tKey = normalizeSongTitle(s.title, s.movie || s.album);
-              if (seen.has(tKey)) return false;
-              seen.add(tKey);
-              return true;
-            });
+            const dedupped = deduplicateSongs(fetched);
             if (dedupped.length > 0) setSongs(dedupped);
             setLoadingMore(false);
+            if (isAlbumLiked(album)) {
+              toggleLikeAlbum({
+                ...album,
+                songs: dedupped,
+                fullyLoaded: true
+              });
+            }
           }
         })
         .catch(() => {

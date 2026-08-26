@@ -1,5 +1,5 @@
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Modal, ActivityIndicator } from 'react-native'
-import React, { useState, useEffect } from "react";
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Modal, ActivityIndicator, Animated } from 'react-native'
+import React, { useState, useEffect, useRef } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useLibrary } from "../context/LibraryContext";
 import { useAuth } from "../context/AuthContext";
@@ -23,6 +23,25 @@ export function LikeButton({
   const [newFolderName, setNewFolderName] = useState("");
   const [loadingId, setLoadingId] = useState<string | null>(null);
 
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+
+  const animateHeart = () => {
+    scaleAnim.setValue(1);
+    Animated.sequence([
+      Animated.timing(scaleAnim, {
+        toValue: 1.45,
+        duration: 120,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        friction: 4,
+        tension: 40,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
   const containingFolderIds = new Set(
     playlists
       .filter((p) => (p.songs || []).some((s: any) => String(s.id) === String(song.id)))
@@ -40,10 +59,12 @@ export function LikeButton({
   };
 
   const handlePress = () => {
+    animateHeart();
     setModalOpen(true);
   };
 
   const handleToggleGeneralLike = async () => {
+    animateHeart();
     setLoadingId("general");
     await toggleLike(song);
     setLoadingId(null);
@@ -51,6 +72,7 @@ export function LikeButton({
 
   const handleToggleFolderLike = async (playlistId: string) => {
     if (loadingId) return;
+    animateHeart();
     setLoadingId(playlistId);
     const hasSong = containingFolderIds.has(playlistId);
     if (hasSong) {
@@ -67,6 +89,7 @@ export function LikeButton({
     const playlist = await createNewPlaylist(newFolderName.trim());
     if (playlist && playlist.id) {
       await addToPlaylist(playlist.id, song);
+      animateHeart();
     }
     setNewFolderName("");
     setCreating(false);
@@ -80,11 +103,13 @@ export function LikeButton({
         activeOpacity={0.7}
         style={styles.button}
       >
-        <MaterialCommunityIcons
-          name={isLikedInAnyFolder ? "heart" : "heart-outline"}
-          size={sizeMap[size]}
-          color={isLikedInAnyFolder ? "#1DB954" : "rgba(255,255,255,0.4)"}
-        />
+        <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+          <MaterialCommunityIcons
+            name={isLikedInAnyFolder ? "heart" : "heart-outline"}
+            size={sizeMap[size]}
+            color={isLikedInAnyFolder ? "#1DB954" : "rgba(255,255,255,0.4)"}
+          />
+        </Animated.View>
       </TouchableOpacity>
 
       <Modal

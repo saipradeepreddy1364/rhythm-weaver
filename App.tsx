@@ -24,6 +24,7 @@ import { LibraryProvider } from "./src/context/LibraryContext";
 // Import Native Screens / Components (these will be migrated next)
 import HomePage, { homePagePrefetcher } from "./src/pages/HomePage";
 import SearchPage from "./src/pages/SearchPage";
+import VideosPage from "./src/pages/VideosPage";
 import LibraryPage from "./src/pages/LibraryPage";
 import { MiniPlayer } from "./src/components/MiniPlayer";
 import { FullPlayer } from "./src/components/FullPlayer";
@@ -84,20 +85,20 @@ function AppContent() {
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
 
-  const [activeTab, setActiveTabState] = useState<'Home' | 'Search' | 'Library'>('Home');
+  const [activeTab, setActiveTabState] = useState<'Home' | 'Search' | 'Videos' | 'Library'>('Home');
   const navigationRef = useRef<any>(null);
   const appState = useRef(AppState.currentState);
 
   // Load saved tab on mount
   useEffect(() => {
     AsyncStorage.getItem("rw_active_tab").then((savedTab) => {
-      if (savedTab === 'Home' || savedTab === 'Search' || savedTab === 'Library') {
-        setActiveTabState(savedTab);
+      if (savedTab === 'Home' || savedTab === 'Search' || savedTab === 'Videos' || savedTab === 'Library') {
+        setActiveTabState(savedTab as any);
       }
     }).catch(() => {});
   }, []);
 
-  const setActiveTab = useCallback((tabName: 'Home' | 'Search' | 'Library') => {
+  const setActiveTab = useCallback((tabName: 'Home' | 'Search' | 'Videos' | 'Library') => {
     setActiveTabState(tabName);
     AsyncStorage.setItem("rw_active_tab", tabName).catch(() => {});
   }, []);
@@ -205,7 +206,7 @@ function AppContent() {
     setUpdateDownloaded(false);
   };
 
-  const handleTabPress = useCallback((tabName: 'Home' | 'Search' | 'Library') => {
+  const handleTabPress = useCallback((tabName: 'Home' | 'Search' | 'Videos' | 'Library') => {
     setActiveTab(tabName);
   }, []);
 
@@ -215,7 +216,7 @@ function AppContent() {
 
   // Listen to global tab navigation requests
   useEffect(() => {
-    const sub = DeviceEventEmitter.addListener("NAVIGATE_TO_TAB", (tabName: 'Home' | 'Search' | 'Library') => {
+    const sub = DeviceEventEmitter.addListener("NAVIGATE_TO_TAB", (tabName: 'Home' | 'Search' | 'Videos' | 'Library') => {
       setActiveTab(tabName);
     });
     return () => sub.remove();
@@ -252,24 +253,25 @@ function AppContent() {
                 <View style={{ flex: 1 }}>
                   {activeTab === 'Home' && <HomePage onRequireAuth={handleRequireAuth} />}
                   {activeTab === 'Search' && <SearchPage onRequireAuth={handleRequireAuth} />}
+                  {activeTab === 'Videos' && <VideosPage onRequireAuth={handleRequireAuth} />}
                   {activeTab === 'Library' && <LibraryPage onRequireAuth={handleRequireAuth} />}
                 </View>
 
                 {/* Bottom Tab Bar */}
                 <View style={styles.tabBarStyle}>
-                  {(['Home', 'Search', 'Library'] as const).map((tab) => {
+                  {(['Home', 'Search', 'Videos', 'Library'] as const).map((tab) => {
                     const isActive = activeTab === tab;
-                    const iconName = tab === 'Home' ? 'home' : tab === 'Search' ? 'magnify' : 'playlist-music';
+                    const iconName = tab === 'Home' ? 'home' : tab === 'Search' ? 'magnify' : tab === 'Videos' ? 'video' : 'playlist-music';
                     const color = isActive ? "#1DB954" : "rgba(255, 255, 255, 0.5)";
                     return (
                       <TouchableOpacity
                         delayPressIn={0}
                         key={tab}
-                        onPress={() => handleTabPress(tab)}
+                        onPress={() => handleTabPress(tab as any)}
                         style={styles.tabBarButton}
                         activeOpacity={0.7}
                       >
-                        <MaterialCommunityIcons name={iconName} color={color} size={24} />
+                        <MaterialCommunityIcons name={iconName as any} color={color} size={24} />
                         <Text style={[styles.tabBarLabel, { color }]}>{tab}</Text>
                       </TouchableOpacity>
                     );
