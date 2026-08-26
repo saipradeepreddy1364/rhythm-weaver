@@ -64,11 +64,33 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
 }
 
 async function getYouTubeVideoId(title: string, artist: string): Promise<string> {
-  const searchQuery = `${title} ${artist} official video`;
+  const searchQuery = encodeURIComponent(`${title} ${artist} video song`);
+
+  // Method 1: Query YouTube Search HTML directly
+  try {
+    const res = await Promise.race([
+      fetch(`https://www.youtube.com/results?search_query=${searchQuery}`),
+      new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3500))
+    ]);
+    if (res.ok) {
+      const html = await res.text();
+      const matches = html.match(/"videoId":"([a-zA-Z0-9_-]{11})"/g);
+      if (matches && matches.length > 0) {
+        for (const m of matches) {
+          const vId = m.replace('"videoId":"', '').replace('"', '');
+          if (vId && /^[a-zA-Z0-9_-]{11}$/.test(vId)) {
+            return vId;
+          }
+        }
+      }
+    }
+  } catch {}
+
+  // Method 2: Invidious / Piped API fallbacks
   const apis = [
-    `https://pipedapi.adminforge.de/search?q=${encodeURIComponent(searchQuery)}&filter=videos`,
-    `https://pipedapi.kavin.rocks/search?q=${encodeURIComponent(searchQuery)}&filter=videos`,
-    `https://invidious.nerdvpn.de/api/v1/search?q=${encodeURIComponent(searchQuery)}&type=video`
+    `https://pipedapi.adminforge.de/search?q=${searchQuery}&filter=videos`,
+    `https://pipedapi.kavin.rocks/search?q=${searchQuery}&filter=videos`,
+    `https://invidious.nerdvpn.de/api/v1/search?q=${searchQuery}&type=video`
   ];
 
   for (const url of apis) {
@@ -88,7 +110,7 @@ async function getYouTubeVideoId(title: string, artist: string): Promise<string>
       }
     } catch {}
   }
-  return "0xMQfnTU6oo"; // Fallback valid 11-character YouTube Video ID
+  return "";
 }
 
 export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => void }) {
@@ -152,11 +174,10 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
   };
 
   const providerBase = VIDEO_EMBED_PROVIDERS[selectedInstanceIndex];
-  const targetId = isYouTubeVideoId(activeVideo?.videoId)
-    ? activeVideo!.videoId
-    : "0xMQfnTU6oo";
+  const isResolvingVideo = activeVideo && !isYouTubeVideoId(activeVideo.videoId);
+  const targetId = isYouTubeVideoId(activeVideo?.videoId) ? activeVideo!.videoId : "";
 
-  const embedUrl = activeVideo
+  const embedUrl = activeVideo && targetId
     ? `${providerBase}/${targetId}?autoplay=1&controls=1&modestbranding=1&rel=0&playsinline=1`
     : "";
 
@@ -258,41 +279,48 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
 
             {/* In-App Video Player Box */}
             <View style={styles.videoPlayerBox}>
-              <WebView
-                key={`${activeVideo.videoId}_${selectedInstanceIndex}`}
-                source={{
-                  html: `
-                    <!DOCTYPE html>
-                    <html>
-                      <head>
-                        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-                        <style>
-                          * { box-sizing: border-box; }
-                          body, html { margin: 0; padding: 0; background-color: #000; width: 100%; height: 100%; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-                          iframe { width: 100%; height: 100%; border: none; }
-                          header, nav, .navbar, #navbar, .site-header, .piped-header { display: none !important; }
-                        </style>
-                      </head>
-                      <body>
-                        <iframe
-                          src="${embedUrl}"
-                          allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
-                          allowfullscreen
-                        ></iframe>
-                      </body>
-                    </html>
-                  `,
-                  baseUrl: "https://www.google.com",
-                }}
-                style={{ flex: 1, backgroundColor: "#000" }}
-                allowsFullscreenVideo={true}
-                mediaPlaybackRequiresUserAction={false}
-                javaScriptEnabled={true}
-                domStorageEnabled={true}
-                onError={() => {
-                  setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length);
-                }}
-              />
+              {isResolvingVideo ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color="#1DB954" />
+                  <Text style={styles.loadingText}>Fetching official music video...</Text>
+                </View>
+              ) : (
+                <WebView
+                  key={`${activeVideo.videoId}_${selectedInstanceIndex}`}
+                  source={{
+                    html: `
+                      <!DOCTYPE html>
+                      <html>
+                        <head>
+                          <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                          <style>
+                            * { box-sizing: border-box; }
+                            body, html { margin: 0; padding: 0; background-color: #000; width: 100%; height: 100%; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+                            iframe { width: 100%; height: 100%; border: none; }
+                            header, nav, .navbar, #navbar, .site-header, .piped-header { display: none !important; }
+                          </style>
+                        </head>
+                        <body>
+                          <iframe
+                            src="${embedUrl}"
+                            allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+                            allowfullscreen
+                          ></iframe>
+                        </body>
+                      </html>
+                    `,
+                    baseUrl: "https://www.google.com",
+                  }}
+                  style={{ flex: 1, backgroundColor: "#000" }}
+                  allowsFullscreenVideo={true}
+                  mediaPlaybackRequiresUserAction={false}
+                  javaScriptEnabled={true}
+                  domStorageEnabled={true}
+                  onError={() => {
+                    setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length);
+                  }}
+                />
+              )}
             </View>
 
             {/* Video Info & Fallback Switcher */}
