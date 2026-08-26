@@ -47,7 +47,7 @@ export default function LibraryPage({ onRequireAuth, initialTab }: LibraryPagePr
     loadLikedSongs();
     loadPlaylists();
     loadLikedAlbums();
-  }, [user]);
+  }, [user, tab]);
 
   const [isOffline, setIsOffline] = useState(false);
 
@@ -263,6 +263,8 @@ export default function LibraryPage({ onRequireAuth, initialTab }: LibraryPagePr
 
   // ── General Liked Songs Detail View ──
   if (tab === "liked-detail") {
+    const cleanLikedSongs = deduplicateSongs(likedSongs || []);
+
     return (
       <View style={styles.container}>
         {/* Header */}
@@ -280,10 +282,10 @@ export default function LibraryPage({ onRequireAuth, initialTab }: LibraryPagePr
         </View>
 
         <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
-          {likedSongs.length > 0 ? (
+          {cleanLikedSongs.length > 0 ? (
             <View style={{ flexDirection: "row", justifyContent: "flex-end", paddingHorizontal: 16, marginTop: 12, marginBottom: 8 }}>
               <TouchableOpacity delayPressIn={0}
-                onPress={() => playSong(likedSongs[0], likedSongs, true)}
+                onPress={() => playSong(cleanLikedSongs[0], cleanLikedSongs, true)}
                 style={styles.playAllBtn}
                 activeOpacity={0.8}
               >
@@ -293,7 +295,7 @@ export default function LibraryPage({ onRequireAuth, initialTab }: LibraryPagePr
             </View>
           ) : null}
 
-          {likedSongs.length === 0 ? (
+          {cleanLikedSongs.length === 0 ? (
             <LibraryEmpty
               icon="heart-outline"
               title="No liked songs yet"
@@ -301,11 +303,11 @@ export default function LibraryPage({ onRequireAuth, initialTab }: LibraryPagePr
             />
           ) : (
             <View style={{ paddingBottom: 60 }}>
-              {likedSongs.map((song) => (
+              {cleanLikedSongs.map((song) => (
                 <SongRow
                   key={song.id}
                   song={song}
-                  queue={likedSongs}
+                  queue={cleanLikedSongs}
                   onRequireAuth={handleRequireAuth}
                   fromLibrary={true}
                 />
@@ -440,8 +442,8 @@ export default function LibraryPage({ onRequireAuth, initialTab }: LibraryPagePr
                     style={styles.playlistRowItem}
                     activeOpacity={0.7}
                   >
-                    <View style={[styles.coverArtWrapper, { backgroundColor: "rgba(244, 63, 94, 0.1)" }]}>
-                      <MaterialCommunityIcons name="heart" size={20} color="#f43f5e" />
+                    <View style={[styles.coverArtWrapper, { backgroundColor: "rgba(29, 185, 84, 0.15)" }]}>
+                      <MaterialCommunityIcons name="heart" size={20} color="#1DB954" />
                     </View>
                     <View style={styles.playlistMeta}>
                       <Text style={styles.playlistTitleText}>Liked Songs</Text>
@@ -577,7 +579,7 @@ export default function LibraryPage({ onRequireAuth, initialTab }: LibraryPagePr
                           style={styles.actionBtn}
                           activeOpacity={0.7}
                         >
-                          <MaterialCommunityIcons name="heart" size={16} color="#f43f5e" />
+                          <MaterialCommunityIcons name="heart" size={16} color="#1DB954" />
                         </TouchableOpacity>
                       </View>
                     </View>

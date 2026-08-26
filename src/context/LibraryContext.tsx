@@ -447,7 +447,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     (song: Song) => {
       if (!song) return false;
       const queryNorm = normalizeSongTitle(song.title, song.movie || song.album);
-      return likedSongs.some((s) => {
+      return likedSongsRef.current.some((s) => {
         if (String(s.id) === String(song.id)) return true;
         const sNorm = normalizeSongTitle(s.title, s.movie || s.album);
         return sNorm && queryNorm && sNorm === queryNorm;

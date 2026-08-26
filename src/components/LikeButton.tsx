@@ -83,7 +83,7 @@ export function LikeButton({
         <MaterialCommunityIcons
           name={isLikedInAnyFolder ? "heart" : "heart-outline"}
           size={sizeMap[size]}
-          color={isLikedInAnyFolder ? "#f43f5e" : "rgba(255,255,255,0.4)"}
+          color={isLikedInAnyFolder ? "#1DB954" : "rgba(255,255,255,0.4)"}
         />
       </TouchableOpacity>
 
@@ -120,7 +120,7 @@ export function LikeButton({
                   {/* General Liked Songs */}
                   <TouchableOpacity delayPressIn={0} onPress={handleToggleGeneralLike} style={styles.folderRow} activeOpacity={0.7}>
                     <View style={styles.iconWrapper}>
-                      <MaterialCommunityIcons name="heart" size={16} color="#f43f5e" />
+                      <MaterialCommunityIcons name="heart" size={16} color="#1DB954" />
                     </View>
                     <Text style={styles.folderName}>Liked Songs (General)</Text>
                     {loadingId === "general" ? (
@@ -146,7 +146,7 @@ export function LikeButton({
                         {isLoading ? (
                           <ActivityIndicator size="small" color="#1DB954" />
                         ) : hasSong ? (
-                          <MaterialCommunityIcons name="heart" size={16} color="#f43f5e" />
+                          <MaterialCommunityIcons name="heart" size={16} color="#1DB954" />
                         ) : (
                           <MaterialCommunityIcons name="plus" size={18} color="rgba(255,255,255,0.3)" />
                         )}

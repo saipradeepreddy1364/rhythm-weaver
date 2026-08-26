@@ -280,7 +280,7 @@ export function SongCard({ song, queue, index }: SongCardProps) {
           <MaterialCommunityIcons
             name={isFav ? "heart" : "heart-outline"}
             size={18}
-            color={isFav ? "#f43f5e" : "rgba(255,255,255,0.5)"}
+            color={isFav ? "#1DB954" : "rgba(255,255,255,0.5)"}
           />
         </TouchableOpacity>
 

@@ -877,7 +877,7 @@ function AlbumModal({
             <MaterialCommunityIcons
               name={isLiked ? "heart" : "heart-outline"}
               size={20}
-              color={isLiked ? "#f43f5e" : "#fff"}
+              color={isLiked ? "#1DB954" : "#fff"}
             />
           </TouchableOpacity>
 
