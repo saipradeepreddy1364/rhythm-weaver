@@ -251,10 +251,21 @@ function AppContent() {
             {() => (
               <View style={{ flex: 1, backgroundColor: "#121212" }}>
                 <View style={{ flex: 1 }}>
-                  {activeTab === 'Home' && <HomePage onRequireAuth={handleRequireAuth} />}
-                  {activeTab === 'Search' && <SearchPage onRequireAuth={handleRequireAuth} />}
-                  {activeTab === 'Videos' && <VideosPage onRequireAuth={handleRequireAuth} />}
-                  {activeTab === 'Library' && <LibraryPage onRequireAuth={handleRequireAuth} />}
+                  <View style={{ flex: 1, display: activeTab === 'Home' ? 'flex' : 'none' }}>
+                    <HomePage onRequireAuth={handleRequireAuth} />
+                  </View>
+
+                  <View style={{ flex: 1, display: activeTab === 'Search' ? 'flex' : 'none' }}>
+                    <SearchPage onRequireAuth={handleRequireAuth} />
+                  </View>
+
+                  <View style={{ flex: 1, display: activeTab === 'Videos' ? 'flex' : 'none' }}>
+                    <VideosPage onRequireAuth={handleRequireAuth} />
+                  </View>
+
+                  <View style={{ flex: 1, display: activeTab === 'Library' ? 'flex' : 'none' }}>
+                    <LibraryPage onRequireAuth={handleRequireAuth} />
+                  </View>
                 </View>
 
                 {/* Bottom Tab Bar */}

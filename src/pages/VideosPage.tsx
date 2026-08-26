@@ -189,10 +189,10 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
   const [isMinimized, setIsMinimized] = useState(false);
   const [selectedInstanceIndex, setSelectedInstanceIndex] = useState(0);
   const [isVideoBlocked, setIsVideoBlocked] = useState(false);
-  const [pipWidth, setPipWidth] = useState(160);
-  const pipWidthRef = useRef(160);
+  const [pipWidth, setPipWidth] = useState(175);
+  const pipWidthRef = useRef(175);
   pipWidthRef.current = pipWidth;
-  const baseWidthRef = useRef(160);
+  const baseWidthRef = useRef(175);
   const initialPinchDistRef = useRef<number | null>(null);
 
   const calcDistance = (touches: any[]) => {
@@ -494,7 +494,7 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
                   styles.floatingPipContainer,
                   {
                     width: pipWidth,
-                    height: Math.round(pipWidth * (9 / 16)),
+                    height: Math.round(pipWidth * (110 / 175)),
                     transform: pan.getTranslateTransform(),
                   },
                 ]
@@ -550,7 +550,7 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
           )}
 
           {/* THE SINGLE PERSISTENT UNMOUNTABLE WEBVIEW INSTANCE */}
-          <View style={isMinimized ? styles.pipVideoBox : styles.videoPlayerBox}>
+          <View style={isMinimized ? styles.pipVideoBox : styles.videoPlayerBox} pointerEvents={isMinimized ? "none" : "auto"}>
             {isResolvingVideo ? (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size={isMinimized ? "small" : "large"} color="#1DB954" />
@@ -1005,8 +1005,8 @@ const styles = StyleSheet.create({
     position: "absolute",
     bottom: Platform.OS === "ios" ? 85 : 70,
     right: 14,
-    width: 155,
-    height: 90,
+    width: 175,
+    height: 110,
     borderRadius: 12,
     overflow: "hidden",
     backgroundColor: "#000",

@@ -730,12 +730,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        // Heavy Bass boost gain multiplier: 0% -> 1.0, 100% -> 2.5 (250% deep bass output!)
-        const bassGain = 1.0 + ((bass / 100) * 1.5);
+        // Ultra Bass boost gain multiplier: 0% -> 1.0, 100% -> 4.5 (450% heavy sub-bass output!)
+        const bassGain = 1.0 + ((bass / 100) * 3.5);
         const maxBand = Math.max(...(bands || [0]), 0);
-        const eqGain = 1.0 + (maxBand / 10) * 0.5;
+        const eqGain = 1.0 + (maxBand / 10) * 0.8;
 
-        const finalVolume = Math.min(2.5, Math.max(0.5, bassGain * eqGain));
+        const finalVolume = Math.min(4.5, Math.max(0.5, bassGain * eqGain));
         await TrackPlayer.setVolume(finalVolume);
       } catch (err) {
         console.warn("[PlayerContext] Failed to apply EQ gain:", err);
