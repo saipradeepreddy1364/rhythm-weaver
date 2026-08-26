@@ -380,7 +380,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const loadLikedAlbums = useCallback(async () => {
     try {
-      const raw = await AsyncStorage.getItem("rw_liked_albums");
+      const raw = localStorage.getItem("rw_liked_albums") || await AsyncStorage.getItem("rw_liked_albums");
       if (raw) {
         const val = JSON.parse(raw);
         if (Array.isArray(val)) {
@@ -710,7 +710,9 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
         likedAlbumsRef.current = nextLiked;
         setLikedAlbums(nextLiked);
+        localStorage.setItem("rw_liked_albums", JSON.stringify(nextLiked));
         await AsyncStorage.setItem("rw_liked_albums", JSON.stringify(nextLiked));
+        DeviceEventEmitter.emit("LIKED_ALBUMS_UPDATED");
       } catch (err) {
         console.warn("Failed to toggle liked album:", err);
       }

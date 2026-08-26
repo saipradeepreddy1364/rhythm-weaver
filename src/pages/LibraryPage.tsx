@@ -51,10 +51,16 @@ export default function LibraryPage({ onRequireAuth, initialTab }: LibraryPagePr
     loadPlaylists();
     loadLikedAlbums();
     loadLikedVideos();
-    const sub = DeviceEventEmitter.addListener("LIKED_SONGS_UPDATED", () => {
+    const subSongs = DeviceEventEmitter.addListener("LIKED_SONGS_UPDATED", () => {
       loadLikedSongs();
     });
-    return () => sub.remove();
+    const subAlbums = DeviceEventEmitter.addListener("LIKED_ALBUMS_UPDATED", () => {
+      loadLikedAlbums();
+    });
+    return () => {
+      subSongs.remove();
+      subAlbums.remove();
+    };
   }, [user, loadLikedSongs]);
 
   const [isOffline, setIsOffline] = useState(false);

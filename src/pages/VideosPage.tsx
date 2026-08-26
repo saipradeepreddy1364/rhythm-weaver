@@ -647,13 +647,14 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
                                 var ratio = e.clientX / window.innerWidth;
                                 player.seekTo(duration * ratio, true);
                               }
-                            });
+                            }
+                          });
 
                           if ('mediaSession' in navigator) {
                             try {
                               navigator.mediaSession.metadata = new MediaMetadata({
-                                title: "${activeVideo.title.replace(/"/g, '\\"')}",
-                                artist: "${activeVideo.artist.replace(/"/g, '\\"')}",
+                                title: ${JSON.stringify(activeVideo.title)},
+                                artist: ${JSON.stringify(activeVideo.artist)},
                               });
                               navigator.mediaSession.setActionHandler('play', function() { if (player && player.playVideo) player.playVideo(); });
                               navigator.mediaSession.setActionHandler('pause', function() { if (player && player.pauseVideo) player.pauseVideo(); });
