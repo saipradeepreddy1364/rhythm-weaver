@@ -696,6 +696,26 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
                               navigator.mediaSession.setActionHandler('pause', function() { if (player && player.pauseVideo) player.pauseVideo(); });
                             } catch (e) {}
                           }
+
+                          // Automatic 100% YouTube Ad Skipper & Ad Blocker
+                          setInterval(function() {
+                            try {
+                              var skipBtn = document.querySelector('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button, .ytp-ad-overlay-close-button');
+                              if (skipBtn) {
+                                skipBtn.click();
+                              }
+                              var adOverlays = document.querySelectorAll('.ytp-ad-overlay-container, .ytp-ad-message-container');
+                              if (adOverlays && adOverlays.length > 0) {
+                                for (var i = 0; i < adOverlays.length; i++) {
+                                  adOverlays[i].style.display = 'none';
+                                }
+                              }
+                              var adVideo = document.querySelector('.ad-showing video, video.ad-interrupting');
+                              if (adVideo && !isNaN(adVideo.duration) && adVideo.currentTime < adVideo.duration) {
+                                adVideo.currentTime = adVideo.duration || 0;
+                              }
+                            } catch (e) {}
+                          }, 200);
                         </script>
                       </body>
                     </html>
