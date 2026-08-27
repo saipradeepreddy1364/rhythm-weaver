@@ -380,6 +380,7 @@ function AppContent() {
               )}
             </View>
           </View>
+        </View>
       </Modal>
 
       {/* Global Root Folder Picker Modal (resolves Android nested modal collision) */}
