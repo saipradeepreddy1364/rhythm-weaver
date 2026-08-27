@@ -284,6 +284,17 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
     fetchTrendingVideos("Telugu video songs");
   }, []);
 
+  // Listen for PLAY_VIDEO_ITEM events emitted from LibraryPage or SearchPage
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener("PLAY_VIDEO_ITEM", (videoItem: VideoItem) => {
+      if (videoItem) {
+        handleVideoCardPress(videoItem);
+        DeviceEventEmitter.emit("NAVIGATE_TO_TAB", "Videos");
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
   const fetchTrendingVideos = async (searchQuery: string) => {
     setShowSuggestions(false);
     setSuggestions([]);

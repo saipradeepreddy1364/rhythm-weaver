@@ -654,7 +654,14 @@ export default function LibraryPage({ onRequireAuth, initialTab }: LibraryPagePr
               />
             ) : (
               likedVideos.map((item) => (
-                <View key={item.id || item.videoId} style={styles.likedVideoCard}>
+                <TouchableOpacity
+                  key={item.id || item.videoId}
+                  style={styles.likedVideoCard}
+                  onPress={() => {
+                    DeviceEventEmitter.emit("PLAY_VIDEO_ITEM", item);
+                  }}
+                  activeOpacity={0.85}
+                >
                   <Image source={{ uri: item.thumbnail }} style={styles.likedVideoThumb} />
                   <View style={{ flex: 1, marginLeft: 12, marginRight: 8 }}>
                     <Text style={styles.likedVideoTitle} numberOfLines={2}>{item.title}</Text>
@@ -668,7 +675,7 @@ export default function LibraryPage({ onRequireAuth, initialTab }: LibraryPagePr
                   >
                     <MaterialCommunityIcons name="heart" size={24} color="#1DB954" />
                   </TouchableOpacity>
-                </View>
+                </TouchableOpacity>
               ))
             )}
           </View>
