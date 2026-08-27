@@ -181,17 +181,15 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       // Step 3: Load liked songs from canonical key
       const seqAtStart = likedSongsSeq.current;
       const raw = await AsyncStorage.getItem("rw_liked_songs");
-      let parsedSongs = [];
       try {
         if (raw) {
           const val = JSON.parse(raw);
-          if (Array.isArray(val)) parsedSongs = val;
+          if (Array.isArray(val) && val.length > 0 && likedSongsSeq.current === seqAtStart) {
+            setLikedSongs(val);
+            localStorage.setItem("rw_liked_songs", raw);
+          }
         }
       } catch {}
-      if (likedSongsSeq.current === seqAtStart) {
-        setLikedSongs(parsedSongs);
-        if (raw) localStorage.setItem("rw_liked_songs", raw);
-      }
 
       // Step 4: Load liked albums
       const rawAlbums = await AsyncStorage.getItem("rw_liked_albums");
@@ -413,18 +411,16 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     const seqAtStart = likedSongsSeq.current;
     try {
       const raw = localStorage.getItem("rw_liked_songs") || await AsyncStorage.getItem("rw_liked_songs");
-      if (likedSongsSeq.current !== seqAtStart) return; // a toggle happened mid-read — discard
+      if (likedSongsSeq.current !== seqAtStart) return;
       if (raw) {
         const val = JSON.parse(raw);
-        if (Array.isArray(val)) {
+        if (Array.isArray(val) && val.length > 0) {
           setLikedSongs(val);
+          localStorage.setItem("rw_liked_songs", raw);
           return;
         }
       }
-    } catch { /* ignore */ }
-    if (likedSongsSeq.current === seqAtStart) {
-      setLikedSongs([]);
-    }
+    } catch {}
   }, []);
 
   // ── Load liked videos ────────────────────────────────────────────────────────
