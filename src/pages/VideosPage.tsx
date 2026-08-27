@@ -611,11 +611,20 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
                 style={{ padding: 6, marginRight: 6 }}
                 activeOpacity={0.7}
               >
-                <MaterialCommunityIcons
-                  name={isVideoLiked(activeVideo) ? "check-circle" : "heart-outline"}
-                  size={22}
-                  color={isVideoLiked(activeVideo) ? "#059669" : "#fff"}
-                />
+                {isVideoLiked(activeVideo) ? (
+                  <View style={{
+                    width: 22,
+                    height: 22,
+                    borderRadius: 11,
+                    backgroundColor: "#1DB954",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}>
+                    <MaterialCommunityIcons name="check" size={15} color="#000" />
+                  </View>
+                ) : (
+                  <MaterialCommunityIcons name="heart-outline" size={22} color="#fff" />
+                )}
               </TouchableOpacity>
               <TouchableOpacity delayPressIn={0} onPress={() => { setActiveVideo(null); setIsMinimized(false); }} style={styles.closeBtn}>
                 <MaterialCommunityIcons name="close" size={22} color="#fff" />

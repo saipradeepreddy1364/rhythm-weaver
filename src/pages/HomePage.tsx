@@ -879,11 +879,20 @@ function AlbumModal({
           </TouchableOpacity>
 
           <TouchableOpacity delayPressIn={0} onPress={handleLikePress} style={[modalStyles.backBtn, { marginRight: 12 }]} activeOpacity={0.7}>
-            <MaterialCommunityIcons
-              name={isLiked ? "check-circle" : "heart-outline"}
-              size={20}
-              color={isLiked ? "#059669" : "#fff"}
-            />
+            {isLiked ? (
+              <View style={{
+                width: 20,
+                height: 20,
+                borderRadius: 10,
+                backgroundColor: "#1DB954",
+                alignItems: "center",
+                justifyContent: "center",
+              }}>
+                <MaterialCommunityIcons name="check" size={14} color="#000" />
+              </View>
+            ) : (
+              <MaterialCommunityIcons name="heart-outline" size={20} color="#fff" />
+            )}
           </TouchableOpacity>
 
           {songs.length > 0 ? (

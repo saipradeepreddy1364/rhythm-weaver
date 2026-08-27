@@ -110,11 +110,24 @@ export function LikeButton({
         style={styles.button}
       >
         <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
-          <MaterialCommunityIcons
-            name={isLikedInAnyFolder ? "check-circle" : "heart-outline"}
-            size={sizeMap[size]}
-            color={isLikedInAnyFolder ? "#059669" : "rgba(255,255,255,0.4)"}
-          />
+          {isLikedInAnyFolder ? (
+            <View style={{
+              width: sizeMap[size],
+              height: sizeMap[size],
+              borderRadius: sizeMap[size] / 2,
+              backgroundColor: "#1DB954",
+              alignItems: "center",
+              justifyContent: "center",
+            }}>
+              <MaterialCommunityIcons name="check" size={Math.round(sizeMap[size] * 0.68)} color="#000" />
+            </View>
+          ) : (
+            <MaterialCommunityIcons
+              name="heart-outline"
+              size={sizeMap[size]}
+              color="rgba(255,255,255,0.4)"
+            />
+          )}
         </Animated.View>
       </TouchableOpacity>
 
