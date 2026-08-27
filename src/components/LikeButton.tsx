@@ -113,7 +113,7 @@ export function LikeButton({
           <MaterialCommunityIcons
             name={isLikedInAnyFolder ? "check-circle" : "heart-outline"}
             size={sizeMap[size]}
-            color={isLikedInAnyFolder ? "#1DB954" : "rgba(255,255,255,0.4)"}
+            color={isLikedInAnyFolder ? "#059669" : "rgba(255,255,255,0.4)"}
           />
         </Animated.View>
       </TouchableOpacity>

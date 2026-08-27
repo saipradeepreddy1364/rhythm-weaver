@@ -614,7 +614,7 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
                 <MaterialCommunityIcons
                   name={isVideoLiked(activeVideo) ? "check-circle" : "heart-outline"}
                   size={22}
-                  color={isVideoLiked(activeVideo) ? "#1DB954" : "#fff"}
+                  color={isVideoLiked(activeVideo) ? "#059669" : "#fff"}
                 />
               </TouchableOpacity>
               <TouchableOpacity delayPressIn={0} onPress={() => { setActiveVideo(null); setIsMinimized(false); }} style={styles.closeBtn}>
