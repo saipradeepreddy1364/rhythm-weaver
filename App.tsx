@@ -271,12 +271,8 @@ function AppContent() {
                     <SearchPage onRequireAuth={handleRequireAuth} />
                   </View>
 
-                  <View style={
-                    activeTab === 'Videos'
-                      ? { flex: 1 }
-                      : { ...StyleSheet.absoluteFillObject, zIndex: 99, pointerEvents: 'box-none' }
-                  }>
-                    <VideosPage onRequireAuth={handleRequireAuth} activeTab={activeTab} />
+                  <View style={{ flex: 1, display: activeTab === 'Videos' ? 'flex' : 'none' }}>
+                    <VideosPage onRequireAuth={handleRequireAuth} />
                   </View>
 
                   <View style={{ flex: 1, display: activeTab === 'Library' ? 'flex' : 'none' }}>
