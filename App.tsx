@@ -30,6 +30,7 @@ import LibraryPage from "./src/pages/LibraryPage";
 import { MiniPlayer } from "./src/components/MiniPlayer";
 import { FullPlayer } from "./src/components/FullPlayer";
 import { EqualizerModal } from "./src/components/EqualizerModal";
+import { GlobalFolderPickerModal } from "./src/components/GlobalFolderPickerModal";
 
 const Tab = createBottomTabNavigator();
 
@@ -379,8 +380,10 @@ function AppContent() {
               )}
             </View>
           </View>
-        </View>
       </Modal>
+
+      {/* Global Root Folder Picker Modal (resolves Android nested modal collision) */}
+      <GlobalFolderPickerModal />
     </SafeAreaView>
   );
 }

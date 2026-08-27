@@ -141,17 +141,20 @@ export function SongRow({ song, queue, onRequireAuth, fromLibrary, hideActions }
 
             <View style={styles.optionsList}>
               {/* Option 1: Like / Add to Folders */}
-              <View style={styles.optionItem}>
-                <LikeButton
-                  song={song}
-                  onRequireAuth={onRequireAuth}
-                  size="md"
-                  label="Like / Add to Folders"
-                  onModalOpenChange={(open) => {
-                    if (open) setShowOptionsModal(false);
-                  }}
-                />
-              </View>
+              <TouchableOpacity
+                delayPressIn={0}
+                onPress={() => {
+                  setShowOptionsModal(false);
+                  DeviceEventEmitter.emit("OPEN_FOLDER_PICKER", song);
+                }}
+                style={styles.optionItem}
+                activeOpacity={0.7}
+              >
+                <View style={{ marginRight: 14 }}>
+                  <LikeButton song={song} onRequireAuth={onRequireAuth} size="md" />
+                </View>
+                <Text style={styles.optionLabel}>Like / Add to Folders</Text>
+              </TouchableOpacity>
 
               {/* Option 2: Download */}
               <TouchableOpacity

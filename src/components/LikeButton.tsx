@@ -74,12 +74,14 @@ export function LikeButton({
 
   const handlePress = () => {
     animateHeart();
-    openFolderModal();
+    DeviceEventEmitter.emit("OPEN_FOLDER_PICKER", song);
+    if (onModalOpenChange) onModalOpenChange(true);
   };
 
   const handleLongPress = () => {
     animateHeart();
-    openFolderModal();
+    DeviceEventEmitter.emit("OPEN_FOLDER_PICKER", song);
+    if (onModalOpenChange) onModalOpenChange(true);
   };
 
   const handleToggleGeneralLike = async () => {
