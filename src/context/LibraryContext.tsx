@@ -179,7 +179,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       }
 
       // Step 3: Load liked songs from canonical key
-      const raw = await AsyncStorage.getItem("rw_liked_songs");
+      const raw = await localStorage.getItemAsync("rw_liked_songs") || await AsyncStorage.getItem("rw_liked_songs");
       try {
         if (raw) {
           const val = JSON.parse(raw);
@@ -192,7 +192,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       } catch {}
 
       // Step 4: Load liked albums
-      const rawAlbums = await AsyncStorage.getItem("rw_liked_albums");
+      const rawAlbums = await localStorage.getItemAsync("rw_liked_albums") || await AsyncStorage.getItem("rw_liked_albums");
       let parsedAlbums: AlbumData[] = [];
       try {
         if (rawAlbums) {
@@ -207,7 +207,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       } catch {}
 
       // Step 5: Load custom playlists / folders
-      const rawPlaylists = await AsyncStorage.getItem("rw_playlists");
+      const rawPlaylists = await localStorage.getItemAsync("rw_playlists") || await AsyncStorage.getItem("rw_playlists");
       let parsedPlaylists = [];
       try {
         if (rawPlaylists) {
@@ -221,7 +221,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       } catch {}
 
       // Step 6: Load liked videos
-      const rawVideos = await AsyncStorage.getItem("rw_liked_videos");
+      const rawVideos = await localStorage.getItemAsync("rw_liked_videos") || await AsyncStorage.getItem("rw_liked_videos");
       let parsedVideos = [];
       try {
         if (rawVideos) {
@@ -418,7 +418,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const loadLikedSongs = useCallback(async () => {
     const seqAtStart = likedSongsSeq.current;
     try {
-      const raw = localStorage.getItem("rw_liked_songs") || await AsyncStorage.getItem("rw_liked_songs");
+      const raw = await localStorage.getItemAsync("rw_liked_songs") || await AsyncStorage.getItem("rw_liked_songs");
       if (likedSongsSeq.current !== seqAtStart) return;
       if (raw) {
         const val = JSON.parse(raw);
@@ -437,7 +437,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const loadLikedVideos = useCallback(async () => {
     const seqAtStart = likedVideosSeq.current;
     try {
-      const raw = localStorage.getItem("rw_liked_videos") || await AsyncStorage.getItem("rw_liked_videos");
+      const raw = await localStorage.getItemAsync("rw_liked_videos") || await AsyncStorage.getItem("rw_liked_videos");
       if (likedVideosSeq.current !== seqAtStart) return;
       if (raw) {
         const val = JSON.parse(raw);
@@ -460,7 +460,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const _readLikedVideos = async (): Promise<any[]> => {
     try {
-      const raw = localStorage.getItem("rw_liked_videos") || await AsyncStorage.getItem("rw_liked_videos");
+      const raw = await localStorage.getItemAsync("rw_liked_videos") || await AsyncStorage.getItem("rw_liked_videos");
       if (raw) {
         const val = JSON.parse(raw);
         if (Array.isArray(val)) return val;
@@ -581,7 +581,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const _readLikedSongs = async (): Promise<Song[]> => {
     try {
-      const raw = localStorage.getItem("rw_liked_songs") || await AsyncStorage.getItem("rw_liked_songs");
+      const raw = await localStorage.getItemAsync("rw_liked_songs") || await AsyncStorage.getItem("rw_liked_songs");
       if (raw) {
         const val = JSON.parse(raw);
         if (Array.isArray(val)) return val;
@@ -731,7 +731,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const _readLikedAlbums = async (): Promise<AlbumData[]> => {
     try {
-      const raw = localStorage.getItem("rw_liked_albums") || await AsyncStorage.getItem("rw_liked_albums");
+      const raw = await localStorage.getItemAsync("rw_liked_albums") || await AsyncStorage.getItem("rw_liked_albums");
       if (raw) {
         const val = JSON.parse(raw);
         if (Array.isArray(val)) return val;

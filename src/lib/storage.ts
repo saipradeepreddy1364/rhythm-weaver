@@ -60,6 +60,22 @@ class MemoryStorage {
     return this.cache[k] ?? null;
   }
 
+  async getItemAsync(key: any): Promise<string | null> {
+    await this.ensureInitialized();
+    const k = key !== null && key !== undefined ? String(key) : "";
+    if (this.cache[k] !== undefined) return this.cache[k];
+    try {
+      if (AsyncStorage) {
+        const val = await (AsyncStorage as any).getItem(k);
+        if (val !== null) {
+          this.cache[k] = val;
+          return val;
+        }
+      }
+    } catch {}
+    return null;
+  }
+
   setItem(key: any, value: any): void {
     const k = key !== null && key !== undefined ? String(key) : "";
     const v = value !== null && value !== undefined ? String(value) : "";

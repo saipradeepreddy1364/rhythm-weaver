@@ -486,20 +486,6 @@ export default function LibraryPage({ onRequireAuth, initialTab }: LibraryPagePr
                   </TouchableOpacity>
                 </View>
 
-                {/* Direct Individual Liked Songs List */}
-                {likedSongs.length > 0 && (
-                  <View style={{ marginTop: 4, marginBottom: 12 }}>
-                    {deduplicateSongs(likedSongs).map((song) => (
-                      <SongRow
-                        key={song.id}
-                        song={song}
-                        queue={likedSongs}
-                        onRequireAuth={handleRequireAuth}
-                        fromLibrary={true}
-                      />
-                    ))}
-                  </View>
-                )}
 
                 {/* 2. Custom Folders (Playlists) */}
                 {playlists.map((playlist) => {
