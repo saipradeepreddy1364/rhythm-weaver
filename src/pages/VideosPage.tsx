@@ -195,6 +195,24 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
   const [isMinimized, setIsMinimized] = useState(false);
   const [selectedInstanceIndex, setSelectedInstanceIndex] = useState(0);
   const [isVideoBlocked, setIsVideoBlocked] = useState(false);
+  const [showPipControls, setShowPipControls] = useState(false);
+  const [isPipPlaying, setIsPipPlaying] = useState(true);
+  const pipControlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const webViewRef = useRef<any>(null);
+
+  const togglePipControls = useCallback(() => {
+    setShowPipControls((prev) => {
+      const next = !prev;
+      if (pipControlsTimeoutRef.current) clearTimeout(pipControlsTimeoutRef.current);
+      if (next) {
+        pipControlsTimeoutRef.current = setTimeout(() => {
+          setShowPipControls(false);
+        }, 3500);
+      }
+      return next;
+    });
+  }, []);
+
   const [pipWidth, setPipWidth] = useState(175);
   const pipWidthRef = useRef(175);
   pipWidthRef.current = pipWidth;
@@ -270,7 +288,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
           pan.y.setValue(clampedDy);
         }
       },
-      onPanResponderRelease: () => {
+      onPanResponderRelease: (evt, gestureState) => {
         if (initialPinchDistRef.current) {
           const finalScale = (pinchScale as any)._value || 1;
           if (finalScale !== 1) {
@@ -279,6 +297,11 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
           }
           pinchScale.setValue(1);
           initialPinchDistRef.current = null;
+        } else {
+          // Detect tap on minimized frame to toggle controls visibility
+          if (Math.abs(gestureState.dx) < 8 && Math.abs(gestureState.dy) < 8) {
+            togglePipControls();
+          }
         }
         pan.flattenOffset();
       },
@@ -420,27 +443,66 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
         ]}
         {...panResponder.panHandlers}
       >
-        <View style={styles.pipOverlayControls}>
-          <TouchableOpacity
-            delayPressIn={0}
-            onPress={() => {
-              setIsMinimized(false);
-              DeviceEventEmitter.emit("NAVIGATE_TO_TAB", "Videos");
-            }}
-            style={styles.pipIconBadge}
-            activeOpacity={0.7}
+        {showPipControls && (
+          <Animated.View
+            style={[
+              styles.pipOverlayControls,
+              {
+                transform: [{ scale: Animated.divide(1, pinchScale) }],
+              },
+            ]}
+            pointerEvents="box-none"
           >
-            <MaterialCommunityIcons name="arrow-expand" size={14} color="#fff" />
-          </TouchableOpacity>
-          <TouchableOpacity
-            delayPressIn={0}
-            onPress={() => { setActiveVideo(null); setIsMinimized(false); }}
-            style={styles.pipIconBadge}
-            activeOpacity={0.7}
-          >
-            <MaterialCommunityIcons name="close" size={14} color="#fff" />
-          </TouchableOpacity>
-        </View>
+            <TouchableOpacity
+              delayPressIn={0}
+              onPress={() => {
+                setIsMinimized(false);
+                setShowPipControls(false);
+                DeviceEventEmitter.emit("NAVIGATE_TO_TAB", "Videos");
+              }}
+              style={styles.pipIconBadge}
+              activeOpacity={0.8}
+            >
+              <MaterialCommunityIcons name="arrow-expand" size={14} color="#fff" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              delayPressIn={0}
+              onPress={() => {
+                const nextState = !isPipPlaying;
+                setIsPipPlaying(nextState);
+                try {
+                  webViewRef.current?.injectJavaScript(
+                    nextState
+                      ? "if(player && player.playVideo) player.playVideo(); true;"
+                      : "if(player && player.pauseVideo) player.pauseVideo(); true;"
+                  );
+                } catch {}
+              }}
+              style={styles.pipIconBadge}
+              activeOpacity={0.8}
+            >
+              <MaterialCommunityIcons
+                name={isPipPlaying ? "pause" : "play"}
+                size={14}
+                color="#fff"
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              delayPressIn={0}
+              onPress={() => {
+                setActiveVideo(null);
+                setIsMinimized(false);
+                setShowPipControls(false);
+              }}
+              style={[styles.pipIconBadge, { backgroundColor: "rgba(229, 9, 20, 0.85)" }]}
+              activeOpacity={0.8}
+            >
+              <MaterialCommunityIcons name="close" size={14} color="#fff" />
+            </TouchableOpacity>
+          </Animated.View>
+        )}
 
         <View style={styles.pipVideoBox}>
           {isResolvingVideo ? (
@@ -449,6 +511,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
             </View>
           ) : (
             <WebView
+              ref={webViewRef}
               key={`${activeVideo.videoId}_${selectedInstanceIndex}`}
               pointerEvents="auto"
               source={{
@@ -1050,27 +1113,66 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
               />
             )}
 
-            {/* Overlaid Minimized Quick Controls (Expand / Close) */}
-            {isMinimized && (
-              <View style={styles.pipOverlayControls} pointerEvents="auto">
+            {/* Overlaid Minimized Quick Controls (Expand / Pause / Close) */}
+            {isMinimized && showPipControls && (
+              <Animated.View
+                style={[
+                  styles.pipOverlayControls,
+                  {
+                    transform: [{ scale: Animated.divide(1, pinchScale) }],
+                  },
+                ]}
+                pointerEvents="box-none"
+              >
                 <TouchableOpacity
                   delayPressIn={0}
-                  onPress={() => setIsMinimized(false)}
+                  onPress={() => {
+                    setIsMinimized(false);
+                    setShowPipControls(false);
+                    DeviceEventEmitter.emit("NAVIGATE_TO_TAB", "Videos");
+                  }}
                   style={styles.pipIconBadge}
                   activeOpacity={0.8}
                 >
-                  <MaterialCommunityIcons name="fullscreen" size={16} color="#fff" />
+                  <MaterialCommunityIcons name="arrow-expand" size={14} color="#fff" />
                 </TouchableOpacity>
 
                 <TouchableOpacity
                   delayPressIn={0}
-                  onPress={() => { setActiveVideo(null); setIsMinimized(false); }}
-                  style={[styles.pipIconBadge, { backgroundColor: "rgba(0,0,0,0.75)" }]}
+                  onPress={() => {
+                    const nextState = !isPipPlaying;
+                    setIsPipPlaying(nextState);
+                    try {
+                      webViewRef.current?.injectJavaScript(
+                        nextState
+                          ? "if(player && player.playVideo) player.playVideo(); true;"
+                          : "if(player && player.pauseVideo) player.pauseVideo(); true;"
+                      );
+                    } catch {}
+                  }}
+                  style={styles.pipIconBadge}
                   activeOpacity={0.8}
                 >
-                  <MaterialCommunityIcons name="close" size={15} color="#fff" />
+                  <MaterialCommunityIcons
+                    name={isPipPlaying ? "pause" : "play"}
+                    size={14}
+                    color="#fff"
+                  />
                 </TouchableOpacity>
-              </View>
+
+                <TouchableOpacity
+                  delayPressIn={0}
+                  onPress={() => {
+                    setActiveVideo(null);
+                    setIsMinimized(false);
+                    setShowPipControls(false);
+                  }}
+                  style={[styles.pipIconBadge, { backgroundColor: "rgba(229, 9, 20, 0.85)" }]}
+                  activeOpacity={0.8}
+                >
+                  <MaterialCommunityIcons name="close" size={14} color="#fff" />
+                </TouchableOpacity>
+              </Animated.View>
             )}
           </View>
 

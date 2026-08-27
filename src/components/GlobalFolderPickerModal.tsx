@@ -39,7 +39,7 @@ export function GlobalFolderPickerModal() {
 
   const containingFolderIds = new Set(
     playlists
-      .filter((p) => (p.songs || []).some((s: any) => String(s.id) === String(song.id)))
+      .filter((p) => (p.songs || []).some((s: any) => String(s.id) === String(song.id) || (s.title && song.title && s.title.toLowerCase().trim() === song.title.toLowerCase().trim())))
       .map((p) => p.id)
   );
 

@@ -67,7 +67,7 @@ export function mapApiSong(item: any): Song {
 
   // ── Audio URL ──────────────────────────────────────────────────────────────
   // Use direct JioSaavn URL if available (faster playback), else fallback to our backend stream endpoint
-  const songId = String(item.id || item.songId || item.song_id || "");
+  const rawId = String(item.id || item.songId || item.song_id || "");
   const downloadUrlArray = item.downloadUrl || item.download_url || item.downloadUrls || [];
   let audioUrl = "";
   if (Array.isArray(downloadUrlArray) && downloadUrlArray.length > 0) {
@@ -76,8 +76,8 @@ export function mapApiSong(item: any): Song {
   if (!audioUrl) {
     audioUrl = item.audioUrl || item.audio_url || item.url || item.media_url || item.mediaUrl || "";
   }
-  if (!audioUrl && songId) {
-    audioUrl = `https://musicbackend-7a1o.onrender.com/api/songs/${songId}/stream`;
+  if (!audioUrl && rawId) {
+    audioUrl = `https://musicbackend-7a1o.onrender.com/api/songs/${rawId}/stream`;
   }
 
   // ── Artists ────────────────────────────────────────────────────────────────
@@ -143,8 +143,15 @@ export function mapApiSong(item: any): Song {
         ? (parseInt(rawDuration, 10) || 0)
         : 0;
 
+  let finalSongId = rawId;
+  if (!finalSongId) {
+    const rawTitle = item.name || item.title || item.song || item.songName || "Unknown";
+    const rawArtist = artist || "Unknown";
+    finalSongId = `gen_${rawTitle.toLowerCase().replace(/[^a-z0-9]/g, "")}_${rawArtist.toLowerCase().replace(/[^a-z0-9]/g, "")}`;
+  }
+
   return {
-    id: String(item.id || item.songId || item.song_id || Math.random()),
+    id: finalSongId,
     title: item.name || item.title || item.song || item.songName || "Unknown",
     artist,
     duration,

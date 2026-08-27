@@ -181,7 +181,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       // Step 3: Load liked songs from canonical key
       const raw = await localStorage.getItemAsync("rw_liked_songs") || await AsyncStorage.getItem("rw_liked_songs");
       try {
-        if (raw) {
+        if (raw && likedSongsSeq.current === 0) {
           const val = JSON.parse(raw);
           if (Array.isArray(val)) {
             likedSongsRef.current = val;
@@ -197,7 +197,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       try {
         if (rawAlbums) {
           const val = JSON.parse(rawAlbums);
-          if (Array.isArray(val)) {
+          if (Array.isArray(val) && likedAlbumsRef.current.length === 0) {
             parsedAlbums = val;
             likedAlbumsRef.current = val;
             setLikedAlbums(val);
@@ -214,7 +214,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
           const val = JSON.parse(rawPlaylists);
           if (Array.isArray(val)) {
             parsedPlaylists = val;
-            setStoredPlaylists(val);
+            setStoredPlaylists((prev) => (prev.length === 0 ? val : prev));
             localStorage.setItem("rw_playlists", rawPlaylists);
           }
         }
@@ -224,7 +224,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       const rawVideos = await localStorage.getItemAsync("rw_liked_videos") || await AsyncStorage.getItem("rw_liked_videos");
       let parsedVideos = [];
       try {
-        if (rawVideos) {
+        if (rawVideos && likedVideosSeq.current === 0) {
           const val = JSON.parse(rawVideos);
           if (Array.isArray(val)) {
             parsedVideos = val;
@@ -560,15 +560,26 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const isSongMatch = (a: Song, b: Song) => {
     if (!a || !b) return false;
-    if (a.id && b.id && String(a.id).trim() === String(b.id).trim()) return true;
-    const aTitle = (a.title || "").toLowerCase().trim();
-    const bTitle = (b.title || "").toLowerCase().trim();
-    if (!aTitle || !bTitle) return false;
-    if (aTitle === bTitle) return true;
+    const aId = a.id ? String(a.id).trim() : "";
+    const bId = b.id ? String(b.id).trim() : "";
+    
+    // Exact ID match if both IDs are non-empty
+    if (aId && bId && aId === bId) return true;
+    
+    // If both IDs are explicit non-generated IDs (e.g. yt_123 vs yt_456), do not match
+    if (aId && bId && !aId.startsWith("gen_") && !bId.startsWith("gen_") && aId !== bId) {
+      return false;
+    }
 
     const normA = normalizeSongTitle(a.title, a.movie, a.album);
     const normB = normalizeSongTitle(b.title, b.movie, b.album);
-    return normA.length > 0 && normA === normB;
+    if (!normA || !normB) return false;
+
+    // Require both normalized Title AND Artist to match when fallback comparing
+    const aArtist = (a.artist || "").toLowerCase().trim();
+    const bArtist = (b.artist || "").toLowerCase().trim();
+
+    return normA === normB && (aArtist === bArtist || !aArtist || !bArtist);
   };
 
   const isLiked = useCallback(
@@ -680,15 +691,18 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         const current = await _readPlaylists();
         const list = current.map((p) => {
           if (p.id !== playlistId) return p;
-          if (p.songs.some((s) => String(s.id) === String(song.id))) return p;
+          const pSongs = Array.isArray(p.songs) ? p.songs : [];
+          if (pSongs.some((s) => isSongMatch(s, song))) return p;
           return {
             ...p,
-            song_count: (p.song_count ?? 0) + 1,
-            songs: [...p.songs, song],
+            song_count: pSongs.length + 1,
+            songs: [...pSongs, song],
           };
         });
         await _writePlaylists(list);
-      } catch {}
+      } catch (err) {
+        console.warn("Failed to add to playlist:", err);
+      }
     },
     []
   );
@@ -699,10 +713,12 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         const current = await _readPlaylists();
         const list = current.map((p) => {
           if (p.id !== playlistId) return p;
+          const pSongs = Array.isArray(p.songs) ? p.songs : [];
+          const remaining = pSongs.filter((s) => String(s.id) !== String(songId) && !isSongMatch(s, { id: songId, title: "", artist: "", duration: 0, albumArt: "", audioUrl: "" }));
           return {
             ...p,
-            song_count: Math.max(0, (p.song_count ?? 1) - 1),
-            songs: p.songs.filter((s) => String(s.id) !== String(songId)),
+            song_count: remaining.length,
+            songs: remaining,
           };
         });
         await _writePlaylists(list);
