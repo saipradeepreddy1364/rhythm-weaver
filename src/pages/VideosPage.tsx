@@ -612,7 +612,7 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
                 activeOpacity={0.7}
               >
                 <MaterialCommunityIcons
-                  name={isVideoLiked(activeVideo) ? "heart" : "heart-outline"}
+                  name={isVideoLiked(activeVideo) ? "check-circle" : "heart-outline"}
                   size={22}
                   color={isVideoLiked(activeVideo) ? "#1DB954" : "#fff"}
                 />

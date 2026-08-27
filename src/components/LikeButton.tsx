@@ -111,7 +111,7 @@ export function LikeButton({
       >
         <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
           <MaterialCommunityIcons
-            name={isLikedInAnyFolder ? "heart" : "heart-outline"}
+            name={isLikedInAnyFolder ? "check-circle" : "heart-outline"}
             size={sizeMap[size]}
             color={isLikedInAnyFolder ? "#1DB954" : "rgba(255,255,255,0.4)"}
           />

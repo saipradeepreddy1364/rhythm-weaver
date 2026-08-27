@@ -880,7 +880,7 @@ function AlbumModal({
 
           <TouchableOpacity delayPressIn={0} onPress={handleLikePress} style={[modalStyles.backBtn, { marginRight: 12 }]} activeOpacity={0.7}>
             <MaterialCommunityIcons
-              name={isLiked ? "heart" : "heart-outline"}
+              name={isLiked ? "check-circle" : "heart-outline"}
               size={20}
               color={isLiked ? "#1DB954" : "#fff"}
             />
