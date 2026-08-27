@@ -178,9 +178,9 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         await AsyncStorage.removeItem("rw_guest_liked_albums");
       }
 
-      // Step 3: Load liked songs from canonical key (migration is done by now)
+      // Step 3: Load liked songs from canonical key
       const seqAtStart = likedSongsSeq.current;
-      const raw = localStorage.getItem("rw_liked_songs") || await AsyncStorage.getItem("rw_liked_songs");
+      const raw = await AsyncStorage.getItem("rw_liked_songs");
       let parsedSongs = [];
       try {
         if (raw) {
@@ -190,10 +190,11 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       } catch {}
       if (likedSongsSeq.current === seqAtStart) {
         setLikedSongs(parsedSongs);
+        if (raw) localStorage.setItem("rw_liked_songs", raw);
       }
 
       // Step 4: Load liked albums
-      const rawAlbums = localStorage.getItem("rw_liked_albums") || await AsyncStorage.getItem("rw_liked_albums");
+      const rawAlbums = await AsyncStorage.getItem("rw_liked_albums");
       let parsedAlbums = [];
       try {
         if (rawAlbums) {
@@ -202,9 +203,10 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         }
       } catch {}
       setLikedAlbums(parsedAlbums);
+      if (rawAlbums) localStorage.setItem("rw_liked_albums", rawAlbums);
 
       // Step 5: Load custom playlists / folders
-      const rawPlaylists = localStorage.getItem("rw_playlists") || await AsyncStorage.getItem("rw_playlists");
+      const rawPlaylists = await AsyncStorage.getItem("rw_playlists");
       let parsedPlaylists = [];
       try {
         if (rawPlaylists) {
@@ -213,10 +215,21 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         }
       } catch {}
       setStoredPlaylists(parsedPlaylists);
+      if (rawPlaylists) localStorage.setItem("rw_playlists", rawPlaylists);
+
+      // Step 6: Load liked videos
+      const rawVideos = await AsyncStorage.getItem("rw_liked_videos");
+      let parsedVideos = [];
+      try {
+        if (rawVideos) {
+          const val = JSON.parse(rawVideos);
+          if (Array.isArray(val)) parsedVideos = val;
+        }
+      } catch {}
+      setLikedVideos(parsedVideos);
+      if (rawVideos) localStorage.setItem("rw_liked_videos", rawVideos);
     } catch (err) {
       console.warn("initLikedSongs failed:", err);
-      setLikedSongs([]);
-      setLikedAlbums([]);
     }
   }, []);
 

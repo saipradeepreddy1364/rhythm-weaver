@@ -404,14 +404,23 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
           <TextInput
             value={query}
             onChangeText={(text) => {
+              isSelectingSuggestionRef.current = false;
               setQuery(text);
-              if (!text.trim()) setShowSuggestions(false);
+              if (!text.trim()) {
+                setSuggestions([]);
+                setShowSuggestions(false);
+              }
             }}
             onFocus={() => {
-              if (suggestions.length > 0) setShowSuggestions(true);
+              if (!isSelectingSuggestionRef.current && suggestions.length > 0) {
+                setShowSuggestions(true);
+              }
             }}
             onSubmitEditing={() => {
+              isSelectingSuggestionRef.current = true;
               setShowSuggestions(false);
+              setSuggestions([]);
+              Keyboard.dismiss();
               handleSearchSubmit();
             }}
             placeholder="Search videos (Telugu, Hindi, English...)"

@@ -16,7 +16,7 @@ class MemoryStorage {
   private writeQueue: Promise<void> = Promise.resolve();
 
   constructor() {
-    // Do not initialize at import time to prevent calling native modules before the React Native bridge is ready
+    this.ensureInitialized();
   }
 
   async ensureInitialized(): Promise<void> {
