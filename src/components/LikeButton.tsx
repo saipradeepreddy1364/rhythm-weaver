@@ -9,12 +9,16 @@ interface LikeButtonProps {
   song: Song;
   onRequireAuth?: () => void;
   size?: "sm" | "md" | "lg";
+  label?: string;
+  onModalOpenChange?: (open: boolean) => void;
 }
 
 export function LikeButton({
   song,
   onRequireAuth,
   size = "md",
+  label,
+  onModalOpenChange,
 }: LikeButtonProps) {
   const { user } = useAuth();
   const { isLiked, toggleLike, playlists, createNewPlaylist, addToPlaylist, removeFromPlaylist } = useLibrary();
@@ -22,6 +26,16 @@ export function LikeButton({
   const [creating, setCreating] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [loadingId, setLoadingId] = useState<string | null>(null);
+
+  const openFolderModal = () => {
+    setModalOpen(true);
+    if (onModalOpenChange) onModalOpenChange(true);
+  };
+
+  const closeFolderModal = () => {
+    setModalOpen(false);
+    if (onModalOpenChange) onModalOpenChange(false);
+  };
 
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
@@ -60,12 +74,12 @@ export function LikeButton({
 
   const handlePress = () => {
     animateHeart();
-    setModalOpen(true);
+    openFolderModal();
   };
 
   const handleLongPress = () => {
     animateHeart();
-    setModalOpen(true);
+    openFolderModal();
   };
 
   const handleToggleGeneralLike = async () => {
@@ -107,7 +121,7 @@ export function LikeButton({
         onPress={handlePress}
         onLongPress={handleLongPress}
         activeOpacity={0.7}
-        style={styles.button}
+        style={[styles.button, label ? { flexDirection: "row", alignItems: "center" } : null]}
       >
         <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
           {isLikedInAnyFolder ? (
@@ -129,6 +143,11 @@ export function LikeButton({
             />
           )}
         </Animated.View>
+        {label ? (
+          <Text style={{ fontSize: 15, fontWeight: "500", color: "#fff", marginLeft: 14 }}>
+            {label}
+          </Text>
+        ) : null}
       </TouchableOpacity>
 
       <Modal
