@@ -153,7 +153,7 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
   }
 }
 
-export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => void }) {
+export default function VideosPage({ onRequireAuth, activeTab }: { onRequireAuth: () => void; activeTab?: string }) {
   const { likedVideos, toggleLikeVideo, isVideoLiked } = useLibrary();
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -251,6 +251,8 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
         } else {
           initialPinchDistRef.current = null;
           const curWidth = pipWidthRef.current;
+          const curHeight = Math.round(curWidth * (110 / 175));
+          const screenHeight = Dimensions.get("window").height;
 
           // Screen bounds clamping to prevent mini video frame from going out of screen
           const minTranslateX = -(width - curWidth - 28);
@@ -258,7 +260,8 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
           const currentOffsetX = (pan.x as any)._offset || 0;
           const clampedDx = Math.max(minTranslateX - currentOffsetX, Math.min(maxTranslateX - currentOffsetX, gestureState.dx));
 
-          const minTranslateY = -(Dimensions.get("window").height - (Platform.OS === 'ios' ? 170 : 150));
+          // Top boundary clamp: keep box below top status bar
+          const minTranslateY = -(screenHeight - curHeight - 110);
           const maxTranslateY = 0;
           const currentOffsetY = (pan.y as any)._offset || 0;
           const clampedDy = Math.max(minTranslateY - currentOffsetY, Math.min(maxTranslateY - currentOffsetY, gestureState.dy));
@@ -297,6 +300,13 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
     });
     return () => sub.remove();
   }, []);
+
+  // Auto-minimize active video when switching tabs away from Videos
+  useEffect(() => {
+    if (activeTab && activeTab !== "Videos" && activeVideo && !isMinimized) {
+      setIsMinimized(true);
+    }
+  }, [activeTab, activeVideo, isMinimized]);
 
   const fetchTrendingVideos = async (searchQuery: string) => {
     setShowSuggestions(false);
