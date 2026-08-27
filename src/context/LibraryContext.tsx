@@ -458,10 +458,21 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
+  const _readLikedVideos = async (): Promise<any[]> => {
+    try {
+      const raw = localStorage.getItem("rw_liked_videos") || await AsyncStorage.getItem("rw_liked_videos");
+      if (raw) {
+        const val = JSON.parse(raw);
+        if (Array.isArray(val)) return val;
+      }
+    } catch {}
+    return likedVideosRef.current || [];
+  };
+
   const toggleLikeVideo = useCallback(async (video: any) => {
     if (!video) return;
     try {
-      const current = likedVideosRef.current;
+      const current = await _readLikedVideos();
       const liked = current.some(
         (v) => (v.id && video.id && String(v.id) === String(video.id)) ||
                (v.videoId && video.videoId && String(v.videoId) === String(video.videoId))
@@ -568,11 +579,22 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     [likedSongs]
   );
 
+  const _readLikedSongs = async (): Promise<Song[]> => {
+    try {
+      const raw = localStorage.getItem("rw_liked_songs") || await AsyncStorage.getItem("rw_liked_songs");
+      if (raw) {
+        const val = JSON.parse(raw);
+        if (Array.isArray(val)) return val;
+      }
+    } catch {}
+    return likedSongsRef.current || [];
+  };
+
   const toggleLike = useCallback(
     async (song: Song) => {
       if (!song || !song.title) return;
       try {
-        const current = likedSongsRef.current;
+        const current = await _readLikedSongs();
         const liked = current.some((s) => isSongMatch(s, song));
         const nextLiked = liked
           ? current.filter((s) => !isSongMatch(s, song))
@@ -707,30 +729,58 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     [likedAlbums]
   );
 
+  const _readLikedAlbums = async (): Promise<AlbumData[]> => {
+    try {
+      const raw = localStorage.getItem("rw_liked_albums") || await AsyncStorage.getItem("rw_liked_albums");
+      if (raw) {
+        const val = JSON.parse(raw);
+        if (Array.isArray(val)) return val;
+      }
+    } catch {}
+    return likedAlbumsRef.current || [];
+  };
+
   const toggleLikeAlbum = useCallback(
     async (album: AlbumData) => {
       if (!album || !album.title) return;
       try {
-        const current = likedAlbumsRef.current;
+        const currentAlbums = await _readLikedAlbums();
         const targetTitle = album.title.toLowerCase().trim();
-        const isLiked = current.some(
+        const isAlreadyLiked = currentAlbums.some(
           (a) => a.title && a.title.toLowerCase().trim() === targetTitle
         );
 
+        const cleanAlbumSongs = deduplicateSongs(album.songs || []);
         const cleanAlbum: AlbumData = {
           ...album,
-          songs: deduplicateSongs(album.songs || []),
+          songs: cleanAlbumSongs,
         };
 
-        const nextLiked = isLiked
-          ? current.filter((a) => a.title && a.title.toLowerCase().trim() !== targetTitle)
-          : [cleanAlbum, ...current.filter((a) => a.title && a.title.toLowerCase().trim() !== targetTitle)];
+        const nextLikedAlbums = isAlreadyLiked
+          ? currentAlbums.filter((a) => a.title && a.title.toLowerCase().trim() !== targetTitle)
+          : [cleanAlbum, ...currentAlbums.filter((a) => a.title && a.title.toLowerCase().trim() !== targetTitle)];
 
-        likedAlbumsRef.current = nextLiked;
-        setLikedAlbums(nextLiked);
-        localStorage.setItem("rw_liked_albums", JSON.stringify(nextLiked));
-        await AsyncStorage.setItem("rw_liked_albums", JSON.stringify(nextLiked));
+        likedAlbumsRef.current = nextLikedAlbums;
+        setLikedAlbums(nextLikedAlbums);
+        localStorage.setItem("rw_liked_albums", JSON.stringify(nextLikedAlbums));
+        await AsyncStorage.setItem("rw_liked_albums", JSON.stringify(nextLikedAlbums));
         DeviceEventEmitter.emit("LIKED_ALBUMS_UPDATED");
+
+        // Sync album songs into Liked Songs list if album has songs
+        if (cleanAlbumSongs.length > 0) {
+          const currentSongs = await _readLikedSongs();
+          let nextSongs = [...currentSongs];
+          if (!isAlreadyLiked) {
+            const existingIds = new Set(currentSongs.map((s) => s.id));
+            const newSongs = cleanAlbumSongs.filter((s) => s && s.id && !existingIds.has(s.id));
+            nextSongs = [...newSongs, ...currentSongs];
+          }
+          likedSongsRef.current = nextSongs;
+          setLikedSongs(nextSongs);
+          localStorage.setItem("rw_liked_songs", JSON.stringify(nextSongs));
+          await AsyncStorage.setItem("rw_liked_songs", JSON.stringify(nextSongs));
+          DeviceEventEmitter.emit("LIKED_SONGS_UPDATED");
+        }
       } catch (err) {
         console.warn("Failed to toggle liked album:", err);
       }
