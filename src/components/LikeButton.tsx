@@ -58,9 +58,9 @@ export function LikeButton({
     lg: 24,
   };
 
-  const handlePress = async () => {
+  const handlePress = () => {
     animateHeart();
-    await toggleLike(song);
+    setModalOpen(true);
   };
 
   const handleLongPress = () => {

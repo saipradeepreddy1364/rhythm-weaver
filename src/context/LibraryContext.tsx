@@ -619,7 +619,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const _readPlaylists = async (): Promise<StoredPlaylist[]> => {
     try {
-      const raw = await AsyncStorage.getItem("rw_playlists");
+      const raw = await localStorage.getItemAsync("rw_playlists") || await AsyncStorage.getItem("rw_playlists");
       return raw ? JSON.parse(raw) : [];
     } catch {
       return [];
@@ -627,7 +627,9 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   };
 
   const _writePlaylists = async (list: StoredPlaylist[]) => {
-    await AsyncStorage.setItem("rw_playlists", JSON.stringify(list));
+    const jsonStr = JSON.stringify(list);
+    localStorage.setItem("rw_playlists", jsonStr);
+    await AsyncStorage.setItem("rw_playlists", jsonStr);
     setStoredPlaylists(list);
   };
 
@@ -762,25 +764,10 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
         likedAlbumsRef.current = nextLikedAlbums;
         setLikedAlbums(nextLikedAlbums);
-        localStorage.setItem("rw_liked_albums", JSON.stringify(nextLikedAlbums));
-        await AsyncStorage.setItem("rw_liked_albums", JSON.stringify(nextLikedAlbums));
+        const jsonStr = JSON.stringify(nextLikedAlbums);
+        localStorage.setItem("rw_liked_albums", jsonStr);
+        await AsyncStorage.setItem("rw_liked_albums", jsonStr);
         DeviceEventEmitter.emit("LIKED_ALBUMS_UPDATED");
-
-        // Sync album songs into Liked Songs list if album has songs
-        if (cleanAlbumSongs.length > 0) {
-          const currentSongs = await _readLikedSongs();
-          let nextSongs = [...currentSongs];
-          if (!isAlreadyLiked) {
-            const existingIds = new Set(currentSongs.map((s) => s.id));
-            const newSongs = cleanAlbumSongs.filter((s) => s && s.id && !existingIds.has(s.id));
-            nextSongs = [...newSongs, ...currentSongs];
-          }
-          likedSongsRef.current = nextSongs;
-          setLikedSongs(nextSongs);
-          localStorage.setItem("rw_liked_songs", JSON.stringify(nextSongs));
-          await AsyncStorage.setItem("rw_liked_songs", JSON.stringify(nextSongs));
-          DeviceEventEmitter.emit("LIKED_SONGS_UPDATED");
-        }
       } catch (err) {
         console.warn("Failed to toggle liked album:", err);
       }
