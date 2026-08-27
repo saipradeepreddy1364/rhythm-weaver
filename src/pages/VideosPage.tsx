@@ -624,7 +624,9 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
       </Animated.View>
     );
   }
-      {/* Header */}
+
+  return (
+    <View style={styles.container}>
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>Music Videos</Text>
