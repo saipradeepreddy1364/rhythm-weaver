@@ -309,6 +309,13 @@ function AppContent() {
       {/* Floating Mini Player (hidden on Videos tab) */}
       {currentSong && activeTab !== 'Videos' && <MiniPlayer onRequireAuth={handleRequireAuth} />}
 
+      {/* Floating Mini Video Player across other tabs */}
+      {activeTab !== 'Videos' && (
+        <View style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
+          <VideosPage onRequireAuth={handleRequireAuth} floatingOnly={true} />
+        </View>
+      )}
+
       {/* Full screen overlay player (native version of FullPlayer component) */}
       {showPlayer && <FullPlayer onRequireAuth={handleRequireAuth} />}
 
