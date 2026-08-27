@@ -185,6 +185,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         if (raw) {
           const val = JSON.parse(raw);
           if (Array.isArray(val) && val.length > 0 && likedSongsSeq.current === seqAtStart) {
+            likedSongsRef.current = val;
             setLikedSongs(val);
             localStorage.setItem("rw_liked_songs", raw);
           }
@@ -193,13 +194,14 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
       // Step 4: Load liked albums
       const rawAlbums = await AsyncStorage.getItem("rw_liked_albums");
-      let parsedAlbums = [];
+      let parsedAlbums: AlbumData[] = [];
       try {
         if (rawAlbums) {
           const val = JSON.parse(rawAlbums);
           if (Array.isArray(val)) parsedAlbums = val;
         }
       } catch {}
+      likedAlbumsRef.current = parsedAlbums;
       setLikedAlbums(parsedAlbums);
       if (rawAlbums) localStorage.setItem("rw_liked_albums", rawAlbums);
 
@@ -224,6 +226,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
           if (Array.isArray(val)) parsedVideos = val;
         }
       } catch {}
+      likedVideosRef.current = parsedVideos;
       setLikedVideos(parsedVideos);
       if (rawVideos) localStorage.setItem("rw_liked_videos", rawVideos);
     } catch (err) {
@@ -415,6 +418,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       if (raw) {
         const val = JSON.parse(raw);
         if (Array.isArray(val) && val.length > 0) {
+          likedSongsRef.current = val;
           setLikedSongs(val);
           localStorage.setItem("rw_liked_songs", raw);
           return;

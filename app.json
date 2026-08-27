@@ -47,6 +47,9 @@
         "WAKE_LOCK"
       ]
     },
+    "plugins": [
+      "./plugins/withAndroidPip.js"
+    ],
     "web": {
       "favicon": "./assets/favicon.png"
     },
