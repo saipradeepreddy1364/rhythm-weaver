@@ -96,9 +96,15 @@ function AppContent() {
     setActiveTabState(tabName);
   }, []);
 
-  // Track app state changes without resetting user tab location
+  // Reset navigation tab to Home whenever app is cold booted or resumed from background
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextAppState) => {
+      if (
+        appState.current.match(/inactive|background/) &&
+        nextAppState === "active"
+      ) {
+        setActiveTabState("Home");
+      }
       appState.current = nextAppState;
     });
 
