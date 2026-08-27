@@ -72,17 +72,12 @@ class MemoryStorage {
       return;
     }
 
-    // Write to AsyncStorage directly and instantly so writes are not lost on app suspension
-    try {
-      const p = (AsyncStorage as any).setItem(k, v);
-      if (p && typeof p.catch === "function") {
-        p.catch((err: any) => {
-          console.warn("[MemoryStorage] setItem failed for key:", k, err);
-        });
-      }
-    } catch (err: any) {
-      console.warn("[MemoryStorage] setItem synchronous error for key:", k, err);
-    }
+    // Chain onto the serial write queue so flush() can actually wait for this to land on disk
+    this.writeQueue = this.writeQueue.then(() =>
+      (AsyncStorage as any).setItem(k, v).catch((err: any) => {
+        console.warn("[MemoryStorage] setItem failed for key:", k, err);
+      })
+    );
   }
 
   removeItem(key: any): void {
@@ -94,16 +89,11 @@ class MemoryStorage {
       return;
     }
 
-    try {
-      const p = (AsyncStorage as any).removeItem(k);
-      if (p && typeof p.catch === "function") {
-        p.catch((err: any) => {
-          console.warn("[MemoryStorage] removeItem failed for key:", k, err);
-        });
-      }
-    } catch (err: any) {
-      console.warn("[MemoryStorage] removeItem synchronous error for key:", k, err);
-    }
+    this.writeQueue = this.writeQueue.then(() =>
+      (AsyncStorage as any).removeItem(k).catch((err: any) => {
+        console.warn("[MemoryStorage] removeItem failed for key:", k, err);
+      })
+    );
   }
 
   /**

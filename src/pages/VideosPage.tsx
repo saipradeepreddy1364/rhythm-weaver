@@ -708,6 +708,20 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
                             } catch (e) {}
                           }
 
+                          // Prevent YouTube from pausing when app backgrounds (document.hidden)
+                          window.addEventListener('visibilitychange', function(e) {
+                            e.stopImmediatePropagation();
+                          }, true);
+
+                          document.addEventListener('visibilitychange', function(e) {
+                            e.stopImmediatePropagation();
+                            if (document.hidden && player && typeof player.playVideo === 'function') {
+                              setTimeout(function() {
+                                try { player.playVideo(); } catch (err) {}
+                              }, 50);
+                            }
+                          }, true);
+
                           // Automatic 100% YouTube Ad Skipper & Ad Blocker
                           setInterval(function() {
                             try {
@@ -734,6 +748,7 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
                   baseUrl: "https://www.google.com",
                 }}
                 style={{ flex: 1, backgroundColor: "#000" }}
+                userAgent="Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
                 allowsPictureInPicture={true}
                 allowsInlineMediaPlayback={true}
                 mediaPlaybackRequiresUserAction={false}

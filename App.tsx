@@ -9,6 +9,7 @@ import * as SplashScreen from "expo-splash-screen";
 import TrackPlayer from "react-native-track-player";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { PlaybackService } from "./playbackService";
+import { localStorage } from "./src/lib/storage";
 
 // Prevent the splash screen from auto-hiding before storage is initialized
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -222,6 +223,16 @@ function AppContent() {
     return () => sub.remove();
   }, []);
 
+  // Flush pending storage writes to disk before app process is suspended or killed
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "background" || nextState === "inactive") {
+        localStorage.flush().catch(() => {});
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
   // Check auth once on mount
   useEffect(() => {
     checkAuth();
@@ -373,8 +384,6 @@ function AppContent() {
     </SafeAreaView>
   );
 }
-
-import { localStorage } from "./src/lib/storage";
 
 export default function App() {
   const [appReady, setAppReady] = useState(false);
