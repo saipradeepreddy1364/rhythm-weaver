@@ -432,19 +432,17 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const loadLikedVideos = useCallback(async () => {
     const seqAtStart = likedVideosSeq.current;
     try {
-      const raw = await AsyncStorage.getItem("rw_liked_videos");
+      const raw = localStorage.getItem("rw_liked_videos") || await AsyncStorage.getItem("rw_liked_videos");
       if (likedVideosSeq.current !== seqAtStart) return;
       if (raw) {
         const val = JSON.parse(raw);
-        if (Array.isArray(val)) {
+        if (Array.isArray(val) && val.length > 0) {
           setLikedVideos(val);
+          localStorage.setItem("rw_liked_videos", raw);
           return;
         }
       }
     } catch {}
-    if (likedVideosSeq.current === seqAtStart) {
-      setLikedVideos([]);
-    }
   }, []);
 
   const isVideoLiked = useCallback((video: any) => {
@@ -473,7 +471,9 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       likedVideosSeq.current += 1;
       likedVideosRef.current = nextLiked;
       setLikedVideos(nextLiked);
+      localStorage.setItem("rw_liked_videos", JSON.stringify(nextLiked));
       await AsyncStorage.setItem("rw_liked_videos", JSON.stringify(nextLiked));
+      DeviceEventEmitter.emit("LIKED_VIDEOS_UPDATED");
     } catch (err) {
       console.warn("Failed to toggle like video:", err);
     }

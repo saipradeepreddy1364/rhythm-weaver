@@ -57,9 +57,13 @@ export default function LibraryPage({ onRequireAuth, initialTab }: LibraryPagePr
     const subAlbums = DeviceEventEmitter.addListener("LIKED_ALBUMS_UPDATED", () => {
       loadLikedAlbums();
     });
+    const subVideos = DeviceEventEmitter.addListener("LIKED_VIDEOS_UPDATED", () => {
+      loadLikedVideos();
+    });
     return () => {
       subSongs.remove();
       subAlbums.remove();
+      subVideos.remove();
     };
   }, [user, loadLikedSongs]);
 
