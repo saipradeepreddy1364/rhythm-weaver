@@ -242,8 +242,11 @@ export default function VideosPage({ onRequireAuth }: { onRequireAuth: () => voi
           }
           const currentDist = calcDistance(evt.nativeEvent.touches);
           if (currentDist > 0 && initialPinchDistRef.current > 0) {
-            const scale = currentDist / initialPinchDistRef.current;
-            pinchScale.setValue(scale);
+            const rawScale = currentDist / initialPinchDistRef.current;
+            const maxAllowedScale = (width - 28) / (baseWidthRef.current || 175);
+            const minAllowedScale = 130 / (baseWidthRef.current || 175);
+            const clampedScale = Math.max(minAllowedScale, Math.min(maxAllowedScale, rawScale));
+            pinchScale.setValue(clampedScale);
           }
         } else {
           initialPinchDistRef.current = null;
