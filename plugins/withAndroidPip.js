@@ -4,14 +4,27 @@ module.exports = function withAndroidPip(config) {
   return withMainActivity(config, (config) => {
     let mainActivity = config.modResults.contents;
 
-    if (!mainActivity.includes('onUserLeaveHint')) {
+    if (!mainActivity.includes('setAutoEnterEnabled')) {
       const pipSnippet = `
+  override fun onStart() {
+    super.onStart()
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+      try {
+        val builder = android.app.PictureInPictureParams.Builder()
+        builder.setAspectRatio(android.util.Rational(16, 9))
+        builder.setAutoEnterEnabled(true)
+        setPictureInPictureParams(builder.build())
+      } catch (e: Exception) {}
+    }
+  }
+
   override fun onUserLeaveHint() {
     super.onUserLeaveHint()
-    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O && android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S) {
       try {
-        val params = android.app.PictureInPictureParams.Builder().build()
-        enterPictureInPictureMode(params)
+        val builder = android.app.PictureInPictureParams.Builder()
+        builder.setAspectRatio(android.util.Rational(16, 9))
+        enterPictureInPictureMode(builder.build())
       } catch (e: Exception) {}
     }
   }
