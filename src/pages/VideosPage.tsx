@@ -322,13 +322,15 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
 
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      onStartShouldSetPanResponderCapture: () => false,
+      onStartShouldSetPanResponder: () => isMinimized,
+      onStartShouldSetPanResponderCapture: (evt) => {
+        return isMinimized && evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2;
+      },
       onMoveShouldSetPanResponder: (evt, gestureState) => {
-        return isMinimized && (Math.abs(gestureState.dx) > 3 || Math.abs(gestureState.dy) > 3 || (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2));
+        return isMinimized && (Math.abs(gestureState.dx) > 2 || Math.abs(gestureState.dy) > 2 || (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2));
       },
       onMoveShouldSetPanResponderCapture: (evt, gestureState) => {
-        return isMinimized && (Math.abs(gestureState.dx) > 3 || Math.abs(gestureState.dy) > 3 || (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2));
+        return isMinimized && (Math.abs(gestureState.dx) > 2 || Math.abs(gestureState.dy) > 2 || (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2));
       },
       onPanResponderGrant: (evt) => {
         if (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2) {
@@ -709,16 +711,15 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
                   const nextState = !isPipPlaying;
                   setIsPipPlaying(nextState);
                   try {
-                    const js = nextState
-                      ? `(function(){
-                          try { if (player && typeof player.playVideo === 'function') player.playVideo(); } catch(e){}
-                          try { var v = document.querySelector('video'); if (v) v.play(); } catch(e){}
-                        })(); true;`
-                      : `(function(){
-                          try { if (player && typeof player.pauseVideo === 'function') player.pauseVideo(); } catch(e){}
-                          try { var v = document.querySelector('video'); if (v) v.pause(); } catch(e){}
-                        })(); true;`;
-                    webViewRef.current?.injectJavaScript(js);
+                    webViewRef.current?.injectJavaScript(`
+                      if (typeof window.toggleVideoPlayback === 'function') {
+                        window.toggleVideoPlayback(${nextState});
+                      } else {
+                        var v = document.querySelector('video');
+                        if (v) { ${nextState} ? v.play() : v.pause(); }
+                      }
+                      true;
+                    `);
                   } catch (err) {}
                 }}
                 style={styles.pipPlayIconBadge}
@@ -1298,6 +1299,25 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
                             });
                           }
 
+                          window.toggleVideoPlayback = function(shouldPlay) {
+                            try {
+                              var vids = document.querySelectorAll('video');
+                              for (var v = 0; v < vids.length; v++) {
+                                if (vids[v]) {
+                                  if (shouldPlay) {
+                                    vids[v].play();
+                                  } else {
+                                    vids[v].pause();
+                                  }
+                                }
+                              }
+                              if (player) {
+                                if (shouldPlay && typeof player.playVideo === 'function') player.playVideo();
+                                if (!shouldPlay && typeof player.pauseVideo === 'function') player.pauseVideo();
+                              }
+                            } catch (err) {}
+                          };
+
                           document.addEventListener('touchmove', function(e) {
                             var settingsMenu = document.querySelector('.ytp-settings-menu, .ytp-panel-menu, .ytp-popup');
                             if (settingsMenu && settingsMenu.contains(e.target)) {
@@ -1542,16 +1562,15 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
                       const nextState = !isPipPlaying;
                       setIsPipPlaying(nextState);
                       try {
-                        const js = nextState
-                          ? `(function(){
-                              try { if (player && typeof player.playVideo === 'function') player.playVideo(); } catch(e){}
-                              try { var v = document.querySelector('video'); if (v) v.play(); } catch(e){}
-                            })(); true;`
-                          : `(function(){
-                              try { if (player && typeof player.pauseVideo === 'function') player.pauseVideo(); } catch(e){}
-                              try { var v = document.querySelector('video'); if (v) v.pause(); } catch(e){}
-                            })(); true;`;
-                        webViewRef.current?.injectJavaScript(js);
+                        webViewRef.current?.injectJavaScript(`
+                          if (typeof window.toggleVideoPlayback === 'function') {
+                            window.toggleVideoPlayback(${nextState});
+                          } else {
+                            var v = document.querySelector('video');
+                            if (v) { ${nextState} ? v.play() : v.pause(); }
+                          }
+                          true;
+                        `);
                       } catch (err) {}
                     }}
                     style={styles.pipPlayIconBadge}
