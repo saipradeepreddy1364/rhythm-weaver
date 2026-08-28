@@ -29,6 +29,21 @@ const VIDEO_EMBED_PROVIDERS = [
   "https://vid.puffyan.us/embed"
 ];
 
+function getBestYouTubeThumbnail(vId?: string, thumbnails?: any[]): string {
+  if (Array.isArray(thumbnails) && thumbnails.length > 0) {
+    const best = thumbnails[thumbnails.length - 1]?.url || thumbnails[0]?.url;
+    if (best) {
+      let clean = best;
+      if (clean.startsWith("//")) clean = "https:" + clean;
+      return clean;
+    }
+  }
+  if (vId && /^[a-zA-Z0-9_-]{11}$/.test(vId)) {
+    return `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
+  }
+  return vId ? `https://i.ytimg.com/vi/${vId}/hqdefault.jpg` : "";
+}
+
 async function getYouTubeVideoId(title: string, artist: string): Promise<string> {
   const searchQuery = encodeURIComponent(`${title} ${artist} video song`);
 
@@ -120,7 +135,7 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
 
               const title = video.title?.runs?.[0]?.text || video.title?.simpleText || searchQuery;
               const artist = video.ownerText?.runs?.[0]?.text || video.shortBylineText?.runs?.[0]?.text || "YouTube";
-              const thumbnail = video.thumbnail?.thumbnails?.[0]?.url || `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
+              const thumbnail = getBestYouTubeThumbnail(vId, video.thumbnail?.thumbnails);
 
               videoItems.push({
                 id: `yt_${vId}`,
@@ -141,7 +156,7 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
                 seenIds.add(firstVideoId);
                 const title = playlist.title?.simpleText || playlist.title?.runs?.[0]?.text || "Mashup / Jukebox";
                 const artist = playlist.shortBylineText?.runs?.[0]?.text || playlist.ownerText?.runs?.[0]?.text || "YouTube Playlist";
-                const thumbnail = playlist.thumbnails?.[0]?.thumbnails?.[0]?.url || `https://i.ytimg.com/vi/${firstVideoId}/hqdefault.jpg`;
+                const thumbnail = getBestYouTubeThumbnail(firstVideoId, playlist.thumbnails?.[0]?.thumbnails || playlist.thumbnail?.thumbnails);
 
                 videoItems.push({
                   id: `yt_${firstVideoId}`,
@@ -164,7 +179,7 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
                   seenIds.add(vId);
                   const title = subVideo.title?.runs?.[0]?.text || subVideo.title?.simpleText || searchQuery;
                   const artist = subVideo.ownerText?.runs?.[0]?.text || subVideo.shortBylineText?.runs?.[0]?.text || "YouTube";
-                  const thumbnail = subVideo.thumbnail?.thumbnails?.[0]?.url || `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
+                  const thumbnail = getBestYouTubeThumbnail(vId, subVideo.thumbnail?.thumbnails);
 
                   videoItems.push({
                     id: `yt_${vId}`,
@@ -193,7 +208,7 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
             videoId: vId,
             title: decodeHtmlEntities(title),
             artist: "YouTube",
-            thumbnail: `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`,
+            thumbnail: getBestYouTubeThumbnail(vId),
           });
         }
       }
@@ -224,7 +239,7 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
                   videoId: vId,
                   title: decodeHtmlEntities(item.title || searchQuery),
                   artist: decodeHtmlEntities(item.uploaderName || item.author || "YouTube"),
-                  thumbnail: item.thumbnail || item.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`,
+                  thumbnail: getBestYouTubeThumbnail(vId, item.videoThumbnails),
                 });
               }
             }
@@ -475,7 +490,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
           videoId: ytId,
           title: decodeHtmlEntities(song.title),
           artist: decodeHtmlEntities(song.artist),
-          thumbnail: song.albumArt || `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`,
+          thumbnail: song.albumArt || getBestYouTubeThumbnail(ytId),
           duration: song.duration,
         });
       }
