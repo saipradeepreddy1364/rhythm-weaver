@@ -1324,6 +1324,52 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
                                 if (player && typeof player.getPlaybackRate === 'function' && player.getPlaybackRate() !== 1) {
                                   try { player.setPlaybackRate(1); } catch(e){}
                                 }
+                                var hideSelectors = [
+                                  '.ytp-chrome-top',
+                                  '.ytp-chrome-bottom',
+                                  '.ytp-gradient-top',
+                                  '.ytp-gradient-bottom',
+                                  '.ytp-large-play-button',
+                                  '.ytp-bezel',
+                                  '.ytp-pause-overlay',
+                                  '.ytp-settings-menu',
+                                  '.ytp-settings-button',
+                                  '.ytp-subtitles-button',
+                                  '.ytp-caption-window-container',
+                                  '.ytp-title',
+                                  '.ytp-title-channel',
+                                  '.ytp-watermark',
+                                  '.ytp-youtube-button',
+                                  '.ytp-cbr',
+                                  '.ytp-paid-content-overlay',
+                                  '.ytp-spinner',
+                                  '.ytp-progress-bar',
+                                  '.ytp-progress-bar-container',
+                                  'a.ytp-title-link'
+                                ];
+                                for (var hs = 0; hs < hideSelectors.length; hs++) {
+                                  var hEls = document.querySelectorAll(hideSelectors[hs]);
+                                  for (var he = 0; he < hEls.length; he++) {
+                                    hEls[he].style.display = 'none';
+                                    hEls[he].style.visibility = 'hidden';
+                                    hEls[he].style.opacity = '0';
+                                    hEls[he].style.pointerEvents = 'none';
+                                  }
+                                }
+                                try {
+                                  var ifr = document.querySelector('iframe');
+                                  if (ifr && ifr.contentDocument) {
+                                    for (var hs2 = 0; hs2 < hideSelectors.length; hs2++) {
+                                      var hEls2 = ifr.contentDocument.querySelectorAll(hideSelectors[hs2]);
+                                      for (var he2 = 0; he2 < hEls2.length; he2++) {
+                                        hEls2[he2].style.display = 'none';
+                                        hEls2[he2].style.visibility = 'hidden';
+                                        hEls2[he2].style.opacity = '0';
+                                        hEls2[he2].style.pointerEvents = 'none';
+                                      }
+                                    }
+                                  }
+                                } catch (e) {}
                               }
 
                               var skipSelectors = [
