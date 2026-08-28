@@ -322,10 +322,14 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
 
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onStartShouldSetPanResponderCapture: () => isMinimized,
-      onMoveShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponderCapture: () => isMinimized,
+      onStartShouldSetPanResponder: () => false,
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        return isMinimized && (Math.abs(gestureState.dx) > 3 || Math.abs(gestureState.dy) > 3 || (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2));
+      },
+      onMoveShouldSetPanResponderCapture: (evt, gestureState) => {
+        return isMinimized && (Math.abs(gestureState.dx) > 3 || Math.abs(gestureState.dy) > 3 || (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2));
+      },
       onPanResponderGrant: (evt) => {
         if (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2) {
           initialPinchDistRef.current = calcDistance(evt.nativeEvent.touches);
@@ -705,12 +709,17 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
                   const nextState = !isPipPlaying;
                   setIsPipPlaying(nextState);
                   try {
-                    webViewRef.current?.injectJavaScript(
-                      nextState
-                        ? "if(player && player.playVideo) player.playVideo(); true;"
-                        : "if(player && player.pauseVideo) player.pauseVideo(); true;"
-                    );
-                  } catch {}
+                    const js = nextState
+                      ? `(function(){
+                          try { if (player && typeof player.playVideo === 'function') player.playVideo(); } catch(e){}
+                          try { var v = document.querySelector('video'); if (v) v.play(); } catch(e){}
+                        })(); true;`
+                      : `(function(){
+                          try { if (player && typeof player.pauseVideo === 'function') player.pauseVideo(); } catch(e){}
+                          try { var v = document.querySelector('video'); if (v) v.pause(); } catch(e){}
+                        })(); true;`;
+                    webViewRef.current?.injectJavaScript(js);
+                  } catch (err) {}
                 }}
                 style={styles.pipPlayIconBadge}
                 activeOpacity={0.8}
@@ -1533,12 +1542,17 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
                       const nextState = !isPipPlaying;
                       setIsPipPlaying(nextState);
                       try {
-                        webViewRef.current?.injectJavaScript(
-                          nextState
-                            ? "if(player && player.playVideo) player.playVideo(); true;"
-                            : "if(player && player.pauseVideo) player.pauseVideo(); true;"
-                        );
-                      } catch {}
+                        const js = nextState
+                          ? `(function(){
+                              try { if (player && typeof player.playVideo === 'function') player.playVideo(); } catch(e){}
+                              try { var v = document.querySelector('video'); if (v) v.play(); } catch(e){}
+                            })(); true;`
+                          : `(function(){
+                              try { if (player && typeof player.pauseVideo === 'function') player.pauseVideo(); } catch(e){}
+                              try { var v = document.querySelector('video'); if (v) v.pause(); } catch(e){}
+                            })(); true;`;
+                        webViewRef.current?.injectJavaScript(js);
+                      } catch (err) {}
                     }}
                     style={styles.pipPlayIconBadge}
                     activeOpacity={0.8}
