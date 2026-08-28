@@ -249,6 +249,8 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [pageBatch, setPageBatch] = useState(1);
 
   // Live YouTube Autocomplete Search Suggestions
   useEffect(() => {
@@ -427,24 +429,45 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
       setLoading(true);
     }
     try {
-      // 1. Direct YouTube search for 100% accurate results on any channel/video (e.g. rawtalkswithvk)
-      const ytResults = await searchYouTubeVideos(searchQuery);
-      if (ytResults.length > 0) {
-        setVideos(ytResults);
+      setPageBatch(1);
+      // Run parallel sub-queries to aggregate a massive list of 100+ videos!
+      const subQueries = [
+        searchQuery,
+        `${searchQuery} jukebox mashup`,
+        `${searchQuery} latest video songs hits`
+      ];
+
+      const resultsArray = await Promise.all(
+        subQueries.map((q) => searchYouTubeVideos(q))
+      );
+
+      const combined: VideoItem[] = [];
+      const seenIds = new Set<string>();
+
+      for (const list of resultsArray) {
+        for (const item of list) {
+          if (!seenIds.has(item.id)) {
+            seenIds.add(item.id);
+            combined.push(item);
+          }
+        }
+      }
+
+      if (combined.length > 0) {
+        setVideos(combined);
         return;
       }
 
       // 2. Fallback to API search if YouTube direct search returns empty
-      const res = await api.searchSongs(`${searchQuery}`, 1, 40);
+      const res = await api.searchSongs(`${searchQuery}`, 1, 50);
       const items = extractResults(res);
-      const seenTitles = new Set<string>();
       const deduppedMapped: VideoItem[] = [];
 
       for (const item of items) {
         const song = mapApiSong(item);
         const titleKey = (song.title || '').toLowerCase().trim();
-        if (!titleKey || seenTitles.has(titleKey)) continue;
-        seenTitles.add(titleKey);
+        if (!titleKey || seenIds.has(song.id)) continue;
+        seenIds.add(song.id);
 
         const ytId = item.id?.startsWith("yt-") ? item.id.replace("yt-", "") : "";
         deduppedMapped.push({
@@ -462,6 +485,36 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
     } finally {
       setLoading(false);
       setRefreshing(false);
+    }
+  };
+
+  const fetchMoreVideos = async () => {
+    if (loadingMore || loading) return;
+    setLoadingMore(true);
+    try {
+      const nextBatch = pageBatch + 1;
+      setPageBatch(nextBatch);
+      const currentQuery = query.trim() || "trending telugu hindi video songs 2026";
+
+      const extraQueries = [
+        `${currentQuery} dj remix 4k`,
+        `${currentQuery} lofi chill video songs`,
+        `${currentQuery} original soundtrack bgm`
+      ];
+
+      const targetQuery = extraQueries[(nextBatch - 2) % extraQueries.length] || `${currentQuery} hits ${nextBatch}`;
+      const extraResults = await searchYouTubeVideos(targetQuery);
+
+      if (extraResults.length > 0) {
+        setVideos((prev) => {
+          const seen = new Set(prev.map((v) => v.id));
+          const newItems = extraResults.filter((item) => !seen.has(item.id));
+          return [...prev, ...newItems];
+        });
+      }
+    } catch (e) {
+    } finally {
+      setLoadingMore(false);
     }
   };
 
@@ -884,6 +937,14 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
           styles.feedContent,
           loading && videos.length === 0 && { flex: 1, justifyContent: "center", alignItems: "center" }
         ]}
+        onScroll={({ nativeEvent }) => {
+          const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+          const isCloseToBottom = layoutMeasurement.height + contentOffset.y >= contentSize.height - 600;
+          if (isCloseToBottom && !loadingMore && !loading) {
+            fetchMoreVideos();
+          }
+        }}
+        scrollEventThrottle={250}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -900,48 +961,57 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
             <Text style={styles.loadingText}>Fetching videos...</Text>
           </View>
         ) : (
-          videos.map((item) => (
-            <TouchableOpacity
-              delayPressIn={0}
-              key={item.id}
-              style={styles.videoCard}
-              onPress={() => handleVideoCardPress(item)}
-              activeOpacity={0.85}
-            >
-              <View style={styles.thumbnailContainer}>
-                <Image source={{ uri: item.thumbnail }} style={styles.thumbnail} />
-                <View style={styles.playOverlay}>
-                  <View style={styles.playCircle}>
-                    <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
+          <>
+            {videos.map((item) => (
+              <TouchableOpacity
+                delayPressIn={0}
+                key={item.id}
+                style={styles.videoCard}
+                onPress={() => handleVideoCardPress(item)}
+                activeOpacity={0.85}
+              >
+                <View style={styles.thumbnailContainer}>
+                  <Image source={{ uri: item.thumbnail }} style={styles.thumbnail} />
+                  <View style={styles.playOverlay}>
+                    <View style={styles.playCircle}>
+                      <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
+                    </View>
                   </View>
                 </View>
-              </View>
 
-              <View style={styles.videoMeta}>
-                <View style={{ flex: 1, marginRight: 8 }}>
-                  <Text style={styles.videoTitle} numberOfLines={2}>{item.title}</Text>
-                  <Text style={styles.videoArtist} numberOfLines={1}>{item.artist}</Text>
+                <View style={styles.videoMeta}>
+                  <View style={{ flex: 1, marginRight: 8 }}>
+                    <Text style={styles.videoTitle} numberOfLines={2}>{item.title}</Text>
+                    <Text style={styles.videoArtist} numberOfLines={1}>{item.artist}</Text>
+                  </View>
+                  <TouchableOpacity
+                    delayPressIn={0}
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      toggleLikeVideo(item);
+                    }}
+                    style={{ padding: 6 }}
+                    activeOpacity={0.7}
+                  >
+                    <MaterialCommunityIcons
+                      name={isVideoLiked(item) ? "heart" : "heart-outline"}
+                      size={24}
+                      color={isVideoLiked(item) ? "#1DB954" : "rgba(255,255,255,0.6)"}
+                    />
+                  </TouchableOpacity>
                 </View>
-                <TouchableOpacity
-                  delayPressIn={0}
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    toggleLikeVideo(item);
-                  }}
-                  style={{ padding: 6 }}
-                  activeOpacity={0.7}
-                >
-                  <MaterialCommunityIcons
-                    name={isVideoLiked(item) ? "heart" : "heart-outline"}
-                    size={24}
-                    color={isVideoLiked(item) ? "#1DB954" : "rgba(255,255,255,0.6)"}
-                  />
-                </TouchableOpacity>
+              </TouchableOpacity>
+            ))}
+
+            {loadingMore && (
+              <View style={{ paddingVertical: 20, alignItems: "center" }}>
+                <ActivityIndicator size="small" color="#1DB954" />
+                <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, marginTop: 6 }}>Loading more videos...</Text>
               </View>
-            </TouchableOpacity>
-          ))
+            )}
+          </>
         )}
-        </ScrollView>
+      </ScrollView>
 
       {/* Persistent Single Video Player (Full Screen or Mini Draggable PiP) */}
       {activeVideo && (
