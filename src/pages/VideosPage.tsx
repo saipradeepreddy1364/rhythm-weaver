@@ -17,18 +17,7 @@ interface VideoItem {
   duration?: number;
 }
 
-const VIDEO_CATEGORIES = [
-  { label: "🔥 Trending", query: "trending music video songs jukebox 2026" },
-  { label: "🎵 Mashups & Mixes", query: "latest song mashup video jukebox all artists" },
-  { label: "🎧 DJ Remixes", query: "viral dj remix video songs nonstop" },
-  { label: "📀 Jukebox Albums", query: "full video songs jukebox album collection" },
-  { label: "☕ Lofi & Chill", query: "lofi chill video songs jukebox" },
-  { label: "🎬 Telugu Hits", query: "trending telugu video songs" },
-  { label: "🎥 Hindi Hits", query: "latest bollywood hindi video songs" },
-  { label: "🎸 Tamil Hits", query: "trending tamil video songs" },
-  { label: "💃 Punjabi Beats", query: "latest punjabi video songs" },
-  { label: "🌟 BGM & OST", query: "best bgm OST video songs" },
-] as const;
+
 
 // ─── Piped / Invidious Embed Helper ──────────────────────────────────────────
 // Clean Video Embed Providers
@@ -259,7 +248,6 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
   const isSelectingSuggestionRef = useRef(false);
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState<string>("🔥 Trending");
   const [refreshing, setRefreshing] = useState(false);
 
   // Live YouTube Autocomplete Search Suggestions
@@ -408,17 +396,14 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
     })
   ).current;
 
-  // Initial trending music videos load with varied category query selection
+  // Initial trending music videos load (Telugu & Hindi)
   useEffect(() => {
-    const randomCat = VIDEO_CATEGORIES[Math.floor(Math.random() * VIDEO_CATEGORIES.length)];
-    setSelectedCategory(randomCat.label);
-    fetchTrendingVideos(randomCat.query);
+    fetchTrendingVideos("trending telugu hindi video songs 2026");
   }, []);
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    const cat = VIDEO_CATEGORIES.find((c) => c.label === selectedCategory) || VIDEO_CATEGORIES[0];
-    await fetchTrendingVideos(cat.query);
+    await fetchTrendingVideos("trending telugu hindi video songs 2026");
     setRefreshing(false);
   };
 
@@ -840,7 +825,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
               Keyboard.dismiss();
               handleSearchSubmit();
             }}
-            placeholder="Search videos (Telugu, Hindi, English...)"
+            placeholder="Search videos (Telugu & Hindi...)"
             placeholderTextColor="rgba(255,255,255,0.3)"
             style={styles.searchInput}
             returnKeyType="search"
@@ -852,7 +837,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
                 setQuery("");
                 setSuggestions([]);
                 setShowSuggestions(false);
-                fetchTrendingVideos("Telugu music videos");
+                fetchTrendingVideos("trending telugu hindi video songs");
               }}
             >
               <MaterialCommunityIcons name="close-circle" size={18} color="rgba(255,255,255,0.4)" />
@@ -889,31 +874,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
         )}
       </View>
 
-      {/* Categories Bar */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryBar} contentContainerStyle={styles.categoryContent}>
-        {VIDEO_CATEGORIES.map((cat) => {
-          const isActive = selectedCategory === cat.label;
-          return (
-            <TouchableOpacity
-              delayPressIn={0}
-              key={cat.label}
-              onPress={() => {
-                isSelectingSuggestionRef.current = true;
-                setSelectedCategory(cat.label);
-                setQuery("");
-                setShowSuggestions(false);
-                setSuggestions([]);
-                Keyboard.dismiss();
-                fetchTrendingVideos(cat.query);
-              }}
-              style={[styles.chipBtn, isActive && styles.activeChipBtn]}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.chipText, isActive && styles.activeChipText]}>{cat.label}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+
 
       {/* Video Feed */}
       {loading ? (
