@@ -441,6 +441,27 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
     }
   }, [activeTab, activeVideo, isMinimized]);
 
+  // Toggle minimized CSS class & disable playback speed in WebView when minimized
+  useEffect(() => {
+    try {
+      webViewRef.current?.injectJavaScript(`
+        (function() {
+          if (document && document.body) {
+            if (${isMinimized}) {
+              document.body.classList.add('is-minimized');
+              if (player && typeof player.setPlaybackRate === 'function') {
+                player.setPlaybackRate(1);
+              }
+            } else {
+              document.body.classList.remove('is-minimized');
+            }
+          }
+        })();
+        true;
+      `);
+    } catch {}
+  }, [isMinimized]);
+
   const fetchTrendingVideos = async (searchQuery: string, isRefresh = false) => {
     setShowSuggestions(false);
     setSuggestions([]);
@@ -1125,9 +1146,28 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
                             opacity: 0 !important;
                             pointer-events: none !important;
                           }
+                          /* Minimized PiP Mode: Hide big center play button, settings, speed menu, and controls */
+                          body.is-minimized .ytp-large-play-button,
+                          body.is-minimized .ytp-chrome-top,
+                          body.is-minimized .ytp-chrome-bottom,
+                          body.is-minimized .ytp-gradient-top,
+                          body.is-minimized .ytp-gradient-bottom,
+                          body.is-minimized .ytp-settings-menu,
+                          body.is-minimized .ytp-settings-button,
+                          body.is-minimized .ytp-panel-menu,
+                          body.is-minimized .ytp-menuitem,
+                          body.is-minimized .ytp-popup,
+                          body.is-minimized .ytp-contextmenu,
+                          body.is-minimized .ytp-pause-overlay,
+                          body.is-minimized .ytp-spinner {
+                            display: none !important;
+                            visibility: hidden !important;
+                            opacity: 0 !important;
+                            pointer-events: none !important;
+                          }
                         </style>
                       </head>
-                      <body>
+                      <body class="${isMinimized ? 'is-minimized' : ''}">
                         <div id="player"></div>
                         <script>
                           var tag = document.createElement('script');
@@ -1205,6 +1245,12 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
                           // Ultra-Aggressive 100% Zero-Ad YouTube Auto Skipper & Fast-Forwarder
                           setInterval(function() {
                             try {
+                              if (document.body.classList.contains('is-minimized')) {
+                                if (player && typeof player.getPlaybackRate === 'function' && player.getPlaybackRate() !== 1) {
+                                  try { player.setPlaybackRate(1); } catch(e){}
+                                }
+                              }
+
                               var skipSelectors = [
                                 '.ytp-ad-skip-button',
                                 '.ytp-ad-skip-button-modern',
