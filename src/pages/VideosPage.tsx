@@ -129,38 +129,40 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
             // 1. Video renderer
             const video = item.videoRenderer;
             if (video && video.videoId) {
-              const vId = video.videoId;
-              if (seenIds.has(vId)) continue;
-              seenIds.add(vId);
+              const vId = String(video.videoId).trim();
+              if (vId && /^[a-zA-Z0-9_-]{11}$/.test(vId) && !seenIds.has(vId)) {
+                seenIds.add(vId);
 
-              const title = video.title?.runs?.[0]?.text || video.title?.simpleText || searchQuery;
-              const artist = video.ownerText?.runs?.[0]?.text || video.shortBylineText?.runs?.[0]?.text || "YouTube";
-              const thumbnail = getBestYouTubeThumbnail(vId, video.thumbnail?.thumbnails);
+                const title = video.title?.runs?.[0]?.text || video.title?.simpleText || searchQuery;
+                const artist = video.ownerText?.runs?.[0]?.text || video.shortBylineText?.runs?.[0]?.text || "YouTube";
+                const thumbnail = getBestYouTubeThumbnail(vId, video.thumbnail?.thumbnails);
 
-              videoItems.push({
-                id: `yt_${vId}`,
-                videoId: vId,
-                title: decodeHtmlEntities(title),
-                artist: decodeHtmlEntities(artist),
-                thumbnail,
-              });
+                videoItems.push({
+                  id: `yt_${vId}`,
+                  videoId: vId,
+                  title: decodeHtmlEntities(title),
+                  artist: decodeHtmlEntities(artist),
+                  thumbnail,
+                });
+              }
             }
 
             // 2. Playlist / Jukebox / Mashup Album Renderer
             const playlist = item.playlistRenderer;
             if (playlist) {
-              const firstVideoId = playlist.navigationEndpoint?.watchEndpoint?.videoId ||
-                                  playlist.playlists?.[0]?.navigationEndpoint?.watchEndpoint?.videoId ||
-                                  playlist.videoId;
-              if (firstVideoId && !seenIds.has(firstVideoId)) {
-                seenIds.add(firstVideoId);
+              const rawVId = playlist.navigationEndpoint?.watchEndpoint?.videoId ||
+                             playlist.playlists?.[0]?.navigationEndpoint?.watchEndpoint?.videoId ||
+                             playlist.videoId;
+              const vId = rawVId ? String(rawVId).trim() : "";
+              if (vId && /^[a-zA-Z0-9_-]{11}$/.test(vId) && !seenIds.has(vId)) {
+                seenIds.add(vId);
                 const title = playlist.title?.simpleText || playlist.title?.runs?.[0]?.text || "Mashup / Jukebox";
                 const artist = playlist.shortBylineText?.runs?.[0]?.text || playlist.ownerText?.runs?.[0]?.text || "YouTube Playlist";
-                const thumbnail = getBestYouTubeThumbnail(firstVideoId, playlist.thumbnails?.[0]?.thumbnails || playlist.thumbnail?.thumbnails);
+                const thumbnail = getBestYouTubeThumbnail(vId, playlist.thumbnails?.[0]?.thumbnails || playlist.thumbnail?.thumbnails);
 
                 videoItems.push({
-                  id: `yt_${firstVideoId}`,
-                  videoId: firstVideoId,
+                  id: `yt_${vId}`,
+                  videoId: vId,
                   title: `📀 ${decodeHtmlEntities(title)}`,
                   artist: decodeHtmlEntities(artist),
                   thumbnail,
@@ -174,8 +176,8 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
             for (const subItem of shelfContents) {
               const subVideo = subItem.videoRenderer;
               if (subVideo && subVideo.videoId) {
-                const vId = subVideo.videoId;
-                if (!seenIds.has(vId)) {
+                const vId = String(subVideo.videoId).trim();
+                if (vId && /^[a-zA-Z0-9_-]{11}$/.test(vId) && !seenIds.has(vId)) {
                   seenIds.add(vId);
                   const title = subVideo.title?.runs?.[0]?.text || subVideo.title?.simpleText || searchQuery;
                   const artist = subVideo.ownerText?.runs?.[0]?.text || subVideo.shortBylineText?.runs?.[0]?.text || "YouTube";
@@ -200,8 +202,9 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
       const regex = /"videoRenderer":\{"videoId":"([a-zA-Z0-9_-]{11})".*?"title":\{"runs":\[\{"text":"([^"]+)"\}/g;
       let match;
       while ((match = regex.exec(html)) !== null && videoItems.length < 35) {
-        const [, vId, title] = match;
-        if (!seenIds.has(vId)) {
+        const [, rawVId, title] = match;
+        const vId = rawVId ? String(rawVId).trim() : "";
+        if (vId && /^[a-zA-Z0-9_-]{11}$/.test(vId) && !seenIds.has(vId)) {
           seenIds.add(vId);
           videoItems.push({
             id: `yt_${vId}`,
@@ -231,7 +234,7 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
             const items = Array.isArray(json) ? json : json.items || [];
             for (const item of items) {
               const rawUrl = item.url || item.videoId || "";
-              const vId = rawUrl.replace("/watch?v=", "").split("&")[0];
+              const vId = rawUrl.replace("/watch?v=", "").split("&")[0]?.trim();
               if (vId && /^[a-zA-Z0-9_-]{11}$/.test(vId) && !seenIds.has(vId)) {
                 seenIds.add(vId);
                 videoItems.push({
@@ -485,12 +488,14 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
         seenIds.add(song.id);
 
         const ytId = item.id?.startsWith("yt-") ? item.id.replace("yt-", "") : "";
+        const coverArt = song.albumArt || getBestYouTubeThumbnail(ytId);
+        if (!coverArt) continue;
         deduppedMapped.push({
-          id: song.id,
+          id: `yt_${ytId || song.id}`,
           videoId: ytId,
           title: decodeHtmlEntities(song.title),
           artist: decodeHtmlEntities(song.artist),
-          thumbnail: song.albumArt || getBestYouTubeThumbnail(ytId),
+          thumbnail: coverArt,
           duration: song.duration,
         });
       }
