@@ -401,12 +401,6 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
     fetchTrendingVideos("trending telugu hindi video songs 2026");
   }, []);
 
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await fetchTrendingVideos("trending telugu hindi video songs 2026");
-    setRefreshing(false);
-  };
-
   // Listen for PLAY_VIDEO_ITEM events emitted from LibraryPage or SearchPage
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener("PLAY_VIDEO_ITEM", (videoItem: VideoItem) => {
@@ -425,11 +419,13 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
     }
   }, [activeTab, activeVideo, isMinimized]);
 
-  const fetchTrendingVideos = async (searchQuery: string) => {
+  const fetchTrendingVideos = async (searchQuery: string, isRefresh = false) => {
     setShowSuggestions(false);
     setSuggestions([]);
     Keyboard.dismiss();
-    setLoading(true);
+    if (!isRefresh && videos.length === 0) {
+      setLoading(true);
+    }
     try {
       // 1. Direct YouTube search for 100% accurate results on any channel/video (e.g. rawtalkswithvk)
       const ytResults = await searchYouTubeVideos(searchQuery);
@@ -465,7 +461,14 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
       console.warn("Failed to fetch videos:", err);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    const targetQuery = query.trim() || "trending telugu hindi video songs 2026";
+    await fetchTrendingVideos(targetQuery, true);
   };
 
   const handleSearchSubmit = () => {
@@ -825,7 +828,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
               Keyboard.dismiss();
               handleSearchSubmit();
             }}
-            placeholder="Search videos (Telugu & Hindi...)"
+            placeholder=""
             placeholderTextColor="rgba(255,255,255,0.3)"
             style={styles.searchInput}
             returnKeyType="search"
@@ -874,28 +877,30 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
         )}
       </View>
 
-
-
       {/* Video Feed */}
-      {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#1DB954" />
-          <Text style={styles.loadingText}>Fetching videos...</Text>
-        </View>
-      ) : (
-        <ScrollView
-          style={styles.feed}
-          contentContainerStyle={styles.feedContent}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={handleRefresh}
-              tintColor="#1DB954"
-              colors={["#1DB954"]}
-            />
-          }
-        >
-          {videos.map((item) => (
+      <ScrollView
+        style={styles.feed}
+        contentContainerStyle={[
+          styles.feedContent,
+          loading && videos.length === 0 && { flex: 1, justifyContent: "center", alignItems: "center" }
+        ]}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor="#1DB954"
+            colors={["#1DB954"]}
+            progressBackgroundColor="#181818"
+          />
+        }
+      >
+        {loading && videos.length === 0 ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#1DB954" />
+            <Text style={styles.loadingText}>Fetching videos...</Text>
+          </View>
+        ) : (
+          videos.map((item) => (
             <TouchableOpacity
               delayPressIn={0}
               key={item.id}
@@ -934,9 +939,9 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
                 </TouchableOpacity>
               </View>
             </TouchableOpacity>
-          ))}
+          ))
+        )}
         </ScrollView>
-      )}
 
       {/* Persistent Single Video Player (Full Screen or Mini Draggable PiP) */}
       {activeVideo && (
