@@ -734,7 +734,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
             <WebView
               ref={webViewRef}
               key={`${activeVideo.videoId}_${selectedInstanceIndex}`}
-              pointerEvents="auto"
+              pointerEvents={isMinimized ? "none" : "auto"}
               source={{
                 html: `
                   <!DOCTYPE html>
@@ -902,6 +902,13 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
                 setIsVideoBlocked(true);
                 setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length);
               }}
+            />
+          )}
+          {isMinimized && (
+            <TouchableOpacity
+              style={StyleSheet.absoluteFillObject}
+              activeOpacity={1}
+              onPress={togglePipControls}
             />
           )}
         </View>
@@ -1170,7 +1177,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
             ) : (
               <WebView
                 key={`${activeVideo.videoId}_${selectedInstanceIndex}`}
-                pointerEvents="auto"
+                pointerEvents={isMinimized ? "none" : "auto"}
                 source={{
                   html: `
                     <!DOCTYPE html>
@@ -1266,6 +1273,13 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
                                     }
                                   }
                                 },
+                                'onPlaybackRateChange': function(event) {
+                                  if (document.body.classList.contains('is-minimized')) {
+                                    if (event && event.data !== 1 && player && typeof player.setPlaybackRate === 'function') {
+                                      try { player.setPlaybackRate(1); } catch(err){}
+                                    }
+                                  }
+                                },
                                 'onError': function(event) {
                                   if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
                                     window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_BLOCKED' }));
@@ -1308,6 +1322,14 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
                             e.stopImmediatePropagation();
                           }, true);
 
+                          document.addEventListener('ratechange', function(e) {
+                            if (document.body.classList.contains('is-minimized')) {
+                              if (e.target && e.target.playbackRate !== 1) {
+                                try { e.target.playbackRate = 1; } catch(err){}
+                              }
+                            }
+                          }, true);
+
                           document.addEventListener('visibilitychange', function(e) {
                             e.stopImmediatePropagation();
                             if (document.hidden && player && typeof player.playVideo === 'function') {
@@ -1323,6 +1345,12 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
                               if (document.body.classList.contains('is-minimized')) {
                                 if (player && typeof player.getPlaybackRate === 'function' && player.getPlaybackRate() !== 1) {
                                   try { player.setPlaybackRate(1); } catch(e){}
+                                }
+                                var vids = document.querySelectorAll('video');
+                                for (var v = 0; v < vids.length; v++) {
+                                  if (vids[v] && vids[v].playbackRate !== 1) {
+                                    try { vids[v].playbackRate = 1; } catch(e){}
+                                  }
                                 }
                                 var hideSelectors = [
                                   '.ytp-chrome-top',
@@ -1441,6 +1469,13 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
                   setIsVideoBlocked(true);
                   setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length);
                 }}
+              />
+            )}
+            {isMinimized && (
+              <TouchableOpacity
+                style={StyleSheet.absoluteFillObject}
+                activeOpacity={1}
+                onPress={togglePipControls}
               />
             )}
 
