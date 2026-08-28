@@ -11,6 +11,7 @@ import {
   Platform,
   DeviceEventEmitter,
   PanResponder,
+  NativeModules,
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -79,6 +80,35 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({ visible, onClose
     })
   ).current;
 
+  const applyNativeAudioEffect = (bassPct: number, bandsArr: number[], enabled: boolean) => {
+    if (Platform.OS === 'android') {
+      try {
+        const TrackPlayerModule = NativeModules.TrackPlayerModule;
+        if (TrackPlayerModule && typeof TrackPlayerModule.setEqualizerBands === 'function') {
+          if (!enabled) {
+            TrackPlayerModule.setEqualizerBands(5, 5, 5).catch(() => {});
+            return;
+          }
+          const b0 = bandsArr[0] || 0; // 60Hz
+          const b1 = bandsArr[1] || 0; // 230Hz
+          const maxBassDb = Math.max(b0, b1);
+          // Map bass: 0% -> 5 (neutral), 100% -> 10 (MAXIMUM INTENSE HARDWARE BASS BOOST)
+          const bassVal = Math.min(10, Math.max(0, Math.round(5 + (bassPct / 100) * 5 + (maxBassDb / 12) * 3)));
+
+          const t0 = bandsArr[3] || 0; // 4kHz
+          const t1 = bandsArr[4] || 0; // 14kHz
+          const maxTrebleDb = Math.max(t0, t1);
+          const trebleVal = Math.min(10, Math.max(0, Math.round(5 + (maxTrebleDb / 10) * 5)));
+
+          const vocalDb = bandsArr[2] || 0; // 910Hz
+          const vocalVal = Math.min(10, Math.max(0, Math.round(5 + (vocalDb / 10) * 5)));
+
+          TrackPlayerModule.setEqualizerBands(bassVal, trebleVal, vocalVal).catch(() => {});
+        }
+      } catch (err) {}
+    }
+  };
+
   // Load saved EQ settings on mount
   useEffect(() => {
     const loadSettings = async () => {
@@ -91,8 +121,13 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({ visible, onClose
           if (Array.isArray(parsed.bands)) setBands(parsed.bands);
           if (typeof parsed.surround === "boolean") setSurroundEnabled(parsed.surround);
           if (typeof parsed.enabled === "boolean") setEqEnabled(parsed.enabled);
+          applyNativeAudioEffect(parsed.bass ?? 85, parsed.bands ?? [8, 6, 2, 0, 0], parsed.enabled ?? true);
+        } else {
+          applyNativeAudioEffect(85, [8, 6, 2, 0, 0], true);
         }
-      } catch {}
+      } catch {
+        applyNativeAudioEffect(85, [8, 6, 2, 0, 0], true);
+      }
     };
     loadSettings();
   }, []);
@@ -110,6 +145,7 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({ visible, onClose
         "rw_eq_settings",
         JSON.stringify({ preset, bass, bands: b, surround, enabled })
       );
+      applyNativeAudioEffect(bass, b, enabled);
       DeviceEventEmitter.emit("EQ_SETTINGS_CHANGED");
     } catch {}
   };

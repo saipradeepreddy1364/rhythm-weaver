@@ -25,6 +25,7 @@ import LibraryPage from "./pages/LibraryPage";
 import { MiniPlayer } from "./components/MiniPlayer";
 import { FullPlayer } from "./components/FullPlayer";
 import { AuthModal } from "./components/AuthModal";
+import { EqualizerModal } from "./components/EqualizerModal";
 
 const Tab = createBottomTabNavigator();
 
@@ -75,6 +76,14 @@ function AppContent() {
   const { currentSong, showPlayer } = usePlayer();
   const { user, checkAuth } = useAuth();
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showEqModal, setShowEqModal] = useState(false);
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener("OPEN_EQUALIZER_MODAL", () => {
+      setShowEqModal(true);
+    });
+    return () => sub.remove();
+  }, []);
 
   const [activeTab, setActiveTab] = useState<'Home' | 'Search' | 'Library'>('Home');
   const scrollViewRef = useRef<ScrollView>(null);
@@ -259,6 +268,9 @@ function AppContent() {
 
       {/* Authentication Modal */}
       <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} />
+
+      {/* Audio Equalizer Modal */}
+      <EqualizerModal visible={showEqModal} onClose={() => setShowEqModal(false)} />
     </SafeAreaView>
   );
 }

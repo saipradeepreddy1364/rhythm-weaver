@@ -1338,6 +1338,35 @@ export default function HomePage({ onRequireAuth, setParentScrollEnabled }: Home
       // If we navigate back, apply the active session values
       applyNativeEqualizer(sessionEqBass ?? 5, sessionEqTreble ?? 5, sessionEqVocal ?? 5);
     }
+
+    const sub = DeviceEventEmitter.addListener("EQ_SETTINGS_CHANGED", () => {
+      AsyncStorage.getItem("rw_eq_settings").then((saved) => {
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            const bassPct = parsed.bass ?? 85;
+            const bandsArr = parsed.bands ?? [8, 6, 2, 0, 0];
+            const enabled = parsed.enabled ?? true;
+            if (!enabled) {
+              applyNativeEqualizer(5, 5, 5);
+              return;
+            }
+            const b0 = bandsArr[0] || 0;
+            const b1 = bandsArr[1] || 0;
+            const maxBassDb = Math.max(b0, b1);
+            const bassVal = Math.min(10, Math.max(0, Math.round(5 + (bassPct / 100) * 5 + (maxBassDb / 12) * 3)));
+            const t0 = bandsArr[3] || 0;
+            const t1 = bandsArr[4] || 0;
+            const maxTrebleDb = Math.max(t0, t1);
+            const trebleVal = Math.min(10, Math.max(0, Math.round(5 + (maxTrebleDb / 10) * 5)));
+            const vocalDb = bandsArr[2] || 0;
+            const vocalVal = Math.min(10, Math.max(0, Math.round(5 + (vocalDb / 10) * 5)));
+            applyNativeEqualizer(bassVal, trebleVal, vocalVal);
+          } catch {}
+        }
+      });
+    });
+    return () => sub.remove();
   }, []);
 
   const saveTimeoutRef = useRef<any>(null);
