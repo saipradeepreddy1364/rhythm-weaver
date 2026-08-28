@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, TextInput, ActivityIndicator, Platform, Modal, Dimensions, DeviceEventEmitter, Animated, PanResponder, Linking, Keyboard } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, TextInput, ActivityIndicator, Platform, Modal, Dimensions, DeviceEventEmitter, Animated, PanResponder, Linking, Keyboard, RefreshControl } from 'react-native'
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { WebView } from "react-native-webview";
@@ -16,6 +16,19 @@ interface VideoItem {
   thumbnail: string;
   duration?: number;
 }
+
+const VIDEO_CATEGORIES = [
+  { label: "🔥 Trending", query: "trending music video songs jukebox 2026" },
+  { label: "🎵 Mashups & Mixes", query: "latest song mashup video jukebox all artists" },
+  { label: "🎧 DJ Remixes", query: "viral dj remix video songs nonstop" },
+  { label: "📀 Jukebox Albums", query: "full video songs jukebox album collection" },
+  { label: "☕ Lofi & Chill", query: "lofi chill video songs jukebox" },
+  { label: "🎬 Telugu Hits", query: "trending telugu video songs" },
+  { label: "🎥 Hindi Hits", query: "latest bollywood hindi video songs" },
+  { label: "🎸 Tamil Hits", query: "trending tamil video songs" },
+  { label: "💃 Punjabi Beats", query: "latest punjabi video songs" },
+  { label: "🌟 BGM & OST", query: "best bgm OST video songs" },
+] as const;
 
 // ─── Piped / Invidious Embed Helper ──────────────────────────────────────────
 // Clean Video Embed Providers
@@ -102,28 +115,78 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
     if (jsonMatch && jsonMatch[1]) {
       try {
         const data = JSON.parse(jsonMatch[1]);
-        const contents =
+        const sectionList =
           data?.contents?.twoColumnSearchResultsRenderer?.primaryContents
-            ?.sectionListRenderer?.contents?.[0]?.itemSectionRenderer?.contents || [];
+            ?.sectionListRenderer?.contents || [];
 
-        for (const item of contents) {
-          const video = item.videoRenderer;
-          if (video && video.videoId) {
-            const vId = video.videoId;
-            if (seenIds.has(vId)) continue;
-            seenIds.add(vId);
+        for (const section of sectionList) {
+          const contents = section?.itemSectionRenderer?.contents || [];
+          for (const item of contents) {
+            // 1. Video renderer
+            const video = item.videoRenderer;
+            if (video && video.videoId) {
+              const vId = video.videoId;
+              if (seenIds.has(vId)) continue;
+              seenIds.add(vId);
 
-            const title = video.title?.runs?.[0]?.text || video.title?.simpleText || searchQuery;
-            const artist = video.ownerText?.runs?.[0]?.text || video.shortBylineText?.runs?.[0]?.text || "YouTube";
-            const thumbnail = video.thumbnail?.thumbnails?.[0]?.url || `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
+              const title = video.title?.runs?.[0]?.text || video.title?.simpleText || searchQuery;
+              const artist = video.ownerText?.runs?.[0]?.text || video.shortBylineText?.runs?.[0]?.text || "YouTube";
+              const thumbnail = video.thumbnail?.thumbnails?.[0]?.url || `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
 
-            videoItems.push({
-              id: `yt_${vId}`,
-              videoId: vId,
-              title: decodeHtmlEntities(title),
-              artist: decodeHtmlEntities(artist),
-              thumbnail,
-            });
+              videoItems.push({
+                id: `yt_${vId}`,
+                videoId: vId,
+                title: decodeHtmlEntities(title),
+                artist: decodeHtmlEntities(artist),
+                thumbnail,
+              });
+            }
+
+            // 2. Playlist / Jukebox / Mashup Album Renderer
+            const playlist = item.playlistRenderer;
+            if (playlist) {
+              const firstVideoId = playlist.navigationEndpoint?.watchEndpoint?.videoId ||
+                                  playlist.playlists?.[0]?.navigationEndpoint?.watchEndpoint?.videoId ||
+                                  playlist.videoId;
+              if (firstVideoId && !seenIds.has(firstVideoId)) {
+                seenIds.add(firstVideoId);
+                const title = playlist.title?.simpleText || playlist.title?.runs?.[0]?.text || "Mashup / Jukebox";
+                const artist = playlist.shortBylineText?.runs?.[0]?.text || playlist.ownerText?.runs?.[0]?.text || "YouTube Playlist";
+                const thumbnail = playlist.thumbnails?.[0]?.thumbnails?.[0]?.url || `https://i.ytimg.com/vi/${firstVideoId}/hqdefault.jpg`;
+
+                videoItems.push({
+                  id: `yt_${firstVideoId}`,
+                  videoId: firstVideoId,
+                  title: `📀 ${decodeHtmlEntities(title)}`,
+                  artist: decodeHtmlEntities(artist),
+                  thumbnail,
+                });
+              }
+            }
+
+            // 3. Shelf / Horizontal Carousel Items
+            const shelfContents = item.shelfRenderer?.content?.verticalListRenderer?.items ||
+                                  item.shelfRenderer?.content?.horizontalListRenderer?.items || [];
+            for (const subItem of shelfContents) {
+              const subVideo = subItem.videoRenderer;
+              if (subVideo && subVideo.videoId) {
+                const vId = subVideo.videoId;
+                if (!seenIds.has(vId)) {
+                  seenIds.add(vId);
+                  const title = subVideo.title?.runs?.[0]?.text || subVideo.title?.simpleText || searchQuery;
+                  const artist = subVideo.ownerText?.runs?.[0]?.text || subVideo.shortBylineText?.runs?.[0]?.text || "YouTube";
+                  const thumbnail = subVideo.thumbnail?.thumbnails?.[0]?.url || `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`;
+
+                  videoItems.push({
+                    id: `yt_${vId}`,
+                    videoId: vId,
+                    title: decodeHtmlEntities(title),
+                    artist: decodeHtmlEntities(artist),
+                    thumbnail,
+                  });
+                }
+              }
+            }
           }
         }
       } catch {}
@@ -132,7 +195,7 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
     if (videoItems.length === 0) {
       const regex = /"videoRenderer":\{"videoId":"([a-zA-Z0-9_-]{11})".*?"title":\{"runs":\[\{"text":"([^"]+)"\}/g;
       let match;
-      while ((match = regex.exec(html)) !== null && videoItems.length < 25) {
+      while ((match = regex.exec(html)) !== null && videoItems.length < 35) {
         const [, vId, title] = match;
         if (!seenIds.has(vId)) {
           seenIds.add(vId);
@@ -144,6 +207,41 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
             thumbnail: `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`,
           });
         }
+      }
+    }
+
+    // Direct Invidious API fallback if scraping returned empty
+    if (videoItems.length === 0) {
+      const apis = [
+        `https://pipedapi.adminforge.de/search?q=${encoded}&filter=all`,
+        `https://invidious.nerdvpn.de/api/v1/search?q=${encoded}`
+      ];
+      for (const apiUrl of apis) {
+        try {
+          const apiRes = await Promise.race([
+            fetch(apiUrl),
+            new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3000))
+          ]);
+          if (apiRes.ok) {
+            const json = await apiRes.json();
+            const items = Array.isArray(json) ? json : json.items || [];
+            for (const item of items) {
+              const rawUrl = item.url || item.videoId || "";
+              const vId = rawUrl.replace("/watch?v=", "").split("&")[0];
+              if (vId && /^[a-zA-Z0-9_-]{11}$/.test(vId) && !seenIds.has(vId)) {
+                seenIds.add(vId);
+                videoItems.push({
+                  id: `yt_${vId}`,
+                  videoId: vId,
+                  title: decodeHtmlEntities(item.title || searchQuery),
+                  artist: decodeHtmlEntities(item.uploaderName || item.author || "YouTube"),
+                  thumbnail: item.thumbnail || item.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`,
+                });
+              }
+            }
+            if (videoItems.length > 0) break;
+          }
+        } catch {}
       }
     }
 
@@ -161,6 +259,8 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
   const isSelectingSuggestionRef = useRef(false);
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<string>("🔥 Trending");
+  const [refreshing, setRefreshing] = useState(false);
 
   // Live YouTube Autocomplete Search Suggestions
   useEffect(() => {
@@ -308,10 +408,19 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
     })
   ).current;
 
-  // Initial trending music videos load
+  // Initial trending music videos load with varied category query selection
   useEffect(() => {
-    fetchTrendingVideos("Telugu video songs");
+    const randomCat = VIDEO_CATEGORIES[Math.floor(Math.random() * VIDEO_CATEGORIES.length)];
+    setSelectedCategory(randomCat.label);
+    fetchTrendingVideos(randomCat.query);
   }, []);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    const cat = VIDEO_CATEGORIES.find((c) => c.label === selectedCategory) || VIDEO_CATEGORIES[0];
+    await fetchTrendingVideos(cat.query);
+    setRefreshing(false);
+  };
 
   // Listen for PLAY_VIDEO_ITEM events emitted from LibraryPage or SearchPage
   useEffect(() => {
@@ -782,24 +891,28 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
 
       {/* Categories Bar */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryBar} contentContainerStyle={styles.categoryContent}>
-        {(["Telugu Hits", "Hindi 4K", "Bollywood", "English Pop", "Tamil Hits", "Lofi Video"] as const).map((cat) => (
-          <TouchableOpacity
-            delayPressIn={0}
-            key={cat}
-            onPress={() => {
-              isSelectingSuggestionRef.current = true;
-              setQuery(cat);
-              setShowSuggestions(false);
-              setSuggestions([]);
-              Keyboard.dismiss();
-              fetchTrendingVideos(`${cat} video songs`);
-            }}
-            style={styles.chipBtn}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.chipText}>{cat}</Text>
-          </TouchableOpacity>
-        ))}
+        {VIDEO_CATEGORIES.map((cat) => {
+          const isActive = selectedCategory === cat.label;
+          return (
+            <TouchableOpacity
+              delayPressIn={0}
+              key={cat.label}
+              onPress={() => {
+                isSelectingSuggestionRef.current = true;
+                setSelectedCategory(cat.label);
+                setQuery("");
+                setShowSuggestions(false);
+                setSuggestions([]);
+                Keyboard.dismiss();
+                fetchTrendingVideos(cat.query);
+              }}
+              style={[styles.chipBtn, isActive && styles.activeChipBtn]}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.chipText, isActive && styles.activeChipText]}>{cat.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
       </ScrollView>
 
       {/* Video Feed */}
@@ -809,7 +922,18 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
           <Text style={styles.loadingText}>Fetching videos...</Text>
         </View>
       ) : (
-        <ScrollView style={styles.feed} contentContainerStyle={styles.feedContent}>
+        <ScrollView
+          style={styles.feed}
+          contentContainerStyle={styles.feedContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor="#1DB954"
+              colors={["#1DB954"]}
+            />
+          }
+        >
           {videos.map((item) => (
             <TouchableOpacity
               delayPressIn={0}
@@ -1289,11 +1413,21 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 16,
     marginRight: 6,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+  },
+  activeChipBtn: {
+    backgroundColor: "#1DB954",
+    borderColor: "#1DB954",
   },
   chipText: {
     color: "rgba(255,255,255,0.8)",
     fontSize: 12,
     fontWeight: "600",
+  },
+  activeChipText: {
+    color: "#000",
+    fontWeight: "700",
   },
   loadingContainer: {
     flex: 1,
