@@ -147,28 +147,7 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
               }
             }
 
-            // 2. Playlist / Jukebox / Mashup Album Renderer
-            const playlist = item.playlistRenderer;
-            if (playlist) {
-              const rawVId = playlist.navigationEndpoint?.watchEndpoint?.videoId ||
-                             playlist.playlists?.[0]?.navigationEndpoint?.watchEndpoint?.videoId ||
-                             playlist.videoId;
-              const vId = rawVId ? String(rawVId).trim() : "";
-              if (vId && /^[a-zA-Z0-9_-]{11}$/.test(vId) && !seenIds.has(vId)) {
-                seenIds.add(vId);
-                const title = playlist.title?.simpleText || playlist.title?.runs?.[0]?.text || "Mashup / Jukebox";
-                const artist = playlist.shortBylineText?.runs?.[0]?.text || playlist.ownerText?.runs?.[0]?.text || "YouTube Playlist";
-                const thumbnail = getBestYouTubeThumbnail(vId, playlist.thumbnails?.[0]?.thumbnails || playlist.thumbnail?.thumbnails);
 
-                videoItems.push({
-                  id: `yt_${vId}`,
-                  videoId: vId,
-                  title: `📀 ${decodeHtmlEntities(title)}`,
-                  artist: decodeHtmlEntities(artist),
-                  thumbnail,
-                });
-              }
-            }
 
             // 3. Shelf / Horizontal Carousel Items
             const shelfContents = item.shelfRenderer?.content?.verticalListRenderer?.items ||
@@ -471,12 +450,21 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
     }
     try {
       setPageBatch(1);
-      // Run parallel sub-queries to aggregate a massive list of 100+ videos!
-      const subQueries = [
-        searchQuery,
-        `${searchQuery} jukebox mashup`,
-        `${searchQuery} latest video songs hits`
-      ];
+      const isDefault = !searchQuery || searchQuery.toLowerCase().includes("trending telugu hindi");
+      const subQueries = isDefault
+        ? [
+            "latest telugu video songs 2026",
+            "latest hindi video songs 2026",
+            "trending telugu hd video songs",
+            "trending hindi hd video songs",
+            "new telugu movie video songs",
+            "new hindi movie video songs"
+          ]
+        : [
+            searchQuery,
+            `${searchQuery} video song hd`,
+            `${searchQuery} official video song`
+          ];
 
       const resultsArray = await Promise.all(
         subQueries.map((q) => searchYouTubeVideos(q))
@@ -545,9 +533,12 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
       const currentQuery = query.trim() || "trending telugu hindi video songs 2026";
 
       const extraQueries = [
-        `${currentQuery} dj remix 4k`,
-        `${currentQuery} lofi chill video songs`,
-        `${currentQuery} original soundtrack bgm`
+        "top telugu video songs 4k",
+        "top hindi video songs 4k",
+        "superhit telugu video songs 2026",
+        "superhit hindi video songs 2026",
+        "latest telugu official video songs",
+        "latest hindi official video songs"
       ];
 
       const targetQuery = extraQueries[(nextBatch - 2) % extraQueries.length] || `${currentQuery} hits ${nextBatch}`;
