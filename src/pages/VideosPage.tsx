@@ -217,11 +217,13 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
       }
     }
 
-    // Direct Invidious API fallback if scraping returned empty
+    // Direct Invidious & Piped API fallback if scraping returned empty
     if (videoItems.length === 0) {
       const apis = [
-        `https://pipedapi.adminforge.de/search?q=${encoded}&filter=all`,
-        `https://invidious.nerdvpn.de/api/v1/search?q=${encoded}`
+        `https://pipedapi.kavin.rocks/search?q=${encoded}&filter=videos`,
+        `https://pipedapi.adminforge.de/search?q=${encoded}&filter=videos`,
+        `https://invidious.nerdvpn.de/api/v1/search?q=${encoded}&type=video`,
+        `https://inv.tux.pizza/api/v1/search?q=${encoded}&type=video`
       ];
       for (const apiUrl of apis) {
         try {
@@ -242,7 +244,7 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
                   videoId: vId,
                   title: decodeHtmlEntities(item.title || searchQuery),
                   artist: decodeHtmlEntities(item.uploaderName || item.author || "YouTube"),
-                  thumbnail: getBestYouTubeThumbnail(vId, item.videoThumbnails),
+                  thumbnail: `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`,
                 });
               }
             }
@@ -477,29 +479,34 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
       }
 
       // 2. Fallback to API search if YouTube direct search returns empty
-      const res = await api.searchSongs(`${searchQuery}`, 1, 50);
+      const res = await api.searchSongs(`${searchQuery}`, 1, 30);
       const items = extractResults(res);
-      const deduppedMapped: VideoItem[] = [];
 
-      for (const item of items) {
-        const song = mapApiSong(item);
-        const titleKey = (song.title || '').toLowerCase().trim();
-        if (!titleKey || seenIds.has(song.id)) continue;
-        seenIds.add(song.id);
+      const resolvedFallback: (VideoItem | null)[] = await Promise.all(
+        items.map(async (item) => {
+          const song = mapApiSong(item);
+          let ytId = item.id?.startsWith("yt-") ? item.id.replace("yt-", "") : "";
+          if (!ytId || !/^[a-zA-Z0-9_-]{11}$/.test(ytId)) {
+            ytId = await getYouTubeVideoId(song.title, song.artist);
+          }
+          const validVId = (ytId && /^[a-zA-Z0-9_-]{11}$/.test(ytId) && ytId !== "0xMQfnTU6oo") ? ytId : "";
+          if (!validVId) return null;
+          const vItem: VideoItem = {
+            id: `yt_${validVId}`,
+            videoId: validVId,
+            title: decodeHtmlEntities(song.title),
+            artist: decodeHtmlEntities(song.artist),
+            thumbnail: `https://i.ytimg.com/vi/${validVId}/hqdefault.jpg`,
+            duration: song.duration,
+          };
+          return vItem;
+        })
+      );
 
-        const ytId = item.id?.startsWith("yt-") ? item.id.replace("yt-", "") : "";
-        const coverArt = song.albumArt || getBestYouTubeThumbnail(ytId);
-        if (!coverArt) continue;
-        deduppedMapped.push({
-          id: `yt_${ytId || song.id}`,
-          videoId: ytId,
-          title: decodeHtmlEntities(song.title),
-          artist: decodeHtmlEntities(song.artist),
-          thumbnail: coverArt,
-          duration: song.duration,
-        });
+      const validItems = resolvedFallback.filter((v): v is VideoItem => Boolean(v) && !seenIds.has(v!.id));
+      if (validItems.length > 0) {
+        setVideos(validItems);
       }
-      setVideos(deduppedMapped);
     } catch (err) {
       console.warn("Failed to fetch videos:", err);
     } finally {
@@ -634,29 +641,6 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
               activeOpacity={0.8}
             >
               <MaterialCommunityIcons name="arrow-expand" size={14} color="#fff" />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              delayPressIn={0}
-              onPress={() => {
-                const nextState = !isPipPlaying;
-                setIsPipPlaying(nextState);
-                try {
-                  webViewRef.current?.injectJavaScript(
-                    nextState
-                      ? "if(player && player.playVideo) player.playVideo(); true;"
-                      : "if(player && player.pauseVideo) player.pauseVideo(); true;"
-                  );
-                } catch {}
-              }}
-              style={styles.pipIconBadge}
-              activeOpacity={0.8}
-            >
-              <MaterialCommunityIcons
-                name={isPipPlaying ? "pause" : "play"}
-                size={14}
-                color="#fff"
-              />
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -1293,7 +1277,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
               />
             )}
 
-            {/* Overlaid Minimized Quick Controls (Expand / Pause / Close) */}
+            {/* Overlaid Minimized Quick Controls (Expand / Close) */}
             {isMinimized && showPipControls && (
               <Animated.View
                 style={[
@@ -1315,29 +1299,6 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
                   activeOpacity={0.8}
                 >
                   <MaterialCommunityIcons name="arrow-expand" size={14} color="#fff" />
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  delayPressIn={0}
-                  onPress={() => {
-                    const nextState = !isPipPlaying;
-                    setIsPipPlaying(nextState);
-                    try {
-                      webViewRef.current?.injectJavaScript(
-                        nextState
-                          ? "if(player && player.playVideo) player.playVideo(); true;"
-                          : "if(player && player.pauseVideo) player.pauseVideo(); true;"
-                      );
-                    } catch {}
-                  }}
-                  style={styles.pipIconBadge}
-                  activeOpacity={0.8}
-                >
-                  <MaterialCommunityIcons
-                    name={isPipPlaying ? "pause" : "play"}
-                    size={14}
-                    color="#fff"
-                  />
                 </TouchableOpacity>
 
                 <TouchableOpacity
