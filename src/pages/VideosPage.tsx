@@ -5,6 +5,7 @@ import { WebView } from "react-native-webview";
 import { Song, mapApiSong, decodeHtmlEntities } from "../data/songs";
 import { api, extractResults } from "../services/api";
 import { useLibrary } from "../context/LibraryContext";
+import TrackPlayer from "react-native-track-player";
 
 const { width } = Dimensions.get("window");
 
@@ -413,6 +414,20 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
     return () => sub.remove();
   }, []);
 
+  // Listen for PAUSE_ACTIVE_VIDEO emitted when audio song plays in Search/Home/Library
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener("PAUSE_ACTIVE_VIDEO", () => {
+      try {
+        webViewRef.current?.injectJavaScript(
+          "if(player && player.pauseVideo) player.pauseVideo(); true;"
+        );
+      } catch {}
+      setIsPipPlaying(false);
+      setActiveVideo(null);
+    });
+    return () => sub.remove();
+  }, []);
+
   // Auto-minimize active video when switching tabs away from Videos
   useEffect(() => {
     if (activeTab && activeTab !== "Videos" && activeVideo && !isMinimized) {
@@ -573,6 +588,9 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
   };
 
   const handleVideoCardPress = async (item: VideoItem) => {
+    try {
+      TrackPlayer.pause().catch(() => {});
+    } catch {}
     setSelectedInstanceIndex(0);
     setIsVideoBlocked(false);
     setIsMinimized(false);

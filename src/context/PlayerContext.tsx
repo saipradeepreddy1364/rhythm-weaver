@@ -1308,6 +1308,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const playSong = useCallback(
     async (song: Song, songQueue?: Song[]) => {
+      // Pause any active YouTube video in VideosPage so dual audio streams don't clash
+      try {
+        DeviceEventEmitter.emit("PAUSE_ACTIVE_VIDEO");
+      } catch {}
+
       setIsRadioMode(false);
       radioFetchingRef.current = false;
 
@@ -1492,6 +1497,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       if (isCurrentlyPlaying) {
         await TrackPlayer.pause();
       } else {
+        try { DeviceEventEmitter.emit("PAUSE_ACTIVE_VIDEO"); } catch {}
         await TrackPlayer.play();
       }
     } catch {}
