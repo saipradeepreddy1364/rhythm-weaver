@@ -97,7 +97,7 @@ export function LikeButton({
     setLoadingId(playlistId);
     const hasSong = containingFolderIds.has(playlistId);
     if (hasSong) {
-      await removeFromPlaylist(playlistId, song.id);
+      await removeFromPlaylist(playlistId, song);
     } else {
       await addToPlaylist(playlistId, song);
     }

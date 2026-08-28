@@ -55,7 +55,7 @@ export function GlobalFolderPickerModal() {
     if (loadingId) return;
     setLoadingId(playlistId);
     if (containingFolderIds.has(playlistId)) {
-      await removeFromPlaylist(playlistId, song.id);
+      await removeFromPlaylist(playlistId, song);
     } else {
       await addToPlaylist(playlistId, song);
     }

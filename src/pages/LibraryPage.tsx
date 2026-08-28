@@ -60,12 +60,20 @@ export default function LibraryPage({ onRequireAuth, initialTab }: LibraryPagePr
     const subVideos = DeviceEventEmitter.addListener("LIKED_VIDEOS_UPDATED", () => {
       loadLikedVideos();
     });
+    const subPlaylists = DeviceEventEmitter.addListener("PLAYLISTS_UPDATED", async () => {
+      loadPlaylists();
+      if (typeof tab === "object" && tab.type === "playlist") {
+        const songs = await getPlaylist(tab.id);
+        setPlaylistSongs(songs);
+      }
+    });
     return () => {
       subSongs.remove();
       subAlbums.remove();
       subVideos.remove();
+      subPlaylists.remove();
     };
-  }, [user, loadLikedSongs]);
+  }, [user, loadLikedSongs, tab, loadPlaylists, getPlaylist]);
 
   const [isOffline, setIsOffline] = useState(false);
 

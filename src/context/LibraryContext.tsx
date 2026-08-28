@@ -51,7 +51,7 @@ interface LibraryContextType {
   removePlaylist: (playlistId: string) => Promise<void>;
   updatePlaylistName: (playlistId: string, newName: string) => Promise<void>;
   addToPlaylist: (playlistId: string, song: Song) => Promise<void>;
-  removeFromPlaylist: (playlistId: string, songId: string) => Promise<void>;
+  removeFromPlaylist: (playlistId: string, song: string | Song) => Promise<void>;
   getPlaylist: (playlistId: string) => Promise<Song[]>;
   loadLikedSongs: () => void;
   loadPlaylists: () => void;
@@ -149,88 +149,83 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const initLikedSongs = useCallback(async () => {
     try {
       // Step 1: Migrate legacy guest key → canonical key (only if needed)
-      const canonical = await AsyncStorage.getItem("rw_liked_songs");
-      const guest = await AsyncStorage.getItem("rw_guest_liked");
+      const canonical = await localStorage.getItemAsync("rw_liked_songs");
+      const guest = await localStorage.getItemAsync("rw_guest_liked");
       if (guest) {
         try {
           const guestSongs: Song[] = JSON.parse(guest);
-          if (!canonical) {
-            // No canonical yet — move guest directly
-            await AsyncStorage.setItem("rw_liked_songs", guest);
-          } else {
-            // Both exist — merge, then write canonical
-            const canonicalSongs: Song[] = JSON.parse(canonical);
-            const canonicalIds = new Set(canonicalSongs.map(s => s.id));
-            const merged = [...canonicalSongs, ...guestSongs.filter(s => !canonicalIds.has(s.id))];
-            await AsyncStorage.setItem("rw_liked_songs", JSON.stringify(merged));
+          if (Array.isArray(guestSongs) && guestSongs.length > 0) {
+            if (!canonical) {
+              // No canonical yet — move guest directly
+              await localStorage.setItemAsync("rw_liked_songs", guest);
+            } else {
+              // Both exist — merge, then write canonical
+              const canonicalSongs: Song[] = JSON.parse(canonical) || [];
+              const canonicalIds = new Set((canonicalSongs || []).map((s: Song) => s.id));
+              const merged = [...canonicalSongs, ...guestSongs.filter((s: Song) => !canonicalIds.has(s.id))];
+              await localStorage.setItemAsync("rw_liked_songs", JSON.stringify(merged));
+            }
           }
-          await AsyncStorage.removeItem("rw_guest_liked");
+          await localStorage.removeItemAsync("rw_guest_liked");
         } catch { /* bad JSON, just remove guest key */ }
       }
 
       // Step 2: Migrate legacy album guest key
-      const canonicalAlbums = await AsyncStorage.getItem("rw_liked_albums");
-      const guestAlbums = await AsyncStorage.getItem("rw_guest_liked_albums");
+      const canonicalAlbums = await localStorage.getItemAsync("rw_liked_albums");
+      const guestAlbums = await localStorage.getItemAsync("rw_guest_liked_albums");
       if (guestAlbums) {
-        if (!canonicalAlbums) {
-          await AsyncStorage.setItem("rw_liked_albums", guestAlbums);
-        }
-        await AsyncStorage.removeItem("rw_guest_liked_albums");
+        try {
+          const guestAlbumData: AlbumData[] = JSON.parse(guestAlbums);
+          if (Array.isArray(guestAlbumData) && guestAlbumData.length > 0 && !canonicalAlbums) {
+            await localStorage.setItemAsync("rw_liked_albums", guestAlbums);
+          }
+          await localStorage.removeItemAsync("rw_guest_liked_albums");
+        } catch {}
       }
 
       // Step 3: Load liked songs from canonical key
-      const raw = await localStorage.getItemAsync("rw_liked_songs") || await AsyncStorage.getItem("rw_liked_songs");
+      const raw = await localStorage.getItemAsync("rw_liked_songs");
       try {
         if (raw && likedSongsSeq.current === 0) {
           const val = JSON.parse(raw);
           if (Array.isArray(val)) {
             likedSongsRef.current = val;
             setLikedSongs(val);
-            localStorage.setItem("rw_liked_songs", raw);
           }
         }
       } catch {}
 
       // Step 4: Load liked albums
-      const rawAlbums = await localStorage.getItemAsync("rw_liked_albums") || await AsyncStorage.getItem("rw_liked_albums");
-      let parsedAlbums: AlbumData[] = [];
+      const rawAlbums = await localStorage.getItemAsync("rw_liked_albums");
       try {
         if (rawAlbums) {
           const val = JSON.parse(rawAlbums);
           if (Array.isArray(val) && likedAlbumsRef.current.length === 0) {
-            parsedAlbums = val;
             likedAlbumsRef.current = val;
             setLikedAlbums(val);
-            localStorage.setItem("rw_liked_albums", rawAlbums);
           }
         }
       } catch {}
 
       // Step 5: Load custom playlists / folders
-      const rawPlaylists = await localStorage.getItemAsync("rw_playlists") || await AsyncStorage.getItem("rw_playlists");
-      let parsedPlaylists = [];
+      const rawPlaylists = await localStorage.getItemAsync("rw_playlists");
       try {
         if (rawPlaylists) {
           const val = JSON.parse(rawPlaylists);
           if (Array.isArray(val)) {
-            parsedPlaylists = val;
             setStoredPlaylists((prev) => (prev.length === 0 ? val : prev));
-            localStorage.setItem("rw_playlists", rawPlaylists);
           }
         }
       } catch {}
 
       // Step 6: Load liked videos
-      const rawVideos = await localStorage.getItemAsync("rw_liked_videos") || await AsyncStorage.getItem("rw_liked_videos");
-      let parsedVideos = [];
+      const rawVideos = await localStorage.getItemAsync("rw_liked_videos");
       try {
         if (rawVideos && likedVideosSeq.current === 0) {
           const val = JSON.parse(rawVideos);
           if (Array.isArray(val)) {
-            parsedVideos = val;
             likedVideosRef.current = val;
             setLikedVideos(val);
-            localStorage.setItem("rw_liked_videos", rawVideos);
           }
         }
       } catch {}
@@ -399,10 +394,11 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const loadLikedAlbums = useCallback(async () => {
     try {
-      const raw = localStorage.getItem("rw_liked_albums") || await AsyncStorage.getItem("rw_liked_albums");
+      const raw = await localStorage.getItemAsync("rw_liked_albums");
       if (raw) {
         const val = JSON.parse(raw);
         if (Array.isArray(val)) {
+          likedAlbumsRef.current = val;
           setLikedAlbums(val);
           return;
         }
@@ -418,14 +414,13 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const loadLikedSongs = useCallback(async () => {
     const seqAtStart = likedSongsSeq.current;
     try {
-      const raw = await localStorage.getItemAsync("rw_liked_songs") || await AsyncStorage.getItem("rw_liked_songs");
+      const raw = await localStorage.getItemAsync("rw_liked_songs");
       if (likedSongsSeq.current !== seqAtStart) return;
       if (raw) {
         const val = JSON.parse(raw);
-        if (Array.isArray(val) && val.length > 0) {
+        if (Array.isArray(val)) {
           likedSongsRef.current = val;
           setLikedSongs(val);
-          localStorage.setItem("rw_liked_songs", raw);
           return;
         }
       }
@@ -437,13 +432,13 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const loadLikedVideos = useCallback(async () => {
     const seqAtStart = likedVideosSeq.current;
     try {
-      const raw = await localStorage.getItemAsync("rw_liked_videos") || await AsyncStorage.getItem("rw_liked_videos");
+      const raw = await localStorage.getItemAsync("rw_liked_videos");
       if (likedVideosSeq.current !== seqAtStart) return;
       if (raw) {
         const val = JSON.parse(raw);
-        if (Array.isArray(val) && val.length > 0) {
+        if (Array.isArray(val)) {
+          likedVideosRef.current = val;
           setLikedVideos(val);
-          localStorage.setItem("rw_liked_videos", raw);
           return;
         }
       }
@@ -460,7 +455,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const _readLikedVideos = async (): Promise<any[]> => {
     try {
-      const raw = await localStorage.getItemAsync("rw_liked_videos") || await AsyncStorage.getItem("rw_liked_videos");
+      const raw = await localStorage.getItemAsync("rw_liked_videos");
       if (raw) {
         const val = JSON.parse(raw);
         if (Array.isArray(val)) return val;
@@ -487,8 +482,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       likedVideosSeq.current += 1;
       likedVideosRef.current = nextLiked;
       setLikedVideos(nextLiked);
-      localStorage.setItem("rw_liked_videos", JSON.stringify(nextLiked));
-      await AsyncStorage.setItem("rw_liked_videos", JSON.stringify(nextLiked));
+      await localStorage.setItemAsync("rw_liked_videos", JSON.stringify(nextLiked));
       DeviceEventEmitter.emit("LIKED_VIDEOS_UPDATED");
     } catch (err) {
       console.warn("Failed to toggle like video:", err);
@@ -499,7 +493,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const loadRecentlyPlayed = useCallback(async () => {
     try {
-      const raw = await AsyncStorage.getItem("rw_recently_played");
+      const raw = await localStorage.getItemAsync("rw_recently_played") || await AsyncStorage.getItem("rw_recently_played");
       if (raw) {
         const val = JSON.parse(raw);
         if (Array.isArray(val)) {
@@ -515,7 +509,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const loadPlaylists = useCallback(async () => {
     try {
-      const raw = await AsyncStorage.getItem("rw_playlists");
+      const raw = await localStorage.getItemAsync("rw_playlists");
       if (raw) {
         const val = JSON.parse(raw);
         if (Array.isArray(val)) {
@@ -552,7 +546,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     });
 
     try {
-      AsyncStorage.setItem("rw_recently_played", JSON.stringify(newRecent)).catch(() => {});
+      await localStorage.setItemAsync("rw_recently_played", JSON.stringify(newRecent));
     } catch { /* ignore */ }
   }, []);
 
@@ -566,20 +560,25 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     // Exact ID match if both IDs are non-empty
     if (aId && bId && aId === bId) return true;
     
-    // If both IDs are explicit non-generated IDs (e.g. yt_123 vs yt_456), do not match
-    if (aId && bId && !aId.startsWith("gen_") && !bId.startsWith("gen_") && aId !== bId) {
-      return false;
-    }
-
+    // Check title and artist match using normalized title
     const normA = normalizeSongTitle(a.title, a.movie, a.album);
     const normB = normalizeSongTitle(b.title, b.movie, b.album);
-    if (!normA || !normB) return false;
+    if (normA && normB && normA === normB) {
+      const aArtist = (a.artist || "").toLowerCase().trim();
+      const bArtist = (b.artist || "").toLowerCase().trim();
+      if (aArtist === bArtist || !aArtist || !bArtist) {
+        return true;
+      }
+    }
 
-    // Require both normalized Title AND Artist to match when fallback comparing
-    const aArtist = (a.artist || "").toLowerCase().trim();
-    const bArtist = (b.artist || "").toLowerCase().trim();
+    // Fallback ID comparison ignoring common provider prefixes
+    if (aId && bId) {
+      const cleanA = aId.replace(/^(yt_|saavn_|gen_|local_)/, "");
+      const cleanB = bId.replace(/^(yt_|saavn_|gen_|local_)/, "");
+      if (cleanA && cleanB && cleanA === cleanB) return true;
+    }
 
-    return normA === normB && (aArtist === bArtist || !aArtist || !bArtist);
+    return false;
   };
 
   const isLiked = useCallback(
@@ -592,7 +591,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const _readLikedSongs = async (): Promise<Song[]> => {
     try {
-      const raw = await localStorage.getItemAsync("rw_liked_songs") || await AsyncStorage.getItem("rw_liked_songs");
+      const raw = await localStorage.getItemAsync("rw_liked_songs");
       if (raw) {
         const val = JSON.parse(raw);
         if (Array.isArray(val)) return val;
@@ -614,8 +613,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         likedSongsSeq.current += 1;
         likedSongsRef.current = nextLiked;
         setLikedSongs(nextLiked);
-        localStorage.setItem("rw_liked_songs", JSON.stringify(nextLiked));
-        await AsyncStorage.setItem("rw_liked_songs", JSON.stringify(nextLiked));
+        await localStorage.setItemAsync("rw_liked_songs", JSON.stringify(nextLiked));
         DeviceEventEmitter.emit("LIKED_SONGS_UPDATED");
       } catch (err) {
         console.warn("Failed to toggle like:", err);
@@ -625,12 +623,11 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   );
 
   // ── Playlist CRUD ─────────────────────────────────────────────────────────────
-  // All functions read from AsyncStorage first to avoid stale React state closures.
-  // This is critical when functions are chained (e.g. createNewPlaylist → addToPlaylist).
+  // All functions read from storage first to avoid stale React state closures.
 
   const _readPlaylists = async (): Promise<StoredPlaylist[]> => {
     try {
-      const raw = await localStorage.getItemAsync("rw_playlists") || await AsyncStorage.getItem("rw_playlists");
+      const raw = await localStorage.getItemAsync("rw_playlists");
       return raw ? JSON.parse(raw) : [];
     } catch {
       return [];
@@ -639,9 +636,9 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const _writePlaylists = async (list: StoredPlaylist[]) => {
     const jsonStr = JSON.stringify(list);
-    localStorage.setItem("rw_playlists", jsonStr);
-    await AsyncStorage.setItem("rw_playlists", jsonStr);
+    await localStorage.setItemAsync("rw_playlists", jsonStr);
     setStoredPlaylists(list);
+    DeviceEventEmitter.emit("PLAYLISTS_UPDATED");
   };
 
   const createNewPlaylist = useCallback(
@@ -708,13 +705,37 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   );
 
   const removeFromPlaylist = useCallback(
-    async (playlistId: string, songId: string) => {
+    async (playlistId: string, target: string | Song) => {
+      if (!target) return;
       try {
         const current = await _readPlaylists();
+        const targetSong: Song = typeof target === "string" 
+          ? { id: target, title: "", artist: "", duration: 0, albumArt: "", audioUrl: "" }
+          : target;
+        const targetIdStr = typeof target === "string" ? target : String(target.id || "");
+
         const list = current.map((p) => {
           if (p.id !== playlistId) return p;
           const pSongs = Array.isArray(p.songs) ? p.songs : [];
-          const remaining = pSongs.filter((s) => String(s.id) !== String(songId) && !isSongMatch(s, { id: songId, title: "", artist: "", duration: 0, albumArt: "", audioUrl: "" }));
+          const remaining = pSongs.filter((s) => {
+            if (!s) return false;
+            const sIdStr = String(s.id || "").trim();
+
+            // 1. Direct ID match
+            if (targetIdStr && sIdStr === targetIdStr) return false;
+
+            // 2. Full song match (title & artist comparison)
+            if (targetSong.title && isSongMatch(s, targetSong)) return false;
+
+            // 3. Provider-prefix-agnostic ID match
+            if (sIdStr && targetIdStr) {
+              const cleanS = sIdStr.replace(/^(yt_|saavn_|gen_|local_)/, "").trim();
+              const cleanT = targetIdStr.replace(/^(yt_|saavn_|gen_|local_)/, "").trim();
+              if (cleanS && cleanT && cleanS === cleanT) return false;
+            }
+
+            return true;
+          });
           return {
             ...p,
             song_count: remaining.length,
@@ -722,7 +743,9 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
           };
         });
         await _writePlaylists(list);
-      } catch {}
+      } catch (err) {
+        console.warn("Failed to remove from playlist:", err);
+      }
     },
     []
   );
@@ -749,7 +772,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const _readLikedAlbums = async (): Promise<AlbumData[]> => {
     try {
-      const raw = await localStorage.getItemAsync("rw_liked_albums") || await AsyncStorage.getItem("rw_liked_albums");
+      const raw = await localStorage.getItemAsync("rw_liked_albums");
       if (raw) {
         const val = JSON.parse(raw);
         if (Array.isArray(val)) return val;
@@ -781,8 +804,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         likedAlbumsRef.current = nextLikedAlbums;
         setLikedAlbums(nextLikedAlbums);
         const jsonStr = JSON.stringify(nextLikedAlbums);
-        localStorage.setItem("rw_liked_albums", jsonStr);
-        await AsyncStorage.setItem("rw_liked_albums", jsonStr);
+        await localStorage.setItemAsync("rw_liked_albums", jsonStr);
         DeviceEventEmitter.emit("LIKED_ALBUMS_UPDATED");
       } catch (err) {
         console.warn("Failed to toggle liked album:", err);

@@ -96,6 +96,26 @@ class MemoryStorage {
     );
   }
 
+  async setItemAsync(key: any, value: any): Promise<void> {
+    const k = key !== null && key !== undefined ? String(key) : "";
+    const v = value !== null && value !== undefined ? String(value) : "";
+    
+    this.cache[k] = v;
+
+    if (!AsyncStorage) return;
+
+    const task = async () => {
+      try {
+        await (AsyncStorage as any).setItem(k, v);
+      } catch (err: any) {
+        console.warn("[MemoryStorage] setItemAsync failed for key:", k, err);
+      }
+    };
+
+    this.writeQueue = this.writeQueue.then(task, task);
+    await this.writeQueue;
+  }
+
   removeItem(key: any): void {
     const k = key !== null && key !== undefined ? String(key) : "";
     delete this.cache[k];
@@ -110,6 +130,24 @@ class MemoryStorage {
         console.warn("[MemoryStorage] removeItem failed for key:", k, err);
       })
     );
+  }
+
+  async removeItemAsync(key: any): Promise<void> {
+    const k = key !== null && key !== undefined ? String(key) : "";
+    delete this.cache[k];
+
+    if (!AsyncStorage) return;
+
+    const task = async () => {
+      try {
+        await (AsyncStorage as any).removeItem(k);
+      } catch (err: any) {
+        console.warn("[MemoryStorage] removeItemAsync failed for key:", k, err);
+      }
+    };
+
+    this.writeQueue = this.writeQueue.then(task, task);
+    await this.writeQueue;
   }
 
   /**
