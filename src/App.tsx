@@ -81,6 +81,8 @@ function AppContent() {
   const [isSystemPip, setIsSystemPip] = useState(false);
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
+  const [isVideoMinimized, setIsVideoMinimized] = useState(false);
+
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener("OPEN_EQUALIZER_MODAL", () => {
       setShowEqModal(true);
@@ -90,9 +92,13 @@ function AppContent() {
         setIsSystemPip(data.isInPictureInPictureMode);
       }
     });
+    const minSub = DeviceEventEmitter.addListener("VIDEO_MINIMIZED_CHANGED", (minimized: any) => {
+      setIsVideoMinimized(!!minimized);
+    });
     return () => {
       sub.remove();
       pipSub.remove();
+      minSub.remove();
     };
   }, []);
 
@@ -101,6 +107,8 @@ function AppContent() {
     (screenWidth > 0 &&
       screenHeight > 0 &&
       (screenHeight < 320 || (screenWidth / screenHeight > 1.2 && screenHeight < 400)));
+
+  const shouldHideTabBar = isPipActive || isVideoMinimized;
 
   const [activeTab, setActiveTab] = useState<'Home' | 'Search' | 'Library'>('Home');
   const scrollViewRef = useRef<ScrollView>(null);
@@ -248,7 +256,7 @@ function AppContent() {
                 </ScrollView>
 
                 {/* Bottom Tab Bar */}
-                {!isPipActive && (
+                {!shouldHideTabBar && (
                   <View style={styles.tabBarStyle}>
                     {(['Home', 'Search', 'Library'] as const).map((tab) => {
                       const isActive = activeTab === tab;
@@ -280,10 +288,10 @@ function AppContent() {
       </NavigationContainer>
 
       {/* Floating Mini Player */}
-      {!isPipActive && currentSong && <MiniPlayer onRequireAuth={handleRequireAuth} />}
+      {!shouldHideTabBar && currentSong && <MiniPlayer onRequireAuth={handleRequireAuth} />}
 
       {/* Full screen overlay player */}
-      {!isPipActive && showPlayer && <FullPlayer onRequireAuth={handleRequireAuth} />}
+      {!shouldHideTabBar && showPlayer && <FullPlayer onRequireAuth={handleRequireAuth} />}
 
       {/* Authentication Modal */}
       <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} />
