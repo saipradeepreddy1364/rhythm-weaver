@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, TextInput, ActivityIndicator, Platform, Modal, Dimensions, DeviceEventEmitter, Animated, PanResponder, Linking, Keyboard, RefreshControl } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, TextInput, ActivityIndicator, Platform, Modal, Dimensions, DeviceEventEmitter, Animated, PanResponder, Linking, Keyboard, RefreshControl, useWindowDimensions } from 'react-native'
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { WebView } from "react-native-webview";
@@ -287,6 +287,20 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
   const [isVideoBlocked, setIsVideoBlocked] = useState(false);
   const [showPipControls, setShowPipControls] = useState(false);
   const [isPipPlaying, setIsPipPlaying] = useState(true);
+  const [isSystemPip, setIsSystemPip] = useState(false);
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+
+  useEffect(() => {
+    const pipSub = DeviceEventEmitter.addListener("ON_PIP_MODE_CHANGED", (data: any) => {
+      if (data && typeof data.isInPictureInPictureMode === "boolean") {
+        setIsSystemPip(data.isInPictureInPictureMode);
+      }
+    });
+    return () => pipSub.remove();
+  }, []);
+
+  const isSystemPipActive = isSystemPip || (windowWidth > 0 && windowWidth < 340 && windowHeight < 260);
+
   const pipControlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const webViewRef = useRef<any>(null);
 
@@ -934,6 +948,72 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
           )}
         </View>
       </Animated.View>
+    );
+  }
+
+  if (isSystemPipActive) {
+    if (!activeVideo) return null;
+    const targetVideoId = activeVideo.videoId || "0xMQfnTU6oo";
+    return (
+      <View style={{ flex: 1, backgroundColor: "#000", width: "100%", height: "100%" }}>
+        <WebView
+          key={`sys_pip_${targetVideoId}`}
+          pointerEvents="none"
+          source={{
+            html: `
+              <!DOCTYPE html>
+              <html>
+                <head>
+                  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                  <style>
+                    * { box-sizing: border-box; margin: 0; padding: 0; }
+                    body, html { background-color: #000; width: 100%; height: 100%; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+                    #player { width: 100%; height: 100%; border: none; }
+                    iframe { width: 100%; height: 100%; border: none; }
+                    .ytp-chrome-top, .ytp-chrome-bottom, .ytp-gradient-top, .ytp-gradient-bottom,
+                    .ytp-large-play-button, .ytp-bezel, .ytp-pause-overlay, .ytp-settings-menu,
+                    .ytp-settings-button, .ytp-subtitles-button, .ytp-caption-window-container,
+                    .ytp-title, .ytp-title-channel, .ytp-watermark, .ytp-youtube-button,
+                    .ytp-cbr, .ytp-paid-content-overlay, .ytp-spinner, .ytp-progress-bar {
+                      display: none !important;
+                      visibility: hidden !important;
+                      opacity: 0 !important;
+                      pointer-events: none !important;
+                    }
+                  </style>
+                </head>
+                <body>
+                  <div id="player"></div>
+                  <script>
+                    var tag = document.createElement('script');
+                    tag.src = "https://www.youtube.com/iframe_api";
+                    var firstScriptTag = document.getElementsByTagName('script')[0];
+                    firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+                    var player;
+                    function onYouTubeIframeAPIReady() {
+                      player = new YT.Player('player', {
+                        height: '100%',
+                        width: '100%',
+                        videoId: '${targetVideoId}',
+                        playerVars: { 'autoplay': 1, 'controls': 0, 'rel': 0, 'playsinline': 1 },
+                      });
+                    }
+                  </script>
+                </body>
+              </html>
+            `,
+            baseUrl: "https://www.google.com",
+          }}
+          style={{ flex: 1, backgroundColor: "#000" }}
+          userAgent="Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
+          allowsInlineMediaPlayback={true}
+          mediaPlaybackRequiresUserAction={false}
+          javaScriptEnabled={true}
+          domStorageEnabled={true}
+          androidLayerType="hardware"
+          mixedContentMode="always"
+        />
+      </View>
     );
   }
 

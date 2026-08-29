@@ -41,6 +41,18 @@ module.exports = function withAndroidPip(config) {
       } catch (e: Exception) {}
     }
   }
+  override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: android.content.res.Configuration) {
+    super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+    try {
+      val map = com.facebook.react.bridge.Arguments.createMap()
+      map.putBoolean("isInPictureInPictureMode", isInPictureInPictureMode)
+      val reactContext = reactInstanceManager.currentReactContext
+      if (reactContext != null) {
+        reactContext.getJSModule(com.facebook.react.modules.core.DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+          .emit("ON_PIP_MODE_CHANGED", map)
+      }
+    } catch (e: Exception) {}
+  }
 `;
       mainActivity = mainActivity.replace(/}\s*$/, `${pipSnippet}\n}`);
       config.modResults.contents = mainActivity;

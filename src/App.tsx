@@ -78,12 +78,25 @@ function AppContent() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showEqModal, setShowEqModal] = useState(false);
 
+  const [isSystemPip, setIsSystemPip] = useState(false);
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener("OPEN_EQUALIZER_MODAL", () => {
       setShowEqModal(true);
     });
-    return () => sub.remove();
+    const pipSub = DeviceEventEmitter.addListener("ON_PIP_MODE_CHANGED", (data: any) => {
+      if (data && typeof data.isInPictureInPictureMode === "boolean") {
+        setIsSystemPip(data.isInPictureInPictureMode);
+      }
+    });
+    return () => {
+      sub.remove();
+      pipSub.remove();
+    };
   }, []);
+
+  const isPipActive = isSystemPip || (screenWidth > 0 && screenWidth < 340 && screenHeight < 260);
 
   const [activeTab, setActiveTab] = useState<'Home' | 'Search' | 'Library'>('Home');
   const scrollViewRef = useRef<ScrollView>(null);
@@ -231,29 +244,31 @@ function AppContent() {
                 </ScrollView>
 
                 {/* Bottom Tab Bar */}
-                <View style={styles.tabBarStyle}>
-                  {(['Home', 'Search', 'Library'] as const).map((tab) => {
-                    const isActive = activeTab === tab;
-                    const iconName = tab === 'Home' ? 'home' : tab === 'Search' ? 'magnify' : 'playlist-music';
-                    const color = isActive ? "#1DB954" : "rgba(255, 255, 255, 0.5)";
-                    return (
-                      <TouchableOpacity
-                        delayPressIn={0}
-                        key={tab}
-                        onPress={() => {
-                          setActiveTab(tab);
-                          const index = tab === 'Home' ? 0 : tab === 'Search' ? 1 : 2;
-                          scrollViewRef.current?.scrollTo({ x: index * screenWidth, animated: true });
-                        }}
-                        style={styles.tabBarButton}
-                        activeOpacity={0.7}
-                      >
-                        <MaterialCommunityIcons name={iconName} color={color} size={24} />
-                        <Text style={[styles.tabBarLabel, { color }]}>{tab}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
+                {!isPipActive && (
+                  <View style={styles.tabBarStyle}>
+                    {(['Home', 'Search', 'Library'] as const).map((tab) => {
+                      const isActive = activeTab === tab;
+                      const iconName = tab === 'Home' ? 'home' : tab === 'Search' ? 'magnify' : 'playlist-music';
+                      const color = isActive ? "#1DB954" : "rgba(255, 255, 255, 0.5)";
+                      return (
+                        <TouchableOpacity
+                          delayPressIn={0}
+                          key={tab}
+                          onPress={() => {
+                            setActiveTab(tab);
+                            const index = tab === 'Home' ? 0 : tab === 'Search' ? 1 : 2;
+                            scrollViewRef.current?.scrollTo({ x: index * screenWidth, animated: true });
+                          }}
+                          style={styles.tabBarButton}
+                          activeOpacity={0.7}
+                        >
+                          <MaterialCommunityIcons name={iconName} color={color} size={24} />
+                          <Text style={[styles.tabBarLabel, { color }]}>{tab}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                )}
               </View>
             )}
           </Tab.Screen>
@@ -261,10 +276,10 @@ function AppContent() {
       </NavigationContainer>
 
       {/* Floating Mini Player */}
-      {currentSong && <MiniPlayer onRequireAuth={handleRequireAuth} />}
+      {!isPipActive && currentSong && <MiniPlayer onRequireAuth={handleRequireAuth} />}
 
       {/* Full screen overlay player */}
-      {showPlayer && <FullPlayer onRequireAuth={handleRequireAuth} />}
+      {!isPipActive && showPlayer && <FullPlayer onRequireAuth={handleRequireAuth} />}
 
       {/* Authentication Modal */}
       <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} />
