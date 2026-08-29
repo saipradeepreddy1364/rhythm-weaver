@@ -712,12 +712,23 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
                   setIsPipPlaying(nextState);
                   try {
                     webViewRef.current?.injectJavaScript(`
-                      if (typeof window.toggleVideoPlayback === 'function') {
-                        window.toggleVideoPlayback(${nextState});
-                      } else {
-                        var v = document.querySelector('video');
-                        if (v) { ${nextState} ? v.play() : v.pause(); }
-                      }
+                      (function() {
+                        if (typeof window.toggleVideoPlayback === 'function') {
+                          window.toggleVideoPlayback(${nextState});
+                        }
+                        var vids = document.querySelectorAll('video');
+                        for (var i = 0; i < vids.length; i++) {
+                          if (${nextState}) {
+                            vids[i].play().catch(function(){});
+                          } else {
+                            vids[i].pause();
+                          }
+                        }
+                        if (typeof player !== 'undefined' && player) {
+                          if (${nextState} && typeof player.playVideo === 'function') player.playVideo();
+                          if (!${nextState} && typeof player.pauseVideo === 'function') player.pauseVideo();
+                        }
+                      })();
                       true;
                     `);
                   } catch (err) {}
@@ -1186,6 +1197,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
               </View>
             ) : (
               <WebView
+                ref={webViewRef}
                 key={`${activeVideo.videoId}_${selectedInstanceIndex}`}
                 pointerEvents={isMinimized ? "none" : "auto"}
                 source={{
@@ -1563,12 +1575,23 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
                       setIsPipPlaying(nextState);
                       try {
                         webViewRef.current?.injectJavaScript(`
-                          if (typeof window.toggleVideoPlayback === 'function') {
-                            window.toggleVideoPlayback(${nextState});
-                          } else {
-                            var v = document.querySelector('video');
-                            if (v) { ${nextState} ? v.play() : v.pause(); }
-                          }
+                          (function() {
+                            if (typeof window.toggleVideoPlayback === 'function') {
+                              window.toggleVideoPlayback(${nextState});
+                            }
+                            var vids = document.querySelectorAll('video');
+                            for (var i = 0; i < vids.length; i++) {
+                              if (${nextState}) {
+                                vids[i].play().catch(function(){});
+                              } else {
+                                vids[i].pause();
+                              }
+                            }
+                            if (typeof player !== 'undefined' && player) {
+                              if (${nextState} && typeof player.playVideo === 'function') player.playVideo();
+                              if (!${nextState} && typeof player.pauseVideo === 'function') player.pauseVideo();
+                            }
+                          })();
                           true;
                         `);
                       } catch (err) {}
