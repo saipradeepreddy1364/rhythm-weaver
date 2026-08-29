@@ -299,7 +299,11 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
     return () => pipSub.remove();
   }, []);
 
-  const isSystemPipActive = isSystemPip || (windowWidth > 0 && windowWidth < 340 && windowHeight < 260);
+  const isSystemPipActive =
+    isSystemPip ||
+    (windowWidth > 0 &&
+      windowHeight > 0 &&
+      (windowHeight < 320 || (windowWidth / windowHeight > 1.2 && windowHeight < 400)));
 
   const pipControlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const webViewRef = useRef<any>(null);
@@ -2037,7 +2041,7 @@ const styles = StyleSheet.create({
   },
   floatingPipContainer: {
     position: "absolute",
-    bottom: Platform.OS === "ios" ? 85 : 70,
+    bottom: Platform.OS === "ios" ? 100 : 85,
     right: 14,
     width: 210,
     height: 118,

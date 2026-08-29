@@ -96,7 +96,11 @@ function AppContent() {
     };
   }, []);
 
-  const isPipActive = isSystemPip || (screenWidth > 0 && screenWidth < 340 && screenHeight < 260);
+  const isPipActive =
+    isSystemPip ||
+    (screenWidth > 0 &&
+      screenHeight > 0 &&
+      (screenHeight < 320 || (screenWidth / screenHeight > 1.2 && screenHeight < 400)));
 
   const [activeTab, setActiveTab] = useState<'Home' | 'Search' | 'Library'>('Home');
   const scrollViewRef = useRef<ScrollView>(null);
