@@ -88,6 +88,7 @@ function AppContent() {
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
 
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const [activeTab, setActiveTabState] = useState<'Home' | 'Search' | 'Videos' | 'Library'>('Home');
   const navigationRef = useRef<any>(null);
   const appState = useRef(AppState.currentState);
@@ -96,15 +97,9 @@ function AppContent() {
     setActiveTabState(tabName);
   }, []);
 
-  // Reset navigation tab to Home whenever app is cold booted or resumed from background
+  // Track appState changes without force-resetting the active tab to Home on app resume/unminimize
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextAppState) => {
-      if (
-        appState.current.match(/inactive|background/) &&
-        nextAppState === "active"
-      ) {
-        setActiveTabState("Home");
-      }
       appState.current = nextAppState;
     });
 
@@ -241,6 +236,7 @@ function AppContent() {
   }, []);
 
   const [isSystemPip, setIsSystemPip] = useState(false);
+  const [isVideoActive, setIsVideoActive] = useState(false);
 
   // Listen to native Android Picture-in-Picture mode changes
   useEffect(() => {
@@ -252,6 +248,22 @@ function AppContent() {
     return () => pipSub.remove();
   }, []);
 
+  // Listen to video active state emitted from VideosPage
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener("VIDEO_ACTIVE_CHANGED", (active: boolean) => {
+      setIsVideoActive(!!active);
+    });
+    return () => sub.remove();
+  }, []);
+
+  // Synchronously compute PiP state from native event OR window dimensions/appState to prevent 1ms bottom bar blink
+  const isSystemPipActive =
+    isSystemPip ||
+    (isVideoActive && (appState.current === 'inactive' || appState.current === 'background')) ||
+    (windowWidth > 0 &&
+      windowHeight > 0 &&
+      (windowHeight < 320 || (windowWidth / windowHeight > 1.2 && windowHeight < 400)));
+
   // Check auth once on mount
   useEffect(() => {
     checkAuth();
@@ -260,10 +272,10 @@ function AppContent() {
   }, []);
 
   return (
-    <SafeAreaView style={[styles.container, isSystemPip && { backgroundColor: "#000" }]}>
-      {!isSystemPip && <StatusBar barStyle="light-content" backgroundColor="#121212" />}
+    <SafeAreaView style={[styles.container, isSystemPipActive && { backgroundColor: "#000" }]}>
+      {!isSystemPipActive && <StatusBar barStyle="light-content" backgroundColor="#121212" />}
       
-      {__DEV__ && !isSystemPip && !updateAvailable && !isDownloadingUpdate && !updateDownloaded && (
+      {__DEV__ && !isSystemPipActive && !updateAvailable && !isDownloadingUpdate && !updateDownloaded && (
         <TouchableOpacity 
           delayPressIn={0} 
           style={styles.devFloatingBtn} 
@@ -279,27 +291,28 @@ function AppContent() {
         <Tab.Navigator tabBar={() => null} screenOptions={{ headerShown: false }}>
           <Tab.Screen name="Main">
             {() => (
-              <View style={{ flex: 1, backgroundColor: isSystemPip ? "#000" : "#121212" }}>
+              <View style={{ flex: 1, backgroundColor: isSystemPipActive ? "#000" : "#121212" }}>
                 <View style={{ flex: 1 }}>
-                  <View style={{ flex: 1, display: activeTab === 'Home' && !isSystemPip ? 'flex' : 'none' }}>
+                  <View style={{ flex: 1, display: activeTab === 'Home' && !isSystemPipActive ? 'flex' : 'none' }}>
                     <HomePage onRequireAuth={handleRequireAuth} />
                   </View>
 
-                  <View style={{ flex: 1, display: activeTab === 'Search' && !isSystemPip ? 'flex' : 'none' }}>
+                  <View style={{ flex: 1, display: activeTab === 'Search' && !isSystemPipActive ? 'flex' : 'none' }}>
                     <SearchPage onRequireAuth={handleRequireAuth} />
                   </View>
 
-                  <View style={{ flex: 1, display: activeTab === 'Videos' || isSystemPip ? 'flex' : 'none' }}>
-                    <VideosPage onRequireAuth={handleRequireAuth} activeTab={activeTab} isSystemPip={isSystemPip} />
+                  <View style={{ flex: 1, display: activeTab === 'Library' && !isSystemPipActive ? 'flex' : 'none' }}>
+                    <LibraryPage onRequireAuth={handleRequireAuth} />
                   </View>
 
-                  <View style={{ flex: 1, display: activeTab === 'Library' && !isSystemPip ? 'flex' : 'none' }}>
-                    <LibraryPage onRequireAuth={handleRequireAuth} />
+                  {/* Single Persistent Videos Page Instance (Renders Feed on Videos tab, and mini floating player overlay on other tabs) */}
+                  <View style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
+                    <VideosPage onRequireAuth={handleRequireAuth} activeTab={activeTab} isSystemPip={isSystemPipActive} />
                   </View>
                 </View>
 
                 {/* Bottom Tab Bar (Hidden in PiP mode) */}
-                {!isSystemPip && (
+                {!isSystemPipActive && (
                   <View style={styles.tabBarStyle}>
                     {(['Home', 'Search', 'Videos', 'Library'] as const).map((tab) => {
                       const isActive = activeTab === tab;
@@ -326,21 +339,16 @@ function AppContent() {
         </Tab.Navigator>
       </NavigationContainer>
 
-      {/* Floating Mini Player (hidden on Videos tab or in PiP mode) */}
-      {!isSystemPip && currentSong && activeTab !== 'Videos' && <MiniPlayer onRequireAuth={handleRequireAuth} />}
-
-      {/* Floating Mini Video Player across other tabs (hidden in PiP mode) */}
-      {!isSystemPip && activeTab !== 'Videos' && (
-        <View style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
-          <VideosPage onRequireAuth={handleRequireAuth} activeTab={activeTab} floatingOnly={true} isSystemPip={isSystemPip} />
-        </View>
+      {/* Floating Mini Player (hidden when Video is active, on Videos tab, or in PiP mode) */}
+      {!isSystemPipActive && !isVideoActive && currentSong && activeTab !== 'Videos' && (
+        <MiniPlayer onRequireAuth={handleRequireAuth} />
       )}
 
       {/* Full screen overlay player (native version of FullPlayer component) */}
-      {!isSystemPip && showPlayer && <FullPlayer onRequireAuth={handleRequireAuth} />}
+      {!isSystemPipActive && showPlayer && <FullPlayer onRequireAuth={handleRequireAuth} />}
 
       {/* Global Sound Equalizer & Bass Adjuster Modal */}
-      {!isSystemPip && <EqualizerModal visible={showEqualizer} onClose={() => setShowEqualizer(false)} />}
+      {!isSystemPipActive && <EqualizerModal visible={showEqualizer} onClose={() => setShowEqualizer(false)} />}
 
       {/* Premium OTA Update Modal */}
       <Modal

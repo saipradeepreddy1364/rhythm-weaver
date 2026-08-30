@@ -33,6 +33,15 @@ module.exports = function withAndroidPip(config) {
 
   override fun onUserLeaveHint() {
     super.onUserLeaveHint()
+    try {
+      val map = com.facebook.react.bridge.Arguments.createMap()
+      map.putBoolean("isInPictureInPictureMode", true)
+      val reactContext = reactInstanceManager.currentReactContext
+      if (reactContext != null) {
+        reactContext.getJSModule(com.facebook.react.modules.core.DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+          .emit("ON_PIP_MODE_CHANGED", map)
+      }
+    } catch (e: Exception) {}
     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O && android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S) {
       try {
         val builder = android.app.PictureInPictureParams.Builder()

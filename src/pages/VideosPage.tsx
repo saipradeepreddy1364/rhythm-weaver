@@ -297,6 +297,10 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
   }, [isSystemPipProp]);
 
   useEffect(() => {
+    DeviceEventEmitter.emit("VIDEO_ACTIVE_CHANGED", !!activeVideo);
+  }, [activeVideo]);
+
+  useEffect(() => {
     DeviceEventEmitter.emit("VIDEO_MINIMIZED_CHANGED", isMinimized);
   }, [isMinimized]);
 
@@ -381,15 +385,13 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
 
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      onStartShouldSetPanResponderCapture: (evt) => {
-        return isMinimized && !isSystemPipActive && evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2;
-      },
+      onStartShouldSetPanResponder: () => isMinimized && !isSystemPipActive,
+      onStartShouldSetPanResponderCapture: () => isMinimized && !isSystemPipActive,
       onMoveShouldSetPanResponder: (evt, gestureState) => {
-        return isMinimized && !isSystemPipActive && (Math.abs(gestureState.dx) > 8 || Math.abs(gestureState.dy) > 8 || (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2));
+        return isMinimized && !isSystemPipActive && (Math.abs(gestureState.dx) > 4 || Math.abs(gestureState.dy) > 4 || (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2));
       },
       onMoveShouldSetPanResponderCapture: (evt, gestureState) => {
-        return isMinimized && !isSystemPipActive && (Math.abs(gestureState.dx) > 8 || Math.abs(gestureState.dy) > 8 || (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2));
+        return isMinimized && !isSystemPipActive && (Math.abs(gestureState.dx) > 4 || Math.abs(gestureState.dy) > 4 || (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2));
       },
       onPanResponderGrant: (evt) => {
         if (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2) {
@@ -424,18 +426,18 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
         } else {
           initialPinchDistRef.current = null;
           const curWidth = pipWidthRef.current;
-          const curHeight = Math.round(curWidth * (110 / 175));
+          const curHeight = Math.round(curWidth * (9 / 16));
           const screenHeight = Dimensions.get("window").height;
 
           // Screen bounds clamping to prevent mini video frame from going out of screen
-          const minTranslateX = -(width - curWidth - 28);
-          const maxTranslateX = 0;
+          const minTranslateX = -(width - curWidth - 14);
+          const maxTranslateX = 14;
           const currentOffsetX = (pan.x as any)._offset || 0;
           const clampedDx = Math.max(minTranslateX - currentOffsetX, Math.min(maxTranslateX - currentOffsetX, gestureState.dx));
 
-          // Top boundary clamp: keep box below top status bar
-          const minTranslateY = -(screenHeight - curHeight - 110);
-          const maxTranslateY = 0;
+          // Top boundary clamp: keep box on screen
+          const minTranslateY = -(screenHeight - curHeight - 70);
+          const maxTranslateY = 50;
           const currentOffsetY = (pan.y as any)._offset || 0;
           const clampedDy = Math.max(minTranslateY - currentOffsetY, Math.min(maxTranslateY - currentOffsetY, gestureState.dy));
 
@@ -732,692 +734,191 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
     setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length);
   }, []);
 
-  const embedUrl = activeVideo && targetId
-    ? `${providerBase}/${targetId}?autoplay=1&controls=1&modestbranding=1&rel=0&playsinline=1`
-    : "";
-
-  if (floatingOnly) {
-    if (!activeVideo) return null;
-
-    if (isSystemPipActive) {
-      return (
-        <View style={styles.pipVideoBoxFull}>
-          {isResolvingVideo ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="small" color="#1DB954" />
-            </View>
-          ) : (
-            <WebView
-              ref={webViewRef}
-              key={`${activeVideo.videoId}_${selectedInstanceIndex}_syspip`}
-              source={{
-                html: `
-                  <!DOCTYPE html>
-                  <html>
-                    <head>
-                      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-                      <style>
-                        * { box-sizing: border-box; margin: 0; padding: 0; }
-                        body, html { background-color: #000; width: 100%; height: 100%; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-                        #player { width: 100%; height: 100%; border: none; }
-                        iframe { width: 100%; height: 100%; border: none; }
-                        .ytp-ad-module, .ytp-ad-overlay-container, .ytp-ad-message-container,
-                        .ytp-ad-preview-container, .ytp-ad-skip-button-slot, .ytp-ad-skip-button,
-                        .ytp-ad-skip-button-modern, .ytp-skip-ad-button, .ytp-ad-text,
-                        .video-ads, .ytp-ad-player-overlay, .ytp-ad-image-overlay,
-                        .annotation, .ytp-paid-content-overlay, .ytp-ad-action-interstitial,
-                        .ad-showing, .ad-interrupting {
-                          display: none !important;
-                          visibility: hidden !important;
-                          opacity: 0 !important;
-                          pointer-events: none !important;
-                        }
-                      </style>
-                      <script>
-                        (function() {
-                          var origOpen = XMLHttpRequest.prototype.open;
-                          XMLHttpRequest.prototype.open = function(method, url) {
-                            if (typeof url === 'string' && (
-                              url.indexOf('googleads') !== -1 ||
-                              url.indexOf('doubleclick.net') !== -1 ||
-                              url.indexOf('/pagead/') !== -1 ||
-                              url.indexOf('/api/stats/ads') !== -1 ||
-                              url.indexOf('ptracking') !== -1 ||
-                              url.indexOf('ad_break') !== -1 ||
-                              url.indexOf('get_midroll_info') !== -1 ||
-                              url.indexOf('googleadservices') !== -1 ||
-                              url.indexOf('googlesyndication') !== -1
-                            )) {
-                              this.isAdRequest = true;
-                            }
-                            return origOpen.apply(this, arguments);
-                          };
-                          var origSend = XMLHttpRequest.prototype.send;
-                          XMLHttpRequest.prototype.send = function() {
-                            if (this.isAdRequest) {
-                              try { this.abort(); } catch(e) {}
-                              return;
-                            }
-                            return origSend.apply(this, arguments);
-                          };
-
-                          var origFetch = window.fetch;
-                          if (origFetch) {
-                            window.fetch = function(input, init) {
-                              var url = typeof input === 'string' ? input : (input && input.url ? input.url : '');
-                              if (url && (
-                                url.indexOf('googleads') !== -1 ||
-                                url.indexOf('doubleclick.net') !== -1 ||
-                                url.indexOf('/pagead/') !== -1 ||
-                                url.indexOf('/api/stats/ads') !== -1 ||
-                                url.indexOf('ptracking') !== -1 ||
-                                url.indexOf('ad_break') !== -1 ||
-                                url.indexOf('get_midroll_info') !== -1 ||
-                                url.indexOf('googleadservices') !== -1 ||
-                                url.indexOf('googlesyndication') !== -1
-                              )) {
-                                return Promise.resolve(new Response('', { status: 200, statusText: 'OK' }));
-                              }
-                              return origFetch.apply(this, arguments);
-                            };
-                          }
-                        })();
-                      </script>
-                    </head>
-                    <body class="is-minimized">
-                      <div id="player"></div>
-                      <script>
-                        var tag = document.createElement('script');
-                        tag.src = "https://www.youtube.com/iframe_api";
-                        var firstScriptTag = document.getElementsByTagName('script')[0];
-                        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-
-                        var player;
-                        function onYouTubeIframeAPIReady() {
-                          player = new YT.Player('player', {
-                            height: '100%',
-                            width: '100%',
-                            videoId: '${targetId}',
-                            playerVars: {
-                              'autoplay': 1,
-                              'controls': 1,
-                              'rel': 0,
-                              'modestbranding': 1,
-                              'playsinline': 1,
-                              'enablejsapi': 1,
-                              'fs': 1
-                            },
-                            events: {
-                              'onStateChange': function(event) {
-                                if (event && window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-                                  if (event.data === 1) {
-                                    window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_PLAYING' }));
-                                  } else if (event.data === 2) {
-                                    window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_PAUSED' }));
-                                  } else if (event.data === 0) {
-                                    window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_ENDED' }));
-                                  }
-                                }
-                              },
-                              'onError': function(event) {
-                                if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-                                  window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_BLOCKED' }));
-                                }
-                              }
-                            }
-                          });
-                        }
-
-                        window.toggleVideoPlayback = function(shouldPlay) {
-                          try {
-                            if (typeof player !== 'undefined' && player) {
-                              if (shouldPlay && typeof player.playVideo === 'function') player.playVideo();
-                              if (!shouldPlay && typeof player.pauseVideo === 'function') player.pauseVideo();
-                            }
-                            var vids = document.querySelectorAll('video');
-                            for (var v = 0; v < vids.length; v++) {
-                              if (vids[v]) {
-                                if (shouldPlay) {
-                                  vids[v].play().catch(function(){});
-                                } else {
-                                  vids[v].pause();
-                                }
-                              }
-                            }
-                          } catch (err) {}
-                        };
-
-                        if ('mediaSession' in navigator) {
-                          try {
-                            navigator.mediaSession.metadata = new MediaMetadata({
-                              title: ${JSON.stringify(activeVideo.title)},
-                              artist: ${JSON.stringify(activeVideo.artist)},
-                            });
-                            navigator.mediaSession.setActionHandler('play', function() { if (player && player.playVideo) player.playVideo(); });
-                            navigator.mediaSession.setActionHandler('pause', function() { if (player && player.pauseVideo) player.pauseVideo(); });
-                          } catch (e) {}
-                        }
-
-                        setInterval(function() {
-                          try {
-                            var skipSelectors = ['.ytp-ad-skip-button', '.ytp-ad-skip-button-modern', '.ytp-skip-ad-button', '.ytp-ad-overlay-close-button', '.ytp-ad-skip-button-slot'];
-                            for (var s = 0; s < skipSelectors.length; s++) {
-                              var btns = document.querySelectorAll(skipSelectors[s]);
-                              for (var b = 0; b < btns.length; b++) btns[b].click();
-                            }
-                            var adOverlays = document.querySelectorAll('.ytp-ad-overlay-container, .ytp-ad-message-container, .ytp-ad-module, .video-ads');
-                            for (var i = 0; i < adOverlays.length; i++) adOverlays[i].style.display = 'none';
-                            var isAd = document.querySelector('.ad-showing, .ad-interrupting, .ytp-ad-player-overlay');
-                            var vids = document.querySelectorAll('video');
-                            if (isAd && vids.length > 0) {
-                              for (var v = 0; v < vids.length; v++) {
-                                if (vids[v] && !vids[v].paused) {
-                                  vids[v].muted = true;
-                                  vids[v].playbackRate = 16;
-                                  if (vids[v].duration && !isNaN(vids[v].duration)) vids[v].currentTime = vids[v].duration - 0.01;
-                                }
-                              }
-                            }
-                          } catch (e) {}
-                        }, 30);
-                      </script>
-                    </body>
-                  </html>
-                `,
-                baseUrl: "https://www.google.com",
-              }}
-              style={{ flex: 1, backgroundColor: "#000" }}
-              userAgent="Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
-              allowsPictureInPicture={true}
-              allowsInlineMediaPlayback={true}
-              mediaPlaybackRequiresUserAction={false}
-              allowsFullscreenVideo={true}
-              javaScriptEnabled={true}
-              domStorageEnabled={true}
-              androidLayerType="hardware"
-              mixedContentMode="always"
-              playInBackground={true}
-              onShouldStartLoadWithRequest={handleShouldStartLoad}
-              onMessage={handleWebViewMessage}
-              onError={handleWebViewError}
-            />
-          )}
-        </View>
-      );
-    }
-
-    if (!isMinimized) return null;
-
-    return (
-      <Animated.View
-        style={[
-          styles.floatingPipContainer,
-          {
-            width: pipWidth,
-            height: Math.round(pipWidth * (9 / 16)),
-            transform: [
-              ...pan.getTranslateTransform(),
-              { scale: pinchScale },
-            ],
-          },
-        ]}
-        {...panResponder.panHandlers}
-      >
-        {showPipControls && (
-          <>
-            {/* Top Right Controls (Expand / Close) */}
-            <Animated.View
-              style={[
-                styles.pipTopControls,
-                {
-                  transform: [{ scale: Animated.divide(1, pinchScale) }],
-                },
-              ]}
-              pointerEvents="box-none"
-            >
-              <TouchableOpacity
-                delayPressIn={0}
-                onPress={() => {
-                  setIsMinimized(false);
-                  setShowPipControls(false);
-                  DeviceEventEmitter.emit("NAVIGATE_TO_TAB", "Videos");
-                }}
-                style={styles.pipIconBadge}
-                activeOpacity={0.8}
-              >
-                <MaterialCommunityIcons name="arrow-expand" size={14} color="#fff" />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                delayPressIn={0}
-                onPress={() => {
-                  setActiveVideo(null);
-                  setIsMinimized(false);
-                  setShowPipControls(false);
-                }}
-                style={styles.pipIconBadge}
-                activeOpacity={0.8}
-              >
-                <MaterialCommunityIcons name="close" size={14} color="#fff" />
-              </TouchableOpacity>
-            </Animated.View>
-
-            {/* Bottom Center Play/Pause Control */}
-            <Animated.View
-              style={[
-                styles.pipBottomControls,
-                {
-                  transform: [{ scale: Animated.divide(1, pinchScale) }],
-                },
-              ]}
-              pointerEvents="box-none"
-            >
-              <TouchableOpacity
-                delayPressIn={0}
-                onPress={handleTogglePipPlay}
-                style={styles.pipPlayIconBadge}
-                activeOpacity={0.8}
-              >
-                <MaterialCommunityIcons
-                  name={isPipPlaying ? "pause" : "play"}
-                  size={16}
-                  color="#fff"
-                />
-              </TouchableOpacity>
-            </Animated.View>
-          </>
-        )}
-
-        <View style={styles.pipVideoBox}>
-          {isResolvingVideo ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="small" color="#1DB954" />
-            </View>
-          ) : (
-            <WebView
-              ref={webViewRef}
-              key={`${activeVideo.videoId}_${selectedInstanceIndex}_float`}
-              pointerEvents="auto"
-              source={{
-                html: `
-                  <!DOCTYPE html>
-                  <html>
-                    <head>
-                      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-                      <style>
-                        * { box-sizing: border-box; margin: 0; padding: 0; }
-                        body, html { background-color: #000; width: 100%; height: 100%; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-                        #player { width: 100%; height: 100%; border: none; }
-                        iframe { width: 100%; height: 100%; border: none; }
-                        .ytp-ad-module, .ytp-ad-overlay-container, .ytp-ad-message-container,
-                        .ytp-ad-preview-container, .ytp-ad-skip-button-slot, .ytp-ad-skip-button,
-                        .ytp-ad-skip-button-modern, .ytp-skip-ad-button, .ytp-ad-text,
-                        .video-ads, .ytp-ad-player-overlay, .ytp-ad-image-overlay,
-                        .annotation, .ytp-paid-content-overlay, .ytp-ad-action-interstitial,
-                        .ad-showing, .ad-interrupting {
-                          display: none !important;
-                          visibility: hidden !important;
-                          opacity: 0 !important;
-                          pointer-events: none !important;
-                        }
-                      </style>
-                      <script>
-                        (function() {
-                          var origOpen = XMLHttpRequest.prototype.open;
-                          XMLHttpRequest.prototype.open = function(method, url) {
-                            if (typeof url === 'string' && (
-                              url.indexOf('googleads') !== -1 ||
-                              url.indexOf('doubleclick.net') !== -1 ||
-                              url.indexOf('/pagead/') !== -1 ||
-                              url.indexOf('/api/stats/ads') !== -1 ||
-                              url.indexOf('ptracking') !== -1 ||
-                              url.indexOf('ad_break') !== -1 ||
-                              url.indexOf('get_midroll_info') !== -1 ||
-                              url.indexOf('googleadservices') !== -1 ||
-                              url.indexOf('googlesyndication') !== -1
-                            )) {
-                              this.isAdRequest = true;
-                            }
-                            return origOpen.apply(this, arguments);
-                          };
-                          var origSend = XMLHttpRequest.prototype.send;
-                          XMLHttpRequest.prototype.send = function() {
-                            if (this.isAdRequest) {
-                              try { this.abort(); } catch(e) {}
-                              return;
-                            }
-                            return origSend.apply(this, arguments);
-                          };
-
-                          var origFetch = window.fetch;
-                          if (origFetch) {
-                            window.fetch = function(input, init) {
-                              var url = typeof input === 'string' ? input : (input && input.url ? input.url : '');
-                              if (url && (
-                                url.indexOf('googleads') !== -1 ||
-                                url.indexOf('doubleclick.net') !== -1 ||
-                                url.indexOf('/pagead/') !== -1 ||
-                                url.indexOf('/api/stats/ads') !== -1 ||
-                                url.indexOf('ptracking') !== -1 ||
-                                url.indexOf('ad_break') !== -1 ||
-                                url.indexOf('get_midroll_info') !== -1 ||
-                                url.indexOf('googleadservices') !== -1 ||
-                                url.indexOf('googlesyndication') !== -1
-                              )) {
-                                return Promise.resolve(new Response('', { status: 200, statusText: 'OK' }));
-                              }
-                              return origFetch.apply(this, arguments);
-                            };
-                          }
-                        })();
-                      </script>
-                    </head>
-                    <body class="is-minimized">
-                      <div id="player"></div>
-                      <script>
-                        var tag = document.createElement('script');
-                        tag.src = "https://www.youtube.com/iframe_api";
-                        var firstScriptTag = document.getElementsByTagName('script')[0];
-                        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-
-                        var player;
-                        function onYouTubeIframeAPIReady() {
-                          player = new YT.Player('player', {
-                            height: '100%',
-                            width: '100%',
-                            videoId: '${targetId}',
-                            playerVars: {
-                              'autoplay': 1,
-                              'controls': 1,
-                              'rel': 0,
-                              'modestbranding': 1,
-                              'playsinline': 1,
-                              'enablejsapi': 1,
-                              'fs': 1
-                            },
-                            events: {
-                              'onStateChange': function(event) {
-                                if (event && window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-                                  if (event.data === 1) {
-                                    window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_PLAYING' }));
-                                  } else if (event.data === 2) {
-                                    window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_PAUSED' }));
-                                  } else if (event.data === 0) {
-                                    window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_ENDED' }));
-                                  }
-                                }
-                              },
-                              'onError': function(event) {
-                                if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-                                  window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_BLOCKED' }));
-                                }
-                              }
-                            }
-                          });
-                        }
-
-                        window.toggleVideoPlayback = function(shouldPlay) {
-                          try {
-                            if (typeof player !== 'undefined' && player) {
-                              if (shouldPlay && typeof player.playVideo === 'function') player.playVideo();
-                              if (!shouldPlay && typeof player.pauseVideo === 'function') player.pauseVideo();
-                            }
-                            var vids = document.querySelectorAll('video');
-                            for (var v = 0; v < vids.length; v++) {
-                              if (vids[v]) {
-                                if (shouldPlay) {
-                                  vids[v].play().catch(function(){});
-                                } else {
-                                  vids[v].pause();
-                                }
-                              }
-                            }
-                          } catch (err) {}
-                        };
-
-                        if ('mediaSession' in navigator) {
-                          try {
-                            navigator.mediaSession.metadata = new MediaMetadata({
-                              title: ${JSON.stringify(activeVideo.title)},
-                              artist: ${JSON.stringify(activeVideo.artist)},
-                            });
-                            navigator.mediaSession.setActionHandler('play', function() { if (player && player.playVideo) player.playVideo(); });
-                            navigator.mediaSession.setActionHandler('pause', function() { if (player && player.pauseVideo) player.pauseVideo(); });
-                          } catch (e) {}
-                        }
-
-                        setInterval(function() {
-                          try {
-                            var skipSelectors = ['.ytp-ad-skip-button', '.ytp-ad-skip-button-modern', '.ytp-skip-ad-button', '.ytp-ad-overlay-close-button', '.ytp-ad-skip-button-slot'];
-                            for (var s = 0; s < skipSelectors.length; s++) {
-                              var btns = document.querySelectorAll(skipSelectors[s]);
-                              for (var b = 0; b < btns.length; b++) btns[b].click();
-                            }
-                            var adOverlays = document.querySelectorAll('.ytp-ad-overlay-container, .ytp-ad-message-container, .ytp-ad-module, .video-ads');
-                            for (var i = 0; i < adOverlays.length; i++) adOverlays[i].style.display = 'none';
-                            var isAd = document.querySelector('.ad-showing, .ad-interrupting, .ytp-ad-player-overlay');
-                            var vids = document.querySelectorAll('video');
-                            if (isAd && vids.length > 0) {
-                              for (var v = 0; v < vids.length; v++) {
-                                if (vids[v] && !vids[v].paused) {
-                                  vids[v].muted = true;
-                                  vids[v].playbackRate = 16;
-                                  if (vids[v].duration && !isNaN(vids[v].duration)) vids[v].currentTime = vids[v].duration - 0.01;
-                                }
-                              }
-                            }
-                          } catch (e) {}
-                        }, 30);
-                      </script>
-                    </body>
-                  </html>
-                `,
-                baseUrl: "https://www.google.com",
-              }}
-              style={{ flex: 1, backgroundColor: "#000" }}
-              userAgent="Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
-              allowsPictureInPicture={true}
-              allowsInlineMediaPlayback={true}
-              mediaPlaybackRequiresUserAction={false}
-              allowsFullscreenVideo={true}
-              javaScriptEnabled={true}
-              domStorageEnabled={true}
-              androidLayerType="hardware"
-              mixedContentMode="always"
-              playInBackground={true}
-              onShouldStartLoadWithRequest={handleShouldStartLoad}
-              onMessage={handleWebViewMessage}
-              onError={handleWebViewError}
-            />
-          )}
-          {isMinimized && (
-            <TouchableOpacity
-              style={StyleSheet.absoluteFillObject}
-              activeOpacity={1}
-              onPress={togglePipControls}
-            />
-          )}
-        </View>
-      </Animated.View>
-    );
-  }
-
-
+  const isVideosTab = (!activeTab || activeTab === "Videos") || isSystemPipActive;
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.headerTitle}>Music Videos</Text>
-          <Text style={styles.headerSubtitle}>Watch in-app videos</Text>
+    <View
+      style={[
+        styles.container,
+        !isVideosTab && { backgroundColor: "transparent" },
+      ]}
+      pointerEvents={!isVideosTab && isMinimized ? "box-none" : "auto"}
+    >
+      {/* Video Feed UI (Only visible on Videos tab) */}
+      <View style={{ flex: 1, display: isVideosTab ? "flex" : "none" }}>
+        <View style={styles.header}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.headerTitle}>Music Videos</Text>
+            <Text style={styles.headerSubtitle}>Watch in-app videos</Text>
+          </View>
+          <TouchableOpacity
+            delayPressIn={0}
+            onPress={() => DeviceEventEmitter.emit("OPEN_EQUALIZER_MODAL")}
+            style={{ padding: 6 }}
+            activeOpacity={0.7}
+          >
+            <MaterialCommunityIcons name="equalizer" size={22} color="#1DB954" />
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity
-          delayPressIn={0}
-          onPress={() => DeviceEventEmitter.emit("OPEN_EQUALIZER_MODAL")}
-          style={{ padding: 6 }}
-          activeOpacity={0.7}
-        >
-          <MaterialCommunityIcons name="equalizer" size={22} color="#1DB954" />
-        </TouchableOpacity>
-      </View>
 
-      {/* Search Input Container with Autocomplete Dropdown */}
-      <View style={{ zIndex: 1000 }}>
-        <View style={styles.searchBarContainer}>
-          <MaterialCommunityIcons name="magnify" size={20} color="rgba(255,255,255,0.4)" style={{ marginRight: 8 }} />
-          <TextInput
-            value={query}
-            onChangeText={(text) => {
-              isSelectingSuggestionRef.current = false;
-              setQuery(text);
-              if (!text.trim()) {
-                setSuggestions([]);
-                setShowSuggestions(false);
-              }
-            }}
-            onFocus={() => {
-              if (!isSelectingSuggestionRef.current && suggestions.length > 0) {
-                setShowSuggestions(true);
-              }
-            }}
-            onSubmitEditing={() => {
-              isSelectingSuggestionRef.current = true;
-              setShowSuggestions(false);
-              setSuggestions([]);
-              Keyboard.dismiss();
-              handleSearchSubmit();
-            }}
-            placeholder=""
-            placeholderTextColor="rgba(255,255,255,0.3)"
-            style={styles.searchInput}
-            returnKeyType="search"
-          />
-          {query.length > 0 && (
-            <TouchableOpacity
-              delayPressIn={0}
-              onPress={() => {
-                setQuery("");
-                setSuggestions([]);
-                setShowSuggestions(false);
-                fetchTrendingVideos("trending telugu hindi video songs");
+        {/* Search Input Container with Autocomplete Dropdown */}
+        <View style={{ zIndex: 1000 }}>
+          <View style={styles.searchBarContainer}>
+            <MaterialCommunityIcons name="magnify" size={20} color="rgba(255,255,255,0.4)" style={{ marginRight: 8 }} />
+            <TextInput
+              value={query}
+              onChangeText={(text) => {
+                isSelectingSuggestionRef.current = false;
+                setQuery(text);
+                if (!text.trim()) {
+                  setSuggestions([]);
+                  setShowSuggestions(false);
+                }
               }}
-            >
-              <MaterialCommunityIcons name="close-circle" size={18} color="rgba(255,255,255,0.4)" />
-            </TouchableOpacity>
+              onFocus={() => {
+                if (!isSelectingSuggestionRef.current && suggestions.length > 0) {
+                  setShowSuggestions(true);
+                }
+              }}
+              onSubmitEditing={() => {
+                isSelectingSuggestionRef.current = true;
+                setShowSuggestions(false);
+                setSuggestions([]);
+                Keyboard.dismiss();
+                handleSearchSubmit();
+              }}
+              placeholder=""
+              placeholderTextColor="rgba(255,255,255,0.3)"
+              style={styles.searchInput}
+              returnKeyType="search"
+            />
+            {query.length > 0 && (
+              <TouchableOpacity
+                delayPressIn={0}
+                onPress={() => {
+                  setQuery("");
+                  setSuggestions([]);
+                  setShowSuggestions(false);
+                  fetchTrendingVideos("trending telugu hindi video songs");
+                }}
+              >
+                <MaterialCommunityIcons name="close-circle" size={18} color="rgba(255,255,255,0.4)" />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Live Autocomplete Suggestions Dropdown Box */}
+          {showSuggestions && suggestions.length > 0 && (
+            <View style={styles.suggestionsBox}>
+              <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled style={{ maxHeight: 240 }}>
+                {suggestions.map((item, idx) => (
+                  <TouchableOpacity
+                    delayPressIn={0}
+                    key={`${item}_${idx}`}
+                    style={styles.suggestionRow}
+                    onPress={() => {
+                      isSelectingSuggestionRef.current = true;
+                      setQuery(item);
+                      setShowSuggestions(false);
+                      setSuggestions([]);
+                      Keyboard.dismiss();
+                      fetchTrendingVideos(item);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <MaterialCommunityIcons name="magnify" size={18} color="rgba(255,255,255,0.4)" style={{ marginRight: 12 }} />
+                    <Text style={styles.suggestionText} numberOfLines={1}>{item}</Text>
+                    <MaterialCommunityIcons name="arrow-top-left" size={16} color="rgba(255,255,255,0.3)" />
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
           )}
         </View>
 
-        {/* Live Autocomplete Suggestions Dropdown Box */}
-        {showSuggestions && suggestions.length > 0 && (
-          <View style={styles.suggestionsBox}>
-            <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled style={{ maxHeight: 240 }}>
-              {suggestions.map((item, idx) => (
+        {/* Video Feed */}
+        <ScrollView
+          style={styles.feed}
+          contentContainerStyle={[
+            styles.feedContent,
+            loading && videos.length === 0 && { flex: 1, justifyContent: "center", alignItems: "center" }
+          ]}
+          onScroll={({ nativeEvent }) => {
+            const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+            const isCloseToBottom = layoutMeasurement.height + contentOffset.y >= contentSize.height - 600;
+            if (isCloseToBottom && !loadingMore && !loading) {
+              fetchMoreVideos();
+            }
+          }}
+          scrollEventThrottle={250}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor="#1DB954"
+              colors={["#1DB954"]}
+              progressBackgroundColor="#181818"
+            />
+          }
+        >
+          {loading && videos.length === 0 ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#1DB954" />
+              <Text style={styles.loadingText}>Fetching videos...</Text>
+            </View>
+          ) : (
+            <>
+              {videos.map((item) => (
                 <TouchableOpacity
                   delayPressIn={0}
-                  key={`${item}_${idx}`}
-                  style={styles.suggestionRow}
-                  onPress={() => {
-                    isSelectingSuggestionRef.current = true;
-                    setQuery(item);
-                    setShowSuggestions(false);
-                    setSuggestions([]);
-                    Keyboard.dismiss();
-                    fetchTrendingVideos(item);
-                  }}
-                  activeOpacity={0.7}
+                  key={item.id}
+                  style={styles.videoCard}
+                  onPress={() => handleVideoCardPress(item)}
+                  activeOpacity={0.85}
                 >
-                  <MaterialCommunityIcons name="magnify" size={18} color="rgba(255,255,255,0.4)" style={{ marginRight: 12 }} />
-                  <Text style={styles.suggestionText} numberOfLines={1}>{item}</Text>
-                  <MaterialCommunityIcons name="arrow-top-left" size={16} color="rgba(255,255,255,0.3)" />
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        )}
-      </View>
-
-      {/* Video Feed */}
-      <ScrollView
-        style={styles.feed}
-        contentContainerStyle={[
-          styles.feedContent,
-          loading && videos.length === 0 && { flex: 1, justifyContent: "center", alignItems: "center" }
-        ]}
-        onScroll={({ nativeEvent }) => {
-          const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
-          const isCloseToBottom = layoutMeasurement.height + contentOffset.y >= contentSize.height - 600;
-          if (isCloseToBottom && !loadingMore && !loading) {
-            fetchMoreVideos();
-          }
-        }}
-        scrollEventThrottle={250}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            tintColor="#1DB954"
-            colors={["#1DB954"]}
-            progressBackgroundColor="#181818"
-          />
-        }
-      >
-        {loading && videos.length === 0 ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#1DB954" />
-            <Text style={styles.loadingText}>Fetching videos...</Text>
-          </View>
-        ) : (
-          <>
-            {videos.map((item) => (
-              <TouchableOpacity
-                delayPressIn={0}
-                key={item.id}
-                style={styles.videoCard}
-                onPress={() => handleVideoCardPress(item)}
-                activeOpacity={0.85}
-              >
-                <View style={styles.thumbnailContainer}>
-                  <Image source={{ uri: item.thumbnail }} style={styles.thumbnail} />
-                  <View style={styles.playOverlay}>
-                    <View style={styles.playCircle}>
-                      <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
+                  <View style={styles.thumbnailContainer}>
+                    <Image source={{ uri: item.thumbnail }} style={styles.thumbnail} />
+                    <View style={styles.playOverlay}>
+                      <View style={styles.playCircle}>
+                        <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
+                      </View>
                     </View>
                   </View>
-                </View>
 
-                <View style={styles.videoMeta}>
-                  <View style={{ flex: 1, marginRight: 8 }}>
-                    <Text style={styles.videoTitle} numberOfLines={2}>{item.title}</Text>
-                    <Text style={styles.videoArtist} numberOfLines={1}>{item.artist}</Text>
+                  <View style={styles.videoMeta}>
+                    <View style={{ flex: 1, marginRight: 8 }}>
+                      <Text style={styles.videoTitle} numberOfLines={2}>{item.title}</Text>
+                      <Text style={styles.videoArtist} numberOfLines={1}>{item.artist}</Text>
+                    </View>
+                    <TouchableOpacity
+                      delayPressIn={0}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        toggleLikeVideo(item);
+                      }}
+                      style={{ padding: 6 }}
+                      activeOpacity={0.7}
+                    >
+                      <MaterialCommunityIcons
+                        name={isVideoLiked(item) ? "heart" : "heart-outline"}
+                        size={24}
+                        color={isVideoLiked(item) ? "#1DB954" : "rgba(255,255,255,0.6)"}
+                      />
+                    </TouchableOpacity>
                   </View>
-                  <TouchableOpacity
-                    delayPressIn={0}
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      toggleLikeVideo(item);
-                    }}
-                    style={{ padding: 6 }}
-                    activeOpacity={0.7}
-                  >
-                    <MaterialCommunityIcons
-                      name={isVideoLiked(item) ? "heart" : "heart-outline"}
-                      size={24}
-                      color={isVideoLiked(item) ? "#1DB954" : "rgba(255,255,255,0.6)"}
-                    />
-                  </TouchableOpacity>
-                </View>
-              </TouchableOpacity>
-            ))}
+                </TouchableOpacity>
+              ))}
 
-            {loadingMore && (
-              <View style={{ paddingVertical: 20, alignItems: "center" }}>
-                <ActivityIndicator size="small" color="#1DB954" />
-                <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, marginTop: 6 }}>Loading more videos...</Text>
-              </View>
-            )}
-          </>
-        )}
-      </ScrollView>
+              {loadingMore && (
+                <View style={{ paddingVertical: 20, alignItems: "center" }}>
+                  <ActivityIndicator size="small" color="#1DB954" />
+                  <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, marginTop: 6 }}>Loading more videos...</Text>
+                </View>
+              )}
+            </>
+          )}
+        </ScrollView>
+      </View>
 
       {/* Persistent Single Video Player (Full Screen or Mini Draggable PiP) */}
       {activeVideo && (
@@ -1598,8 +1099,12 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                               },
                               events: {
                                 'onStateChange': function(event) {
-                                  if (event && event.data === 0) {
-                                    if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                                  if (event && window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                                    if (event.data === 1) {
+                                      window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_PLAYING' }));
+                                    } else if (event.data === 2) {
+                                      window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_PAUSED' }));
+                                    } else if (event.data === 0) {
                                       window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_ENDED' }));
                                     }
                                   }
@@ -1622,19 +1127,20 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
 
                           window.toggleVideoPlayback = function(shouldPlay) {
                             try {
+                              if (typeof player !== 'undefined' && player) {
+                                if (shouldPlay && typeof player.playVideo === 'function') player.playVideo();
+                                if (!shouldPlay && typeof player.pauseVideo === 'function') player.pauseVideo();
+                              }
                               var vids = document.querySelectorAll('video');
                               for (var v = 0; v < vids.length; v++) {
                                 if (vids[v]) {
                                   if (shouldPlay) {
-                                    vids[v].play();
+                                    var p = vids[v].play();
+                                    if (p && typeof p.catch === 'function') p.catch(function(){});
                                   } else {
                                     vids[v].pause();
                                   }
                                 }
-                              }
-                              if (player) {
-                                if (shouldPlay && typeof player.playVideo === 'function') player.playVideo();
-                                if (!shouldPlay && typeof player.pauseVideo === 'function') player.pauseVideo();
                               }
                             } catch (err) {}
                           };
@@ -1807,13 +1313,6 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                 onShouldStartLoadWithRequest={handleShouldStartLoad}
                 onMessage={handleWebViewMessage}
                 onError={handleWebViewError}
-              />
-            )}
-            {isMinimized && (
-              <TouchableOpacity
-                style={StyleSheet.absoluteFillObject}
-                activeOpacity={1}
-                onPress={togglePipControls}
               />
             )}
 
