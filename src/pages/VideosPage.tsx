@@ -240,7 +240,7 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
   }
 }
 
-export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: { onRequireAuth: () => void; activeTab?: string; floatingOnly?: boolean }) {
+export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isSystemPip: isSystemPipProp }: { onRequireAuth: () => void; activeTab?: string; floatingOnly?: boolean; isSystemPip?: boolean }) {
   const { likedVideos, toggleLikeVideo, isVideoLiked } = useLibrary();
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -287,8 +287,14 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
   const [isVideoBlocked, setIsVideoBlocked] = useState(false);
   const [showPipControls, setShowPipControls] = useState(false);
   const [isPipPlaying, setIsPipPlaying] = useState(true);
-  const [isSystemPip, setIsSystemPip] = useState(false);
+  const [isSystemPip, setIsSystemPip] = useState(isSystemPipProp || false);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+
+  useEffect(() => {
+    if (typeof isSystemPipProp === "boolean") {
+      setIsSystemPip(isSystemPipProp);
+    }
+  }, [isSystemPipProp]);
 
   useEffect(() => {
     DeviceEventEmitter.emit("VIDEO_MINIMIZED_CHANGED", isMinimized);
@@ -304,6 +310,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
   }, []);
 
   const isSystemPipActive =
+    isSystemPipProp ||
     isSystemPip ||
     (windowWidth > 0 &&
       windowHeight > 0 &&
@@ -322,6 +329,36 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
         }, 3500);
       }
       return next;
+    });
+  }, []);
+
+  const handleTogglePipPlay = useCallback(() => {
+    setIsPipPlaying((prev) => {
+      const nextState = !prev;
+      try {
+        webViewRef.current?.injectJavaScript(`
+          (function() {
+            if (typeof window.toggleVideoPlayback === 'function') {
+              window.toggleVideoPlayback(${nextState});
+            } else {
+              var vids = document.querySelectorAll('video');
+              for (var i = 0; i < vids.length; i++) {
+                if (${nextState}) {
+                  vids[i].play().catch(function(){});
+                } else {
+                  vids[i].pause();
+                }
+              }
+              if (typeof player !== 'undefined' && player) {
+                if (${nextState} && typeof player.playVideo === 'function') player.playVideo();
+                if (!${nextState} && typeof player.pauseVideo === 'function') player.pauseVideo();
+              }
+            }
+          })();
+          true;
+        `);
+      } catch (err) {}
+      return nextState;
     });
   }, []);
 
@@ -344,15 +381,15 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
 
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => isMinimized,
+      onStartShouldSetPanResponder: () => false,
       onStartShouldSetPanResponderCapture: (evt) => {
-        return isMinimized && evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2;
+        return isMinimized && !isSystemPipActive && evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2;
       },
       onMoveShouldSetPanResponder: (evt, gestureState) => {
-        return isMinimized && (Math.abs(gestureState.dx) > 2 || Math.abs(gestureState.dy) > 2 || (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2));
+        return isMinimized && !isSystemPipActive && (Math.abs(gestureState.dx) > 8 || Math.abs(gestureState.dy) > 8 || (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2));
       },
       onMoveShouldSetPanResponderCapture: (evt, gestureState) => {
-        return isMinimized && (Math.abs(gestureState.dx) > 2 || Math.abs(gestureState.dy) > 2 || (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2));
+        return isMinimized && !isSystemPipActive && (Math.abs(gestureState.dx) > 8 || Math.abs(gestureState.dy) > 8 || (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2));
       },
       onPanResponderGrant: (evt) => {
         if (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2) {
@@ -657,12 +694,260 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
   const isResolvingVideo = activeVideo && !isYouTubeVideoId(activeVideo.videoId);
   const targetId = isYouTubeVideoId(activeVideo?.videoId) ? activeVideo!.videoId : "";
 
+  const handleShouldStartLoad = useCallback((request: any) => {
+    const url = (request.url || "").toLowerCase();
+    if (
+      url.includes("googleads") ||
+      url.includes("doubleclick.net") ||
+      url.includes("/pagead/") ||
+      url.includes("/api/stats/ads") ||
+      url.includes("googleadservices") ||
+      url.includes("googlesyndication") ||
+      url.includes("ptracking") ||
+      url.includes("ad_break")
+    ) {
+      return false;
+    }
+    return true;
+  }, []);
+
+  const handleWebViewMessage = useCallback((event: any) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      if (data && data.event === "VIDEO_PLAYING") {
+        setIsPipPlaying(true);
+      } else if (data && data.event === "VIDEO_PAUSED") {
+        setIsPipPlaying(false);
+      } else if (data && data.event === "VIDEO_ENDED") {
+        playNextVideo();
+      } else if (data && data.event === "VIDEO_BLOCKED") {
+        setIsVideoBlocked(true);
+        setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length);
+      }
+    } catch {}
+  }, [playNextVideo]);
+
+  const handleWebViewError = useCallback(() => {
+    setIsVideoBlocked(true);
+    setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length);
+  }, []);
+
   const embedUrl = activeVideo && targetId
     ? `${providerBase}/${targetId}?autoplay=1&controls=1&modestbranding=1&rel=0&playsinline=1`
     : "";
 
   if (floatingOnly) {
-    if (!activeVideo || !isMinimized) return null;
+    if (!activeVideo) return null;
+
+    if (isSystemPipActive) {
+      return (
+        <View style={styles.pipVideoBoxFull}>
+          {isResolvingVideo ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color="#1DB954" />
+            </View>
+          ) : (
+            <WebView
+              ref={webViewRef}
+              key={`${activeVideo.videoId}_${selectedInstanceIndex}_syspip`}
+              source={{
+                html: `
+                  <!DOCTYPE html>
+                  <html>
+                    <head>
+                      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                      <style>
+                        * { box-sizing: border-box; margin: 0; padding: 0; }
+                        body, html { background-color: #000; width: 100%; height: 100%; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+                        #player { width: 100%; height: 100%; border: none; }
+                        iframe { width: 100%; height: 100%; border: none; }
+                        .ytp-ad-module, .ytp-ad-overlay-container, .ytp-ad-message-container,
+                        .ytp-ad-preview-container, .ytp-ad-skip-button-slot, .ytp-ad-skip-button,
+                        .ytp-ad-skip-button-modern, .ytp-skip-ad-button, .ytp-ad-text,
+                        .video-ads, .ytp-ad-player-overlay, .ytp-ad-image-overlay,
+                        .annotation, .ytp-paid-content-overlay, .ytp-ad-action-interstitial,
+                        .ad-showing, .ad-interrupting {
+                          display: none !important;
+                          visibility: hidden !important;
+                          opacity: 0 !important;
+                          pointer-events: none !important;
+                        }
+                      </style>
+                      <script>
+                        (function() {
+                          var origOpen = XMLHttpRequest.prototype.open;
+                          XMLHttpRequest.prototype.open = function(method, url) {
+                            if (typeof url === 'string' && (
+                              url.indexOf('googleads') !== -1 ||
+                              url.indexOf('doubleclick.net') !== -1 ||
+                              url.indexOf('/pagead/') !== -1 ||
+                              url.indexOf('/api/stats/ads') !== -1 ||
+                              url.indexOf('ptracking') !== -1 ||
+                              url.indexOf('ad_break') !== -1 ||
+                              url.indexOf('get_midroll_info') !== -1 ||
+                              url.indexOf('googleadservices') !== -1 ||
+                              url.indexOf('googlesyndication') !== -1
+                            )) {
+                              this.isAdRequest = true;
+                            }
+                            return origOpen.apply(this, arguments);
+                          };
+                          var origSend = XMLHttpRequest.prototype.send;
+                          XMLHttpRequest.prototype.send = function() {
+                            if (this.isAdRequest) {
+                              try { this.abort(); } catch(e) {}
+                              return;
+                            }
+                            return origSend.apply(this, arguments);
+                          };
+
+                          var origFetch = window.fetch;
+                          if (origFetch) {
+                            window.fetch = function(input, init) {
+                              var url = typeof input === 'string' ? input : (input && input.url ? input.url : '');
+                              if (url && (
+                                url.indexOf('googleads') !== -1 ||
+                                url.indexOf('doubleclick.net') !== -1 ||
+                                url.indexOf('/pagead/') !== -1 ||
+                                url.indexOf('/api/stats/ads') !== -1 ||
+                                url.indexOf('ptracking') !== -1 ||
+                                url.indexOf('ad_break') !== -1 ||
+                                url.indexOf('get_midroll_info') !== -1 ||
+                                url.indexOf('googleadservices') !== -1 ||
+                                url.indexOf('googlesyndication') !== -1
+                              )) {
+                                return Promise.resolve(new Response('', { status: 200, statusText: 'OK' }));
+                              }
+                              return origFetch.apply(this, arguments);
+                            };
+                          }
+                        })();
+                      </script>
+                    </head>
+                    <body class="is-minimized">
+                      <div id="player"></div>
+                      <script>
+                        var tag = document.createElement('script');
+                        tag.src = "https://www.youtube.com/iframe_api";
+                        var firstScriptTag = document.getElementsByTagName('script')[0];
+                        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+                        var player;
+                        function onYouTubeIframeAPIReady() {
+                          player = new YT.Player('player', {
+                            height: '100%',
+                            width: '100%',
+                            videoId: '${targetId}',
+                            playerVars: {
+                              'autoplay': 1,
+                              'controls': 1,
+                              'rel': 0,
+                              'modestbranding': 1,
+                              'playsinline': 1,
+                              'enablejsapi': 1,
+                              'fs': 1
+                            },
+                            events: {
+                              'onStateChange': function(event) {
+                                if (event && window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                                  if (event.data === 1) {
+                                    window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_PLAYING' }));
+                                  } else if (event.data === 2) {
+                                    window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_PAUSED' }));
+                                  } else if (event.data === 0) {
+                                    window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_ENDED' }));
+                                  }
+                                }
+                              },
+                              'onError': function(event) {
+                                if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                                  window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_BLOCKED' }));
+                                }
+                              }
+                            }
+                          });
+                        }
+
+                        window.toggleVideoPlayback = function(shouldPlay) {
+                          try {
+                            if (typeof player !== 'undefined' && player) {
+                              if (shouldPlay && typeof player.playVideo === 'function') player.playVideo();
+                              if (!shouldPlay && typeof player.pauseVideo === 'function') player.pauseVideo();
+                            }
+                            var vids = document.querySelectorAll('video');
+                            for (var v = 0; v < vids.length; v++) {
+                              if (vids[v]) {
+                                if (shouldPlay) {
+                                  vids[v].play().catch(function(){});
+                                } else {
+                                  vids[v].pause();
+                                }
+                              }
+                            }
+                          } catch (err) {}
+                        };
+
+                        if ('mediaSession' in navigator) {
+                          try {
+                            navigator.mediaSession.metadata = new MediaMetadata({
+                              title: ${JSON.stringify(activeVideo.title)},
+                              artist: ${JSON.stringify(activeVideo.artist)},
+                            });
+                            navigator.mediaSession.setActionHandler('play', function() { if (player && player.playVideo) player.playVideo(); });
+                            navigator.mediaSession.setActionHandler('pause', function() { if (player && player.pauseVideo) player.pauseVideo(); });
+                          } catch (e) {}
+                        }
+
+                        setInterval(function() {
+                          try {
+                            var skipSelectors = ['.ytp-ad-skip-button', '.ytp-ad-skip-button-modern', '.ytp-skip-ad-button', '.ytp-ad-overlay-close-button', '.ytp-ad-skip-button-slot'];
+                            for (var s = 0; s < skipSelectors.length; s++) {
+                              var btns = document.querySelectorAll(skipSelectors[s]);
+                              for (var b = 0; b < btns.length; b++) btns[b].click();
+                            }
+                            var adOverlays = document.querySelectorAll('.ytp-ad-overlay-container, .ytp-ad-message-container, .ytp-ad-module, .video-ads');
+                            for (var i = 0; i < adOverlays.length; i++) adOverlays[i].style.display = 'none';
+                            var isAd = document.querySelector('.ad-showing, .ad-interrupting, .ytp-ad-player-overlay');
+                            var vids = document.querySelectorAll('video');
+                            if (isAd && vids.length > 0) {
+                              for (var v = 0; v < vids.length; v++) {
+                                if (vids[v] && !vids[v].paused) {
+                                  vids[v].muted = true;
+                                  vids[v].playbackRate = 16;
+                                  if (vids[v].duration && !isNaN(vids[v].duration)) vids[v].currentTime = vids[v].duration - 0.01;
+                                }
+                              }
+                            }
+                          } catch (e) {}
+                        }, 30);
+                      </script>
+                    </body>
+                  </html>
+                `,
+                baseUrl: "https://www.google.com",
+              }}
+              style={{ flex: 1, backgroundColor: "#000" }}
+              userAgent="Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
+              allowsPictureInPicture={true}
+              allowsInlineMediaPlayback={true}
+              mediaPlaybackRequiresUserAction={false}
+              allowsFullscreenVideo={true}
+              javaScriptEnabled={true}
+              domStorageEnabled={true}
+              androidLayerType="hardware"
+              mixedContentMode="always"
+              playInBackground={true}
+              onShouldStartLoadWithRequest={handleShouldStartLoad}
+              onMessage={handleWebViewMessage}
+              onError={handleWebViewError}
+            />
+          )}
+        </View>
+      );
+    }
+
+    if (!isMinimized) return null;
+
     return (
       <Animated.View
         style={[
@@ -729,32 +1014,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
             >
               <TouchableOpacity
                 delayPressIn={0}
-                onPress={() => {
-                  const nextState = !isPipPlaying;
-                  setIsPipPlaying(nextState);
-                  try {
-                    webViewRef.current?.injectJavaScript(`
-                      (function() {
-                        if (typeof window.toggleVideoPlayback === 'function') {
-                          window.toggleVideoPlayback(${nextState});
-                        }
-                        var vids = document.querySelectorAll('video');
-                        for (var i = 0; i < vids.length; i++) {
-                          if (${nextState}) {
-                            vids[i].play().catch(function(){});
-                          } else {
-                            vids[i].pause();
-                          }
-                        }
-                        if (typeof player !== 'undefined' && player) {
-                          if (${nextState} && typeof player.playVideo === 'function') player.playVideo();
-                          if (!${nextState} && typeof player.pauseVideo === 'function') player.pauseVideo();
-                        }
-                      })();
-                      true;
-                    `);
-                  } catch (err) {}
-                }}
+                onPress={handleTogglePipPlay}
                 style={styles.pipPlayIconBadge}
                 activeOpacity={0.8}
               >
@@ -776,8 +1036,8 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
           ) : (
             <WebView
               ref={webViewRef}
-              key={`${activeVideo.videoId}_${selectedInstanceIndex}`}
-              pointerEvents={isMinimized ? "none" : "auto"}
+              key={`${activeVideo.videoId}_${selectedInstanceIndex}_float`}
+              pointerEvents="auto"
               source={{
                 html: `
                   <!DOCTYPE html>
@@ -790,17 +1050,69 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
                         #player { width: 100%; height: 100%; border: none; }
                         iframe { width: 100%; height: 100%; border: none; }
                         .ytp-ad-module, .ytp-ad-overlay-container, .ytp-ad-message-container,
-                        .ytp-ad-preview-container, .ytp-ad-skip-button-slot, .ytp-ad-text,
+                        .ytp-ad-preview-container, .ytp-ad-skip-button-slot, .ytp-ad-skip-button,
+                        .ytp-ad-skip-button-modern, .ytp-skip-ad-button, .ytp-ad-text,
                         .video-ads, .ytp-ad-player-overlay, .ytp-ad-image-overlay,
-                        .annotation, .ytp-paid-content-overlay, .ytp-ad-action-interstitial {
+                        .annotation, .ytp-paid-content-overlay, .ytp-ad-action-interstitial,
+                        .ad-showing, .ad-interrupting {
                           display: none !important;
                           visibility: hidden !important;
                           opacity: 0 !important;
                           pointer-events: none !important;
                         }
                       </style>
+                      <script>
+                        (function() {
+                          var origOpen = XMLHttpRequest.prototype.open;
+                          XMLHttpRequest.prototype.open = function(method, url) {
+                            if (typeof url === 'string' && (
+                              url.indexOf('googleads') !== -1 ||
+                              url.indexOf('doubleclick.net') !== -1 ||
+                              url.indexOf('/pagead/') !== -1 ||
+                              url.indexOf('/api/stats/ads') !== -1 ||
+                              url.indexOf('ptracking') !== -1 ||
+                              url.indexOf('ad_break') !== -1 ||
+                              url.indexOf('get_midroll_info') !== -1 ||
+                              url.indexOf('googleadservices') !== -1 ||
+                              url.indexOf('googlesyndication') !== -1
+                            )) {
+                              this.isAdRequest = true;
+                            }
+                            return origOpen.apply(this, arguments);
+                          };
+                          var origSend = XMLHttpRequest.prototype.send;
+                          XMLHttpRequest.prototype.send = function() {
+                            if (this.isAdRequest) {
+                              try { this.abort(); } catch(e) {}
+                              return;
+                            }
+                            return origSend.apply(this, arguments);
+                          };
+
+                          var origFetch = window.fetch;
+                          if (origFetch) {
+                            window.fetch = function(input, init) {
+                              var url = typeof input === 'string' ? input : (input && input.url ? input.url : '');
+                              if (url && (
+                                url.indexOf('googleads') !== -1 ||
+                                url.indexOf('doubleclick.net') !== -1 ||
+                                url.indexOf('/pagead/') !== -1 ||
+                                url.indexOf('/api/stats/ads') !== -1 ||
+                                url.indexOf('ptracking') !== -1 ||
+                                url.indexOf('ad_break') !== -1 ||
+                                url.indexOf('get_midroll_info') !== -1 ||
+                                url.indexOf('googleadservices') !== -1 ||
+                                url.indexOf('googlesyndication') !== -1
+                              )) {
+                                return Promise.resolve(new Response('', { status: 200, statusText: 'OK' }));
+                              }
+                              return origFetch.apply(this, arguments);
+                            };
+                          }
+                        })();
+                      </script>
                     </head>
-                    <body>
+                    <body class="is-minimized">
                       <div id="player"></div>
                       <script>
                         var tag = document.createElement('script');
@@ -825,8 +1137,12 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
                             },
                             events: {
                               'onStateChange': function(event) {
-                                if (event && event.data === 0) {
-                                  if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                                if (event && window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                                  if (event.data === 1) {
+                                    window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_PLAYING' }));
+                                  } else if (event.data === 2) {
+                                    window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_PAUSED' }));
+                                  } else if (event.data === 0) {
                                     window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_ENDED' }));
                                   }
                                 }
@@ -840,15 +1156,24 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
                           });
                         }
 
-                        document.addEventListener('click', function(e) {
-                          if (player && typeof player.getDuration === 'function') {
-                            var duration = player.getDuration();
-                            if (duration > 0 && e.clientY > (window.innerHeight - 55)) {
-                              var ratio = e.clientX / window.innerWidth;
-                              player.seekTo(duration * ratio, true);
+                        window.toggleVideoPlayback = function(shouldPlay) {
+                          try {
+                            if (typeof player !== 'undefined' && player) {
+                              if (shouldPlay && typeof player.playVideo === 'function') player.playVideo();
+                              if (!shouldPlay && typeof player.pauseVideo === 'function') player.pauseVideo();
                             }
-                          }
-                        });
+                            var vids = document.querySelectorAll('video');
+                            for (var v = 0; v < vids.length; v++) {
+                              if (vids[v]) {
+                                if (shouldPlay) {
+                                  vids[v].play().catch(function(){});
+                                } else {
+                                  vids[v].pause();
+                                }
+                              }
+                            }
+                          } catch (err) {}
+                        };
 
                         if ('mediaSession' in navigator) {
                           try {
@@ -861,58 +1186,28 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
                           } catch (e) {}
                         }
 
-                        window.addEventListener('visibilitychange', function(e) {
-                          e.stopImmediatePropagation();
-                        }, true);
-
-                        document.addEventListener('visibilitychange', function(e) {
-                          e.stopImmediatePropagation();
-                          if (document.hidden && player && typeof player.playVideo === 'function') {
-                            setTimeout(function() {
-                              try { player.playVideo(); } catch (err) {}
-                            }, 50);
-                          }
-                        }, true);
-
                         setInterval(function() {
                           try {
-                            var skipSelectors = [
-                              '.ytp-ad-skip-button',
-                              '.ytp-ad-skip-button-modern',
-                              '.ytp-skip-ad-button',
-                              '.ytp-ad-overlay-close-button',
-                              '.ytp-ad-skip-button-container',
-                              'button.ytp-ad-skip-button-icon',
-                              '.ytp-ad-skip-button-slot'
-                            ];
+                            var skipSelectors = ['.ytp-ad-skip-button', '.ytp-ad-skip-button-modern', '.ytp-skip-ad-button', '.ytp-ad-overlay-close-button', '.ytp-ad-skip-button-slot'];
                             for (var s = 0; s < skipSelectors.length; s++) {
                               var btns = document.querySelectorAll(skipSelectors[s]);
-                              for (var b = 0; b < btns.length; b++) {
-                                btns[b].click();
-                              }
+                              for (var b = 0; b < btns.length; b++) btns[b].click();
                             }
-
                             var adOverlays = document.querySelectorAll('.ytp-ad-overlay-container, .ytp-ad-message-container, .ytp-ad-module, .video-ads');
-                            for (var i = 0; i < adOverlays.length; i++) {
-                              adOverlays[i].style.display = 'none';
-                            }
-
+                            for (var i = 0; i < adOverlays.length; i++) adOverlays[i].style.display = 'none';
                             var isAd = document.querySelector('.ad-showing, .ad-interrupting, .ytp-ad-player-overlay');
                             var vids = document.querySelectorAll('video');
                             if (isAd && vids.length > 0) {
                               for (var v = 0; v < vids.length; v++) {
-                                var vid = vids[v];
-                                if (vid && !vid.paused) {
-                                  vid.muted = true;
-                                  vid.playbackRate = 16;
-                                  if (vid.duration && !isNaN(vid.duration)) {
-                                    vid.currentTime = vid.duration;
-                                  }
+                                if (vids[v] && !vids[v].paused) {
+                                  vids[v].muted = true;
+                                  vids[v].playbackRate = 16;
+                                  if (vids[v].duration && !isNaN(vids[v].duration)) vids[v].currentTime = vids[v].duration - 0.01;
                                 }
                               }
                             }
                           } catch (e) {}
-                        }, 50);
+                        }, 30);
                       </script>
                     </body>
                   </html>
@@ -930,21 +1225,9 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
               androidLayerType="hardware"
               mixedContentMode="always"
               playInBackground={true}
-              onMessage={(event) => {
-                try {
-                  const data = JSON.parse(event.nativeEvent.data);
-                  if (data && data.event === "VIDEO_ENDED") {
-                    playNextVideo();
-                  } else if (data && data.event === "VIDEO_BLOCKED") {
-                    setIsVideoBlocked(true);
-                    setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length);
-                  }
-                } catch {}
-              }}
-              onError={() => {
-                setIsVideoBlocked(true);
-                setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length);
-              }}
+              onShouldStartLoadWithRequest={handleShouldStartLoad}
+              onMessage={handleWebViewMessage}
+              onError={handleWebViewError}
             />
           )}
           {isMinimized && (
@@ -1521,21 +1804,9 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
                 androidLayerType="hardware"
                 mixedContentMode="always"
                 playInBackground={true}
-                onMessage={(event) => {
-                  try {
-                    const data = JSON.parse(event.nativeEvent.data);
-                    if (data && data.event === "VIDEO_ENDED") {
-                      playNextVideo();
-                    } else if (data && data.event === "VIDEO_BLOCKED") {
-                      setIsVideoBlocked(true);
-                      setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length);
-                    }
-                  } catch {}
-                }}
-                onError={() => {
-                  setIsVideoBlocked(true);
-                  setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length);
-                }}
+                onShouldStartLoadWithRequest={handleShouldStartLoad}
+                onMessage={handleWebViewMessage}
+                onError={handleWebViewError}
               />
             )}
             {isMinimized && (
@@ -1596,32 +1867,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly }: {
                 >
                   <TouchableOpacity
                     delayPressIn={0}
-                    onPress={() => {
-                      const nextState = !isPipPlaying;
-                      setIsPipPlaying(nextState);
-                      try {
-                        webViewRef.current?.injectJavaScript(`
-                          (function() {
-                            if (typeof window.toggleVideoPlayback === 'function') {
-                              window.toggleVideoPlayback(${nextState});
-                            }
-                            var vids = document.querySelectorAll('video');
-                            for (var i = 0; i < vids.length; i++) {
-                              if (${nextState}) {
-                                vids[i].play().catch(function(){});
-                              } else {
-                                vids[i].pause();
-                              }
-                            }
-                            if (typeof player !== 'undefined' && player) {
-                              if (${nextState} && typeof player.playVideo === 'function') player.playVideo();
-                              if (!${nextState} && typeof player.pauseVideo === 'function') player.pauseVideo();
-                            }
-                          })();
-                          true;
-                        `);
-                      } catch (err) {}
-                    }}
+                    onPress={handleTogglePipPlay}
                     style={styles.pipPlayIconBadge}
                     activeOpacity={0.8}
                   >
