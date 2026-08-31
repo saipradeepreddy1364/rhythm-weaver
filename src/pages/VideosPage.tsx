@@ -898,7 +898,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                     <Image source={{ uri: item.thumbnail }} style={styles.thumbnail} />
                     <View style={styles.playOverlay}>
                       <View style={styles.playCircle}>
-                        <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
+                        <MaterialCommunityIcons name="play" size={28} color="#ffffff" style={{ marginLeft: 3 }} />
                       </View>
                     </View>
                   </View>
@@ -995,11 +995,20 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                 style={{ padding: 6, marginRight: 6 }}
                 activeOpacity={0.7}
               >
-                <MaterialCommunityIcons
-                  name={isVideoLiked(activeVideo) ? "heart" : "heart-outline"}
-                  size={22}
-                  color={isVideoLiked(activeVideo) ? "#1DB954" : "#fff"}
-                />
+                {isVideoLiked(activeVideo) ? (
+                  <View style={{
+                    width: 24,
+                    height: 24,
+                    borderRadius: 12,
+                    backgroundColor: "#1DB954",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}>
+                    <MaterialCommunityIcons name="check" size={15} color="#000" />
+                  </View>
+                ) : (
+                  <MaterialCommunityIcons name="heart-outline" size={22} color="#fff" />
+                )}
               </TouchableOpacity>
               <TouchableOpacity delayPressIn={0} onPress={() => { setActiveVideo(null); setIsMinimized(false); }} style={styles.closeBtn}>
                 <MaterialCommunityIcons name="close" size={22} color="#fff" />
@@ -1618,9 +1627,16 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: "#1DB954",
+    backgroundColor: "rgba(0, 0, 0, 0.75)",
+    borderWidth: 1.5,
+    borderColor: "rgba(255, 255, 255, 0.5)",
     justifyContent: "center",
     alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 6,
+    elevation: 8,
   },
   videoMeta: {
     padding: 12,
