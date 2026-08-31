@@ -130,9 +130,14 @@ function AppContent() {
   // Consolidated init: Auth → Connectivity check → set correct state → hide splash
   useEffect(() => {
     const initialize = async () => {
-      // 0. Pre-load vector icons font
+      // 0. Pre-load all vector icon font aliases
       try {
-        await Font.loadAsync(MaterialCommunityIcons.font);
+        await Font.loadAsync({
+          ...MaterialCommunityIcons.font,
+          "Material Design Icons": require("@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/MaterialCommunityIcons.ttf"),
+          "MaterialCommunityIcons": require("@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/MaterialCommunityIcons.ttf"),
+          "material-community": require("@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/MaterialCommunityIcons.ttf"),
+        });
       } catch {}
 
       // 1. Auth check (non-blocking if it fails)
@@ -226,7 +231,7 @@ function AppContent() {
                   <View style={{ flex: 1, display: activeTab === 'Library' ? 'flex' : 'none' }}>
                     <LibraryPage onRequireAuth={handleRequireAuth} />
                   </View>
-                  <View style={{ flex: 1, display: activeTab === 'Videos' ? 'flex' : 'none' }}>
+                  <View style={[StyleSheet.absoluteFillObject, { zIndex: activeTab === 'Videos' ? 10 : 20 }]} pointerEvents="box-none">
                     <VideosPage onRequireAuth={handleRequireAuth} activeTab={activeTab} isSystemPip={isSystemPip} />
                   </View>
                 </View>
