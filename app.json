@@ -64,10 +64,10 @@
     "runtimeVersion": {
       "policy": "appVersion"
     },
-    "owner": "pdd-palagiri",
+    "owner": "pradeep-palagiri",
     "extra": {
       "eas": {
-        "projectId": "8c3d40d0-a98a-4126-8a4f-f327f3200171"
+        "projectId": "07a87de4-665a-4fbe-877e-e3ec2a863c5a"
       }
     }
   }
