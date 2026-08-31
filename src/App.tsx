@@ -102,17 +102,12 @@ function AppContent() {
     };
   }, []);
 
-  const isPipActive =
-    isSystemPip ||
-    (screenWidth > 0 &&
-      screenHeight > 0 &&
-      (screenHeight < 320 || (screenWidth / screenHeight > 1.2 && screenHeight < 400)));
+  const isPipActive = Boolean(isSystemPip);
 
   const shouldHideTabBar = isPipActive || isVideoMinimized;
 
   const [activeTab, setActiveTab] = useState<'Home' | 'Search' | 'Library'>('Home');
   const scrollViewRef = useRef<ScrollView>(null);
-  const { width: screenWidth } = useWindowDimensions();
   const navigationRef = useRef<any>(null);
 
   // Initialization state — keeps a dark screen visible while we check connectivity
@@ -172,27 +167,9 @@ function AppContent() {
   useEffect(() => {
     const subscription = DeviceEventEmitter.addListener("NAVIGATE_TO_TAB", (tabName: 'Home' | 'Search' | 'Library') => {
       setActiveTab(tabName);
-      const index = tabName === 'Home' ? 0 : tabName === 'Search' ? 1 : 2;
-      scrollViewRef.current?.scrollTo({ x: index * screenWidth, animated: true });
     });
     return () => { subscription.remove(); };
-  }, [screenWidth]);
-
-  // Re-apply scroll position when app resumes from background (prevents tab reset to Home)
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (nextState: AppStateStatus) => {
-      const wasBackground = appStateRef.current.match(/inactive|background/);
-      if (wasBackground && nextState === 'active') {
-        // App resumed — re-scroll to current tab without animation
-        const index = activeTab === 'Home' ? 0 : activeTab === 'Search' ? 1 : 2;
-        setTimeout(() => {
-          scrollViewRef.current?.scrollTo({ x: index * screenWidth, animated: false });
-        }, 50);
-      }
-      appStateRef.current = nextState;
-    });
-    return () => sub.remove();
-  }, [activeTab, screenWidth]);
+  }, []);
 
   // While initializing keep a plain dark screen visible (native splash still covers it)
   if (isInitializing) {
@@ -232,28 +209,17 @@ function AppContent() {
           <Tab.Screen name="Main">
             {() => (
               <View style={{ flex: 1, backgroundColor: "#0d0d0d" }}>
-                <ScrollView
-                  ref={scrollViewRef}
-                  horizontal
-                  pagingEnabled
-                  showsHorizontalScrollIndicator={false}
-                  onMomentumScrollEnd={(e) => {
-                    const index = screenWidth > 0 ? Math.round(e.nativeEvent.contentOffset.x / screenWidth) : 0;
-                    const tabs: ('Home' | 'Search' | 'Library')[] = ['Home', 'Search', 'Library'];
-                    setActiveTab(tabs[index]);
-                  }}
-                  style={{ flex: 1 }}
-                >
-                  <View style={{ width: screenWidth, flex: 1 }}>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flex: 1, display: activeTab === 'Home' ? 'flex' : 'none' }}>
                     <HomePage onRequireAuth={handleRequireAuth} setParentScrollEnabled={setParentScroll} />
                   </View>
-                  <View style={{ width: screenWidth, flex: 1 }}>
+                  <View style={{ flex: 1, display: activeTab === 'Search' ? 'flex' : 'none' }}>
                     <SearchPage onRequireAuth={handleRequireAuth} />
                   </View>
-                  <View style={{ width: screenWidth, flex: 1 }}>
+                  <View style={{ flex: 1, display: activeTab === 'Library' ? 'flex' : 'none' }}>
                     <LibraryPage onRequireAuth={handleRequireAuth} />
                   </View>
-                </ScrollView>
+                </View>
 
                 {/* Bottom Tab Bar */}
                 {!shouldHideTabBar && (
@@ -268,8 +234,6 @@ function AppContent() {
                           key={tab}
                           onPress={() => {
                             setActiveTab(tab);
-                            const index = tab === 'Home' ? 0 : tab === 'Search' ? 1 : 2;
-                            scrollViewRef.current?.scrollTo({ x: index * screenWidth, animated: true });
                           }}
                           style={styles.tabBarButton}
                           activeOpacity={0.7}

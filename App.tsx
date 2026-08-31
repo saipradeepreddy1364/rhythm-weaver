@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image, ActivityIndicator, SafeAreaView, StatusBar, Platform, Modal, AppState, Dimensions, useWindowDimensions, Animated, Alert, DeviceEventEmitter } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image, ActivityIndicator, SafeAreaView, StatusBar, Platform, Modal, AppState, AppStateStatus, Dimensions, useWindowDimensions, Animated, Alert, DeviceEventEmitter } from 'react-native'
 import React, { useRef, useState, useEffect, useCallback } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
@@ -237,6 +237,14 @@ function AppContent() {
 
   const [isSystemPip, setIsSystemPip] = useState(false);
   const [isVideoActive, setIsVideoActive] = useState(false);
+  const [currentAppState, setCurrentAppState] = useState<AppStateStatus>(AppState.currentState);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (nextState) => {
+      setCurrentAppState(nextState);
+    });
+    return () => sub.remove();
+  }, []);
 
   // Listen to native Android Picture-in-Picture mode changes
   useEffect(() => {
@@ -257,9 +265,10 @@ function AppContent() {
   }, []);
 
   // Synchronously compute PiP state from native event OR window dimensions/appState to prevent 1ms bottom bar blink
+  const isAppBackgrounded = currentAppState === "inactive" || currentAppState === "background";
   const isSystemPipActive =
     isSystemPip ||
-    (isVideoActive && (appState.current === 'inactive' || appState.current === 'background')) ||
+    (isVideoActive && isAppBackgrounded) ||
     (windowWidth > 0 &&
       windowHeight > 0 &&
       (windowHeight < 320 || (windowWidth / windowHeight > 1.2 && windowHeight < 400)));

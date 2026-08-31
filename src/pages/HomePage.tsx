@@ -1107,8 +1107,6 @@ function AlbumRow({
           onScrollEndDrag={() => setParentScrollEnabled?.(true)}
           onMomentumScrollBegin={() => setParentScrollEnabled?.(false)}
           onMomentumScrollEnd={() => setParentScrollEnabled?.(true)}
-          onTouchStart={() => setParentScrollEnabled?.(false)}
-          onTouchEnd={() => setParentScrollEnabled?.(true)}
           nestedScrollEnabled={true}
         >
           {Array.from({ length: 6 }).map((_, i) => (
@@ -1132,8 +1130,6 @@ function AlbumRow({
           onScrollEndDrag={() => setParentScrollEnabled?.(true)}
           onMomentumScrollBegin={() => setParentScrollEnabled?.(false)}
           onMomentumScrollEnd={() => setParentScrollEnabled?.(true)}
-          onTouchStart={() => setParentScrollEnabled?.(false)}
-          onTouchEnd={() => setParentScrollEnabled?.(true)}
           nestedScrollEnabled={true}
         >
           {albums.map((album) => {

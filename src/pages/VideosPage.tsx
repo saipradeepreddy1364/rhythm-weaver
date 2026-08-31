@@ -313,12 +313,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
     return () => pipSub.remove();
   }, []);
 
-  const isSystemPipActive =
-    isSystemPipProp ||
-    isSystemPip ||
-    (windowWidth > 0 &&
-      windowHeight > 0 &&
-      (windowHeight < 320 || (windowWidth / windowHeight > 1.2 && windowHeight < 400)));
+  const isSystemPipActive = Boolean(isSystemPipProp || isSystemPip);
 
   const pipControlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const webViewRef = useRef<any>(null);
@@ -345,17 +340,25 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
             if (typeof window.toggleVideoPlayback === 'function') {
               window.toggleVideoPlayback(${nextState});
             } else {
-              var vids = document.querySelectorAll('video');
-              for (var i = 0; i < vids.length; i++) {
-                if (${nextState}) {
-                  vids[i].play().catch(function(){});
-                } else {
-                  vids[i].pause();
-                }
+              var cmd = ${nextState} ? 'playVideo' : 'pauseVideo';
+              var iframes = document.querySelectorAll('iframe');
+              for (var i = 0; i < iframes.length; i++) {
+                try {
+                  iframes[i].contentWindow.postMessage(JSON.stringify({ event: 'command', func: cmd, args: [] }), '*');
+                } catch(e) {}
               }
               if (typeof player !== 'undefined' && player) {
                 if (${nextState} && typeof player.playVideo === 'function') player.playVideo();
                 if (!${nextState} && typeof player.pauseVideo === 'function') player.pauseVideo();
+              }
+              var vids = document.querySelectorAll('video');
+              for (var j = 0; j < vids.length; j++) {
+                if (${nextState}) {
+                  var p = vids[j].play();
+                  if (p && typeof p.catch === 'function') p.catch(function(){});
+                } else {
+                  vids[j].pause();
+                }
               }
             }
           })();
@@ -661,6 +664,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
     setSelectedInstanceIndex(0);
     setIsVideoBlocked(false);
     setIsMinimized(false);
+    setIsPipPlaying(true);
     if (isYouTubeVideoId(item.videoId)) {
       setActiveVideo(item);
     } else {
@@ -1131,6 +1135,13 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                                 if (shouldPlay && typeof player.playVideo === 'function') player.playVideo();
                                 if (!shouldPlay && typeof player.pauseVideo === 'function') player.pauseVideo();
                               }
+                              var cmd = shouldPlay ? 'playVideo' : 'pauseVideo';
+                              var iframes = document.querySelectorAll('iframe');
+                              for (var i = 0; i < iframes.length; i++) {
+                                try {
+                                  iframes[i].contentWindow.postMessage(JSON.stringify({ event: 'command', func: cmd, args: [] }), '*');
+                                } catch(e) {}
+                              }
                               var vids = document.querySelectorAll('video');
                               for (var v = 0; v < vids.length; v++) {
                                 if (vids[v]) {
@@ -1144,6 +1155,29 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                               }
                             } catch (err) {}
                           };
+
+                          function attachVideoListeners() {
+                            try {
+                              var vids = document.querySelectorAll('video');
+                              for (var k = 0; k < vids.length; k++) {
+                                vids[k].removeEventListener('play', onVidPlay);
+                                vids[k].removeEventListener('pause', onVidPause);
+                                vids[k].addEventListener('play', onVidPlay);
+                                vids[k].addEventListener('pause', onVidPause);
+                              }
+                            } catch(e) {}
+                          }
+                          function onVidPlay() {
+                            if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                              window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_PLAYING' }));
+                            }
+                          }
+                          function onVidPause() {
+                            if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                              window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_PAUSED' }));
+                            }
+                          }
+                          setInterval(attachVideoListeners, 1000);
 
                           document.addEventListener('touchmove', function(e) {
                             var settingsMenu = document.querySelector('.ytp-settings-menu, .ytp-panel-menu, .ytp-popup');
@@ -1198,14 +1232,29 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                           // Ultra-Aggressive 100% Zero-Ad YouTube Auto Skipper & Fast-Forwarder
                           setInterval(function() {
                             try {
+                              var vids = document.querySelectorAll('video');
+                              for (var v = 0; v < vids.length; v++) {
+                                var vid = vids[v];
+                                if (vid) {
+                                  var isPlayingNow = !vid.paused && vid.readyState > 1;
+                                  if (window.lastReportedPlaying !== isPlayingNow) {
+                                    window.lastReportedPlaying = isPlayingNow;
+                                    if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                                      window.ReactNativeWebView.postMessage(JSON.stringify({ 
+                                        event: isPlayingNow ? 'VIDEO_PLAYING' : 'VIDEO_PAUSED' 
+                                      }));
+                                    }
+                                  }
+                                }
+                              }
+
                               if (document.body.classList.contains('is-minimized')) {
                                 if (player && typeof player.getPlaybackRate === 'function' && player.getPlaybackRate() !== 1) {
                                   try { player.setPlaybackRate(1); } catch(e){}
                                 }
-                                var vids = document.querySelectorAll('video');
-                                for (var v = 0; v < vids.length; v++) {
-                                  if (vids[v] && vids[v].playbackRate !== 1) {
-                                    try { vids[v].playbackRate = 1; } catch(e){}
+                                for (var v2 = 0; v2 < vids.length; v2++) {
+                                  if (vids[v2] && vids[v2].playbackRate !== 1) {
+                                    try { vids[v2].playbackRate = 1; } catch(e){}
                                   }
                                 }
                                 var hideSelectors = [
@@ -1278,21 +1327,20 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                               }
 
                               var isAd = document.querySelector('.ad-showing, .ad-interrupting, .ytp-ad-player-overlay');
-                              var vids = document.querySelectorAll('video');
                               if (isAd && vids.length > 0) {
-                                for (var v = 0; v < vids.length; v++) {
-                                  var vid = vids[v];
-                                  if (vid && !vid.paused) {
-                                    vid.muted = true;
-                                    vid.playbackRate = 16;
-                                    if (vid.duration && !isNaN(vid.duration)) {
-                                      vid.currentTime = vid.duration;
+                                for (var v3 = 0; v3 < vids.length; v3++) {
+                                  var vid3 = vids[v3];
+                                  if (vid3 && !vid3.paused) {
+                                    vid3.muted = true;
+                                    vid3.playbackRate = 16;
+                                    if (vid3.duration && !isNaN(vid3.duration)) {
+                                      vid3.currentTime = vid3.duration;
                                     }
                                   }
                                 }
                               }
                             } catch (e) {}
-                          }, 50);
+                          }, 100);
                         </script>
                       </body>
                     </html>
@@ -1317,7 +1365,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
             )}
 
             {/* Overlaid Minimized Quick Controls (Expand / Close on Top Right, Play/Pause at Bottom Center) */}
-            {isMinimized && showPipControls && (
+            {isMinimized && !isSystemPipActive && (
               <>
                 <Animated.View
                   style={[
@@ -1332,13 +1380,12 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                     delayPressIn={0}
                     onPress={() => {
                       setIsMinimized(false);
-                      setShowPipControls(false);
                       DeviceEventEmitter.emit("NAVIGATE_TO_TAB", "Videos");
                     }}
                     style={styles.pipIconBadge}
                     activeOpacity={0.8}
                   >
-                    <MaterialCommunityIcons name="arrow-expand" size={14} color="#fff" />
+                    <MaterialCommunityIcons name="arrow-expand" size={16} color="#fff" />
                   </TouchableOpacity>
 
                   <TouchableOpacity
@@ -1346,12 +1393,11 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                     onPress={() => {
                       setActiveVideo(null);
                       setIsMinimized(false);
-                      setShowPipControls(false);
                     }}
                     style={styles.pipIconBadge}
                     activeOpacity={0.8}
                   >
-                    <MaterialCommunityIcons name="close" size={14} color="#fff" />
+                    <MaterialCommunityIcons name="close" size={16} color="#fff" />
                   </TouchableOpacity>
                 </Animated.View>
 
@@ -1372,8 +1418,8 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                   >
                     <MaterialCommunityIcons
                       name={isPipPlaying ? "pause" : "play"}
-                      size={16}
-                      color="#fff"
+                      size={18}
+                      color="#000"
                     />
                   </TouchableOpacity>
                 </Animated.View>
@@ -1763,20 +1809,27 @@ const styles = StyleSheet.create({
     zIndex: 100,
   },
   pipIconBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: "rgba(0,0,0,0.75)",
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(0, 0, 0, 0.85)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.2)",
     alignItems: "center",
     justifyContent: "center",
   },
   pipPlayIconBadge: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "rgba(0,0,0,0.75)",
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#1DB954",
     alignItems: "center",
     justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.6,
+    shadowRadius: 4,
+    elevation: 8,
   },
   pipVideoBoxFull: {
     position: "absolute",
