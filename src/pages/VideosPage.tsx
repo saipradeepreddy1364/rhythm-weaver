@@ -1,5 +1,5 @@
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, TextInput, ActivityIndicator, Platform, Modal, Dimensions, DeviceEventEmitter, Animated, PanResponder, Linking, Keyboard, RefreshControl, useWindowDimensions } from 'react-native'
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { WebView } from "react-native-webview";
 import { Song, mapApiSong, decodeHtmlEntities } from "../data/songs";
@@ -403,12 +403,12 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => isMinimized && !isSystemPipActive,
-      onStartShouldSetPanResponderCapture: () => isMinimized && !isSystemPipActive,
+      onStartShouldSetPanResponderCapture: () => false,
       onMoveShouldSetPanResponder: (evt, gestureState) => {
-        return isMinimized && !isSystemPipActive && (Math.abs(gestureState.dx) > 4 || Math.abs(gestureState.dy) > 4 || (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2));
+        return isMinimized && !isSystemPipActive && (Math.abs(gestureState.dx) > 2 || Math.abs(gestureState.dy) > 2 || (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2));
       },
       onMoveShouldSetPanResponderCapture: (evt, gestureState) => {
-        return isMinimized && !isSystemPipActive && (Math.abs(gestureState.dx) > 4 || Math.abs(gestureState.dy) > 4 || (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2));
+        return isMinimized && !isSystemPipActive && (Math.abs(gestureState.dx) > 2 || Math.abs(gestureState.dy) > 2 || (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2));
       },
       onPanResponderGrant: (evt) => {
         if (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2) {
@@ -435,47 +435,25 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
           const currentDist = calcDistance(evt.nativeEvent.touches);
           if (currentDist > 0 && initialPinchDistRef.current > 0) {
             const rawScale = currentDist / initialPinchDistRef.current;
-            const maxAllowedScale = (width - 28) / (baseWidthRef.current || 175);
-            const minAllowedScale = 130 / (baseWidthRef.current || 175);
+            const maxAllowedScale = (width - 20) / (baseWidthRef.current || 175);
+            const minAllowedScale = 120 / (baseWidthRef.current || 175);
             const clampedScale = Math.max(minAllowedScale, Math.min(maxAllowedScale, rawScale));
             pinchScale.setValue(clampedScale);
           }
         } else {
           initialPinchDistRef.current = null;
-          const curWidth = pipWidthRef.current;
-          const curHeight = Math.round(curWidth * (9 / 16));
-          const screenHeight = Dimensions.get("window").height;
-
-          // Screen bounds clamping to prevent mini video frame from going out of screen
-          const minTranslateX = -(width - curWidth - 14);
-          const maxTranslateX = 14;
-          const currentOffsetX = (pan.x as any)._offset || 0;
-          const clampedDx = Math.max(minTranslateX - currentOffsetX, Math.min(maxTranslateX - currentOffsetX, gestureState.dx));
-
-          // Top boundary clamp: keep box on screen
-          const minTranslateY = -(screenHeight - curHeight - 70);
-          const maxTranslateY = 50;
-          const currentOffsetY = (pan.y as any)._offset || 0;
-          const clampedDy = Math.max(minTranslateY - currentOffsetY, Math.min(maxTranslateY - currentOffsetY, gestureState.dy));
-
-          pan.x.setValue(clampedDx);
-          pan.y.setValue(clampedDy);
+          Animated.event([null, { dx: pan.x, dy: pan.y }], { useNativeDriver: false })(evt, gestureState);
         }
       },
       onPanResponderRelease: (evt, gestureState) => {
         if (initialPinchDistRef.current) {
           const finalScale = (pinchScale as any)._value || 1;
           if (finalScale !== 1) {
-            const newWidth = Math.max(130, Math.min(width - 28, Math.round(baseWidthRef.current * finalScale)));
+            const newWidth = Math.max(120, Math.min(width - 20, Math.round(baseWidthRef.current * finalScale)));
             setPipWidth(newWidth);
           }
           pinchScale.setValue(1);
           initialPinchDistRef.current = null;
-        } else {
-          // Detect tap on minimized frame to toggle controls visibility
-          if (Math.abs(gestureState.dx) < 8 && Math.abs(gestureState.dy) < 8) {
-            togglePipControls();
-          }
         }
         pan.flattenOffset();
       },
@@ -752,6 +730,199 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
     setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length);
   }, []);
 
+  const webViewSource = useMemo(() => {
+    if (!targetId) return null;
+    return {
+      html: `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+            <style>
+              * { box-sizing: border-box; margin: 0; padding: 0; }
+              body, html { background-color: #000; width: 100%; height: 100%; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+              #player { width: 100%; height: 100%; border: none; }
+              iframe { width: 100%; height: 100%; border: none; }
+              /* 100% Zero-Ad Youtube CSS Rules */
+              .ytp-ad-module, .ytp-ad-overlay-container, .ytp-ad-message-container,
+              .ytp-ad-preview-container, .ytp-ad-skip-button-slot, .ytp-ad-text,
+              .video-ads, .ytp-ad-player-overlay, .ytp-ad-image-overlay,
+              .annotation, .ytp-paid-content-overlay, .ytp-ad-action-interstitial {
+                display: none !important;
+                visibility: hidden !important;
+                opacity: 0 !important;
+                pointer-events: none !important;
+              }
+              /* Minimized PiP Mode: Hide ALL YouTube internal controls, progress bar, title, gradients, play/pause buttons, settings, watermarks, etc. */
+              body.is-minimized .ytp-large-play-button,
+              body.is-minimized .ytp-chrome-top,
+              body.is-minimized .ytp-chrome-bottom,
+              body.is-minimized .ytp-progress-bar-container,
+              body.is-minimized .ytp-progress-bar,
+              body.is-minimized .ytp-gradient-top,
+              body.is-minimized .ytp-gradient-bottom,
+              body.is-minimized .ytp-settings-menu,
+              body.is-minimized .ytp-settings-button,
+              body.is-minimized .ytp-subtitles-button,
+              body.is-minimized .ytp-caption-window-container,
+              body.is-minimized .ytp-panel-menu,
+              body.is-minimized .ytp-menuitem,
+              body.is-minimized .ytp-popup,
+              body.is-minimized .ytp-contextmenu,
+              body.is-minimized .ytp-pause-overlay,
+              body.is-minimized .ytp-play-button,
+              body.is-minimized .ytp-button,
+              body.is-minimized .ytp-title,
+              body.is-minimized .ytp-title-link,
+              body.is-minimized .ytp-title-channel,
+              body.is-minimized .ytp-watermark,
+              body.is-minimized .ytp-youtube-button,
+              body.is-minimized .ytp-c4-brand-header,
+              body.is-minimized .ytp-spinner {
+                display: none !important;
+                visibility: hidden !important;
+                opacity: 0 !important;
+                pointer-events: none !important;
+              }
+              /* YouTube Settings & Quality Menu Touch Scrolling & Expanded Visibility */
+              body:not(.is-minimized) .ytp-settings-menu,
+              body:not(.is-minimized) .ytp-panel,
+              body:not(.is-minimized) .ytp-popup {
+                max-height: 85vh !important;
+                overflow-y: auto !important;
+                -webkit-overflow-scrolling: touch !important;
+                z-index: 99999 !important;
+              }
+              body:not(.is-minimized) .ytp-panel-menu {
+                max-height: 250px !important;
+                overflow-y: auto !important;
+                -webkit-overflow-scrolling: touch !important;
+                padding-bottom: 8px !important;
+              }
+              body:not(.is-minimized) .ytp-menuitem {
+                min-height: 32px !important;
+                height: auto !important;
+                padding: 4px 10px !important;
+              }
+            </style>
+          </head>
+          <body class="is-minimized">
+            <div id="player"></div>
+            <script>
+              var tag = document.createElement('script');
+              tag.src = "https://www.youtube.com/iframe_api";
+              var firstScriptTag = document.getElementsByTagName('script')[0];
+              firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+              var player;
+              function onYouTubeIframeAPIReady() {
+                player = new YT.Player('player', {
+                  height: '100%',
+                  width: '100%',
+                  videoId: '${targetId}',
+                  playerVars: {
+                    'autoplay': 1,
+                    'controls': 0,
+                    'rel': 0,
+                    'modestbranding': 1,
+                    'playsinline': 1,
+                    'enablejsapi': 1,
+                    'fs': 0,
+                    'iv_load_policy': 3,
+                    'cc_load_policy': 0
+                  },
+                  events: {
+                    'onStateChange': function(event) {
+                      if (event && window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                        if (event.data === 1) {
+                          window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_PLAYING' }));
+                        } else if (event.data === 2) {
+                          window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_PAUSED' }));
+                        } else if (event.data === 0) {
+                          window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_ENDED' }));
+                        }
+                      }
+                    },
+                    'onPlaybackRateChange': function(event) {
+                      if (document.body.classList.contains('is-minimized')) {
+                        if (event && event.data !== 1 && player && typeof player.setPlaybackRate === 'function') {
+                          try { player.setPlaybackRate(1); } catch(err){}
+                        }
+                      }
+                    },
+                    'onError': function(event) {
+                      if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                        window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_BLOCKED' }));
+                      }
+                    }
+                  }
+                });
+              }
+
+              window.toggleVideoPlayback = function(shouldPlay) {
+                try {
+                  if (typeof player !== 'undefined' && player) {
+                    if (shouldPlay && typeof player.playVideo === 'function') player.playVideo();
+                    if (!shouldPlay && typeof player.pauseVideo === 'function') player.pauseVideo();
+                  }
+                  var cmd = shouldPlay ? 'playVideo' : 'pauseVideo';
+                  var iframes = document.querySelectorAll('iframe');
+                  for (var i = 0; i < iframes.length; i++) {
+                    try {
+                      iframes[i].contentWindow.postMessage(JSON.stringify({ event: 'command', func: cmd, args: [] }), '*');
+                    } catch(e) {}
+                  }
+                  var vids = document.querySelectorAll('video');
+                  for (var v = 0; v < vids.length; v++) {
+                    if (vids[v]) {
+                      if (shouldPlay) {
+                        var p = vids[v].play();
+                        if (p && typeof p.catch === 'function') p.catch(function(){});
+                      } else {
+                        vids[v].pause();
+                      }
+                    }
+                  }
+                } catch (err) {}
+              };
+
+              function attachVideoListeners() {
+                try {
+                  var vids = document.querySelectorAll('video');
+                  for (var k = 0; k < vids.length; k++) {
+                    vids[k].removeEventListener('play', onVidPlay);
+                    vids[k].removeEventListener('pause', onVidPause);
+                    vids[k].addEventListener('play', onVidPlay);
+                    vids[k].addEventListener('pause', onVidPause);
+                  }
+                } catch(e) {}
+              }
+              function onVidPlay() {
+                if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                  window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_PLAYING' }));
+                }
+              }
+              function onVidPause() {
+                if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                  window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_PAUSED' }));
+                }
+              }
+              setInterval(attachVideoListeners, 1000);
+
+              document.addEventListener('touchmove', function(e) {
+                var settingsMenu = document.querySelector('.ytp-settings-menu, .ytp-panel-menu, .ytp-popup');
+                if (settingsMenu && settingsMenu.contains(e.target)) {
+                  e.stopPropagation();
+                }
+              }, { passive: false });
+            </script>
+          </body>
+        </html>
+      `,
+      baseUrl: "https://www.google.com",
+    };
+  }, [targetId, selectedInstanceIndex]);
+
   const isVideosTab = (!activeTab || activeTab === "Videos") || isSystemPipActive;
 
   return (
@@ -1024,372 +1195,32 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                 {!isMinimized && !isSystemPipActive && <Text style={styles.loadingText}>Fetching official music video...</Text>}
               </View>
             ) : (
-              <WebView
-                ref={webViewRef}
-                key={`${activeVideo.videoId}_${selectedInstanceIndex}`}
-                pointerEvents={(isMinimized || isSystemPipActive) ? "none" : "auto"}
-                source={{
-                  html: `
-                    <!DOCTYPE html>
-                    <html>
-                      <head>
-                        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-                        <style>
-                          * { box-sizing: border-box; margin: 0; padding: 0; }
-                          body, html { background-color: #000; width: 100%; height: 100%; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-                          #player { width: 100%; height: 100%; border: none; }
-                          iframe { width: 100%; height: 100%; border: none; }
-                          /* 100% Zero-Ad Youtube CSS Rules */
-                          .ytp-ad-module, .ytp-ad-overlay-container, .ytp-ad-message-container,
-                          .ytp-ad-preview-container, .ytp-ad-skip-button-slot, .ytp-ad-text,
-                          .video-ads, .ytp-ad-player-overlay, .ytp-ad-image-overlay,
-                          .annotation, .ytp-paid-content-overlay, .ytp-ad-action-interstitial {
-                            display: none !important;
-                            visibility: hidden !important;
-                            opacity: 0 !important;
-                            pointer-events: none !important;
-                          }
-                          /* Minimized PiP Mode: Hide ALL YouTube internal controls, progress bar, title, gradients, play/pause buttons, settings, watermarks, etc. */
-                          body.is-minimized .ytp-large-play-button,
-                          body.is-minimized .ytp-chrome-top,
-                          body.is-minimized .ytp-chrome-bottom,
-                          body.is-minimized .ytp-progress-bar-container,
-                          body.is-minimized .ytp-progress-bar,
-                          body.is-minimized .ytp-gradient-top,
-                          body.is-minimized .ytp-gradient-bottom,
-                          body.is-minimized .ytp-settings-menu,
-                          body.is-minimized .ytp-settings-button,
-                          body.is-minimized .ytp-subtitles-button,
-                          body.is-minimized .ytp-caption-window-container,
-                          body.is-minimized .ytp-panel-menu,
-                          body.is-minimized .ytp-menuitem,
-                          body.is-minimized .ytp-popup,
-                          body.is-minimized .ytp-contextmenu,
-                          body.is-minimized .ytp-pause-overlay,
-                          body.is-minimized .ytp-play-button,
-                          body.is-minimized .ytp-button,
-                          body.is-minimized .ytp-title,
-                          body.is-minimized .ytp-title-link,
-                          body.is-minimized .ytp-title-channel,
-                          body.is-minimized .ytp-watermark,
-                          body.is-minimized .ytp-youtube-button,
-                          body.is-minimized .ytp-c4-brand-header,
-                          body.is-minimized .ytp-spinner {
-                            display: none !important;
-                            visibility: hidden !important;
-                            opacity: 0 !important;
-                            pointer-events: none !important;
-                          }
-                          /* YouTube Settings & Quality Menu Touch Scrolling & Expanded Visibility */
-                          body:not(.is-minimized) .ytp-settings-menu,
-                          body:not(.is-minimized) .ytp-panel,
-                          body:not(.is-minimized) .ytp-popup {
-                            max-height: 85vh !important;
-                            overflow-y: auto !important;
-                            -webkit-overflow-scrolling: touch !important;
-                            z-index: 99999 !important;
-                          }
-                          body:not(.is-minimized) .ytp-panel-menu {
-                            max-height: 250px !important;
-                            overflow-y: auto !important;
-                            -webkit-overflow-scrolling: touch !important;
-                            padding-bottom: 8px !important;
-                          }
-                          body:not(.is-minimized) .ytp-menuitem {
-                            min-height: 32px !important;
-                            height: auto !important;
-                            padding: 4px 10px !important;
-                          }
-                        </style>
-                      </head>
-                      <body class="${isMinimized ? "is-minimized" : ""}">
-                        <div id="player"></div>
-                        <script>
-                          var tag = document.createElement('script');
-                          tag.src = "https://www.youtube.com/iframe_api";
-                          var firstScriptTag = document.getElementsByTagName('script')[0];
-                          firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-
-                          var player;
-                          function onYouTubeIframeAPIReady() {
-                            player = new YT.Player('player', {
-                              height: '100%',
-                              width: '100%',
-                              videoId: '${targetId}',
-                              playerVars: {
-                                'autoplay': 1,
-                                'controls': 1,
-                                'rel': 0,
-                                'modestbranding': 1,
-                                'playsinline': 1,
-                                'enablejsapi': 1,
-                                'fs': 1
-                              },
-                              events: {
-                                'onStateChange': function(event) {
-                                  if (event && window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-                                    if (event.data === 1) {
-                                      window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_PLAYING' }));
-                                    } else if (event.data === 2) {
-                                      window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_PAUSED' }));
-                                    } else if (event.data === 0) {
-                                      window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_ENDED' }));
-                                    }
-                                  }
-                                },
-                                'onPlaybackRateChange': function(event) {
-                                  if (document.body.classList.contains('is-minimized')) {
-                                    if (event && event.data !== 1 && player && typeof player.setPlaybackRate === 'function') {
-                                      try { player.setPlaybackRate(1); } catch(err){}
-                                    }
-                                  }
-                                },
-                                'onError': function(event) {
-                                  if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-                                    window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_BLOCKED' }));
-                                  }
-                                }
-                              }
-                            });
-                          }
-
-                          window.toggleVideoPlayback = function(shouldPlay) {
-                            try {
-                              if (typeof player !== 'undefined' && player) {
-                                if (shouldPlay && typeof player.playVideo === 'function') player.playVideo();
-                                if (!shouldPlay && typeof player.pauseVideo === 'function') player.pauseVideo();
-                              }
-                              var cmd = shouldPlay ? 'playVideo' : 'pauseVideo';
-                              var iframes = document.querySelectorAll('iframe');
-                              for (var i = 0; i < iframes.length; i++) {
-                                try {
-                                  iframes[i].contentWindow.postMessage(JSON.stringify({ event: 'command', func: cmd, args: [] }), '*');
-                                } catch(e) {}
-                              }
-                              var vids = document.querySelectorAll('video');
-                              for (var v = 0; v < vids.length; v++) {
-                                if (vids[v]) {
-                                  if (shouldPlay) {
-                                    var p = vids[v].play();
-                                    if (p && typeof p.catch === 'function') p.catch(function(){});
-                                  } else {
-                                    vids[v].pause();
-                                  }
-                                }
-                              }
-                            } catch (err) {}
-                          };
-
-                          function attachVideoListeners() {
-                            try {
-                              var vids = document.querySelectorAll('video');
-                              for (var k = 0; k < vids.length; k++) {
-                                vids[k].removeEventListener('play', onVidPlay);
-                                vids[k].removeEventListener('pause', onVidPause);
-                                vids[k].addEventListener('play', onVidPlay);
-                                vids[k].addEventListener('pause', onVidPause);
-                              }
-                            } catch(e) {}
-                          }
-                          function onVidPlay() {
-                            if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-                              window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_PLAYING' }));
-                            }
-                          }
-                          function onVidPause() {
-                            if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-                              window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_PAUSED' }));
-                            }
-                          }
-                          setInterval(attachVideoListeners, 1000);
-
-                          document.addEventListener('touchmove', function(e) {
-                            var settingsMenu = document.querySelector('.ytp-settings-menu, .ytp-panel-menu, .ytp-popup');
-                            if (settingsMenu && settingsMenu.contains(e.target)) {
-                              e.stopPropagation();
-                            }
-                          }, { passive: false });
-
-                          document.addEventListener('click', function(e) {
-                            if (player && typeof player.getDuration === 'function') {
-                              var duration = player.getDuration();
-                              if (duration > 0 && e.clientY > (window.innerHeight - 55)) {
-                                var ratio = e.clientX / window.innerWidth;
-                                player.seekTo(duration * ratio, true);
-                              }
-                            }
-                          });
-
-                          if ('mediaSession' in navigator) {
-                            try {
-                              navigator.mediaSession.metadata = new MediaMetadata({
-                                title: ${JSON.stringify(activeVideo.title)},
-                                artist: ${JSON.stringify(activeVideo.artist)},
-                              });
-                              navigator.mediaSession.setActionHandler('play', function() { if (player && player.playVideo) player.playVideo(); });
-                              navigator.mediaSession.setActionHandler('pause', function() { if (player && player.pauseVideo) player.pauseVideo(); });
-                            } catch (e) {}
-                          }
-
-                          // Prevent YouTube from pausing when app backgrounds (document.hidden)
-                          window.addEventListener('visibilitychange', function(e) {
-                            e.stopImmediatePropagation();
-                          }, true);
-
-                          document.addEventListener('ratechange', function(e) {
-                            if (document.body.classList.contains('is-minimized')) {
-                              if (e.target && e.target.playbackRate !== 1) {
-                                try { e.target.playbackRate = 1; } catch(err){}
-                              }
-                            }
-                          }, true);
-
-                          document.addEventListener('visibilitychange', function(e) {
-                            e.stopImmediatePropagation();
-                            if (document.hidden && player && typeof player.playVideo === 'function') {
-                              setTimeout(function() {
-                                try { player.playVideo(); } catch (err) {}
-                              }, 50);
-                            }
-                          }, true);
-
-                          // Ultra-Aggressive 100% Zero-Ad YouTube Auto Skipper & Fast-Forwarder
-                          setInterval(function() {
-                            try {
-                              var vids = document.querySelectorAll('video');
-                              for (var v = 0; v < vids.length; v++) {
-                                var vid = vids[v];
-                                if (vid) {
-                                  var isPlayingNow = !vid.paused && vid.readyState > 1;
-                                  if (window.lastReportedPlaying !== isPlayingNow) {
-                                    window.lastReportedPlaying = isPlayingNow;
-                                    if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-                                      window.ReactNativeWebView.postMessage(JSON.stringify({ 
-                                        event: isPlayingNow ? 'VIDEO_PLAYING' : 'VIDEO_PAUSED' 
-                                      }));
-                                    }
-                                  }
-                                }
-                              }
-
-                              if (document.body.classList.contains('is-minimized')) {
-                                if (player && typeof player.getPlaybackRate === 'function' && player.getPlaybackRate() !== 1) {
-                                  try { player.setPlaybackRate(1); } catch(e){}
-                                }
-                                for (var v2 = 0; v2 < vids.length; v2++) {
-                                  if (vids[v2] && vids[v2].playbackRate !== 1) {
-                                    try { vids[v2].playbackRate = 1; } catch(e){}
-                                  }
-                                }
-                                var hideSelectors = [
-                                  '.ytp-chrome-top',
-                                  '.ytp-chrome-bottom',
-                                  '.ytp-gradient-top',
-                                  '.ytp-gradient-bottom',
-                                  '.ytp-large-play-button',
-                                  '.ytp-bezel',
-                                  '.ytp-pause-overlay',
-                                  '.ytp-settings-menu',
-                                  '.ytp-settings-button',
-                                  '.ytp-subtitles-button',
-                                  '.ytp-caption-window-container',
-                                  '.ytp-title',
-                                  '.ytp-title-channel',
-                                  '.ytp-watermark',
-                                  '.ytp-youtube-button',
-                                  '.ytp-cbr',
-                                  '.ytp-paid-content-overlay',
-                                  '.ytp-spinner',
-                                  '.ytp-progress-bar',
-                                  '.ytp-progress-bar-container',
-                                  'a.ytp-title-link'
-                                ];
-                                for (var hs = 0; hs < hideSelectors.length; hs++) {
-                                  var hEls = document.querySelectorAll(hideSelectors[hs]);
-                                  for (var he = 0; he < hEls.length; he++) {
-                                    hEls[he].style.display = 'none';
-                                    hEls[he].style.visibility = 'hidden';
-                                    hEls[he].style.opacity = '0';
-                                    hEls[he].style.pointerEvents = 'none';
-                                  }
-                                }
-                                try {
-                                  var ifr = document.querySelector('iframe');
-                                  if (ifr && ifr.contentDocument) {
-                                    for (var hs2 = 0; hs2 < hideSelectors.length; hs2++) {
-                                      var hEls2 = ifr.contentDocument.querySelectorAll(hideSelectors[hs2]);
-                                      for (var he2 = 0; he2 < hEls2.length; he2++) {
-                                        hEls2[he2].style.display = 'none';
-                                        hEls2[he2].style.visibility = 'hidden';
-                                        hEls2[he2].style.opacity = '0';
-                                        hEls2[he2].style.pointerEvents = 'none';
-                                      }
-                                    }
-                                  }
-                                } catch (e) {}
-                              }
-
-                              var skipSelectors = [
-                                '.ytp-ad-skip-button',
-                                '.ytp-ad-skip-button-modern',
-                                '.ytp-skip-ad-button',
-                                '.ytp-ad-overlay-close-button',
-                                '.ytp-ad-skip-button-container',
-                                'button.ytp-ad-skip-button-icon',
-                                '.ytp-ad-skip-button-slot'
-                              ];
-                              for (var s = 0; s < skipSelectors.length; s++) {
-                                var btns = document.querySelectorAll(skipSelectors[s]);
-                                for (var b = 0; b < btns.length; b++) {
-                                  btns[b].click();
-                                }
-                              }
-
-                              var adOverlays = document.querySelectorAll('.ytp-ad-overlay-container, .ytp-ad-message-container, .ytp-ad-module, .video-ads');
-                              for (var i = 0; i < adOverlays.length; i++) {
-                                adOverlays[i].style.display = 'none';
-                              }
-
-                              var isAd = document.querySelector('.ad-showing, .ad-interrupting, .ytp-ad-player-overlay');
-                              if (isAd && vids.length > 0) {
-                                for (var v3 = 0; v3 < vids.length; v3++) {
-                                  var vid3 = vids[v3];
-                                  if (vid3 && !vid3.paused) {
-                                    vid3.muted = true;
-                                    vid3.playbackRate = 16;
-                                    if (vid3.duration && !isNaN(vid3.duration)) {
-                                      vid3.currentTime = vid3.duration;
-                                    }
-                                  }
-                                }
-                              }
-                            } catch (e) {}
-                          }, 100);
-                        </script>
-                      </body>
-                    </html>
-                  `,
-                  baseUrl: "https://www.google.com",
-                }}
-                style={{ flex: 1, backgroundColor: "#000" }}
-                userAgent="Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
-                allowsPictureInPicture={true}
-                allowsInlineMediaPlayback={true}
-                mediaPlaybackRequiresUserAction={false}
-                allowsFullscreenVideo={true}
-                javaScriptEnabled={true}
-                domStorageEnabled={true}
-                androidLayerType="hardware"
-                mixedContentMode="always"
-                playInBackground={true}
-                onShouldStartLoadWithRequest={handleShouldStartLoad}
-                onMessage={handleWebViewMessage}
-                onError={handleWebViewError}
-              />
+              webViewSource && (
+                <WebView
+                  ref={webViewRef}
+                  key={`${activeVideo.videoId}_${selectedInstanceIndex}`}
+                  pointerEvents={(isMinimized || isSystemPipActive) ? "none" : "auto"}
+                  source={webViewSource}
+                  style={{ flex: 1, backgroundColor: "#000" }}
+                  userAgent="Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
+                  allowsPictureInPicture={true}
+                  allowsInlineMediaPlayback={true}
+                  mediaPlaybackRequiresUserAction={false}
+                  allowsFullscreenVideo={true}
+                  javaScriptEnabled={true}
+                  domStorageEnabled={true}
+                  androidLayerType="hardware"
+                  mixedContentMode="always"
+                  playInBackground={true}
+                  onShouldStartLoadWithRequest={handleShouldStartLoad}
+                  onMessage={handleWebViewMessage}
+                  onError={handleWebViewError}
+                />
+              )
             )}
 
             {/* Overlaid Minimized Quick Controls (Expand / Close on Top Right, Play/Pause at Bottom Center) */}
-            {(isMinimized || isSystemPipActive) && showPipControls && (
+            {isMinimized && !isSystemPipActive && (
               <>
                 <Animated.View
                   style={[
