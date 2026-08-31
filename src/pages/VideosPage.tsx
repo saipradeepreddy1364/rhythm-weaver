@@ -302,6 +302,20 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
 
   useEffect(() => {
     DeviceEventEmitter.emit("VIDEO_MINIMIZED_CHANGED", isMinimized);
+    if (webViewRef.current) {
+      try {
+        webViewRef.current.injectJavaScript(`
+          if (${isMinimized}) {
+            document.body.classList.add('is-minimized');
+          } else {
+            document.body.classList.remove('is-minimized');
+          }
+          true;
+        `);
+      } catch (err) {}
+    }
+    // Auto-hide controls when minimized
+    setShowPipControls(false);
   }, [isMinimized]);
 
   useEffect(() => {
@@ -1035,10 +1049,12 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                             opacity: 0 !important;
                             pointer-events: none !important;
                           }
-                          /* Minimized PiP Mode: Hide big center play button, settings, captions, speed menu, and controls */
+                          /* Minimized PiP Mode: Hide ALL YouTube internal controls, progress bar, title, gradients, play/pause buttons, settings, watermarks, etc. */
                           body.is-minimized .ytp-large-play-button,
                           body.is-minimized .ytp-chrome-top,
                           body.is-minimized .ytp-chrome-bottom,
+                          body.is-minimized .ytp-progress-bar-container,
+                          body.is-minimized .ytp-progress-bar,
                           body.is-minimized .ytp-gradient-top,
                           body.is-minimized .ytp-gradient-bottom,
                           body.is-minimized .ytp-settings-menu,
@@ -1050,6 +1066,14 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                           body.is-minimized .ytp-popup,
                           body.is-minimized .ytp-contextmenu,
                           body.is-minimized .ytp-pause-overlay,
+                          body.is-minimized .ytp-play-button,
+                          body.is-minimized .ytp-button,
+                          body.is-minimized .ytp-title,
+                          body.is-minimized .ytp-title-link,
+                          body.is-minimized .ytp-title-channel,
+                          body.is-minimized .ytp-watermark,
+                          body.is-minimized .ytp-youtube-button,
+                          body.is-minimized .ytp-c4-brand-header,
                           body.is-minimized .ytp-spinner {
                             display: none !important;
                             visibility: hidden !important;
@@ -1078,7 +1102,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                           }
                         </style>
                       </head>
-                      <body>
+                      <body class="${isMinimized ? "is-minimized" : ""}">
                         <div id="player"></div>
                         <script>
                           var tag = document.createElement('script');
@@ -1365,7 +1389,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
             )}
 
             {/* Overlaid Minimized Quick Controls (Expand / Close on Top Right, Play/Pause at Bottom Center) */}
-            {isMinimized && !isSystemPipActive && (
+            {isMinimized && !isSystemPipActive && showPipControls && (
               <>
                 <Animated.View
                   style={[
