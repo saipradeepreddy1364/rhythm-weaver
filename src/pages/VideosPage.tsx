@@ -760,7 +760,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
         styles.container,
         !isVideosTab && { backgroundColor: "transparent" },
       ]}
-      pointerEvents={!isVideosTab && isMinimized ? "box-none" : "auto"}
+      pointerEvents={isVideosTab ? "auto" : (isMinimized || isSystemPipActive) ? "box-none" : "none"}
     >
       {/* Video Feed UI (Only visible on Videos tab) */}
       <View style={{ flex: 1, display: isVideosTab ? "flex" : "none" }}>
@@ -960,7 +960,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
           }
           {...(isMinimized && !isSystemPipActive ? panResponder.panHandlers : {})}
         >
-          {!isMinimized && (
+          {!isMinimized && !isSystemPipActive && (
             /* Full Screen Header */
             <View style={styles.modalHeader}>
               <TouchableOpacity delayPressIn={0} onPress={() => setIsMinimized(true)} style={styles.closeBtn}>
@@ -995,20 +995,11 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                 style={{ padding: 6, marginRight: 6 }}
                 activeOpacity={0.7}
               >
-                {isVideoLiked(activeVideo) ? (
-                  <View style={{
-                    width: 22,
-                    height: 22,
-                    borderRadius: 11,
-                    backgroundColor: "#1DB954",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}>
-                    <MaterialCommunityIcons name="check" size={15} color="#000" />
-                  </View>
-                ) : (
-                  <MaterialCommunityIcons name="heart-outline" size={22} color="#fff" />
-                )}
+                <MaterialCommunityIcons
+                  name={isVideoLiked(activeVideo) ? "heart" : "heart-outline"}
+                  size={22}
+                  color={isVideoLiked(activeVideo) ? "#1DB954" : "#fff"}
+                />
               </TouchableOpacity>
               <TouchableOpacity delayPressIn={0} onPress={() => { setActiveVideo(null); setIsMinimized(false); }} style={styles.closeBtn}>
                 <MaterialCommunityIcons name="close" size={22} color="#fff" />
@@ -1017,17 +1008,17 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
           )}
 
           {/* THE SINGLE PERSISTENT UNMOUNTABLE WEBVIEW INSTANCE */}
-          <View style={isMinimized ? styles.pipVideoBox : styles.videoPlayerBox}>
+          <View style={(isMinimized || isSystemPipActive) ? styles.pipVideoBox : styles.videoPlayerBox}>
             {isResolvingVideo ? (
               <View style={styles.loadingContainer}>
-                <ActivityIndicator size={isMinimized ? "small" : "large"} color="#1DB954" />
-                {!isMinimized && <Text style={styles.loadingText}>Fetching official music video...</Text>}
+                <ActivityIndicator size={(isMinimized || isSystemPipActive) ? "small" : "large"} color="#1DB954" />
+                {!isMinimized && !isSystemPipActive && <Text style={styles.loadingText}>Fetching official music video...</Text>}
               </View>
             ) : (
               <WebView
                 ref={webViewRef}
                 key={`${activeVideo.videoId}_${selectedInstanceIndex}`}
-                pointerEvents={isMinimized ? "none" : "auto"}
+                pointerEvents={(isMinimized || isSystemPipActive) ? "none" : "auto"}
                 source={{
                   html: `
                     <!DOCTYPE html>
@@ -1389,7 +1380,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
             )}
 
             {/* Overlaid Minimized Quick Controls (Expand / Close on Top Right, Play/Pause at Bottom Center) */}
-            {isMinimized && !isSystemPipActive && showPipControls && (
+            {(isMinimized || isSystemPipActive) && showPipControls && (
               <>
                 <Animated.View
                   style={[
@@ -1443,7 +1434,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                     <MaterialCommunityIcons
                       name={isPipPlaying ? "pause" : "play"}
                       size={18}
-                      color="#000"
+                      color="#fff"
                     />
                   </TouchableOpacity>
                 </Animated.View>
@@ -1451,7 +1442,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
             )}
           </View>
 
-          {!isMinimized && (
+          {!isMinimized && !isSystemPipActive && (
             /* Full Screen Player Body (Up Next Songs & Info) */
             <ScrollView style={styles.modalBody} contentContainerStyle={{ padding: 16 }}>
               <Text style={styles.infoHeading}>{activeVideo.title}</Text>
@@ -1846,7 +1837,9 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: "#1DB954",
+    backgroundColor: "rgba(0, 0, 0, 0.85)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.2)",
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#000",

@@ -22,6 +22,7 @@ import { LibraryProvider } from "./context/LibraryContext";
 import HomePage from "./pages/HomePage";
 import SearchPage from "./pages/SearchPage";
 import LibraryPage from "./pages/LibraryPage";
+import VideosPage from "./pages/VideosPage";
 import { MiniPlayer } from "./components/MiniPlayer";
 import { FullPlayer } from "./components/FullPlayer";
 import { AuthModal } from "./components/AuthModal";
@@ -106,7 +107,7 @@ function AppContent() {
 
   const shouldHideTabBar = isPipActive || isVideoMinimized;
 
-  const [activeTab, setActiveTab] = useState<'Home' | 'Search' | 'Library'>('Home');
+  const [activeTab, setActiveTab] = useState<'Home' | 'Search' | 'Library' | 'Videos'>('Home');
   const scrollViewRef = useRef<ScrollView>(null);
   const navigationRef = useRef<any>(null);
 
@@ -165,7 +166,7 @@ function AppContent() {
 
   // Listen to global tab navigation event requests
   useEffect(() => {
-    const subscription = DeviceEventEmitter.addListener("NAVIGATE_TO_TAB", (tabName: 'Home' | 'Search' | 'Library') => {
+    const subscription = DeviceEventEmitter.addListener("NAVIGATE_TO_TAB", (tabName: 'Home' | 'Search' | 'Library' | 'Videos') => {
       setActiveTab(tabName);
     });
     return () => { subscription.remove(); };
@@ -219,27 +220,34 @@ function AppContent() {
                   <View style={{ flex: 1, display: activeTab === 'Library' ? 'flex' : 'none' }}>
                     <LibraryPage onRequireAuth={handleRequireAuth} />
                   </View>
+                  <View style={{ flex: 1, display: activeTab === 'Videos' ? 'flex' : 'none' }}>
+                    <VideosPage onRequireAuth={handleRequireAuth} activeTab={activeTab} isSystemPip={isSystemPip} />
+                  </View>
                 </View>
 
                 {/* Bottom Tab Bar */}
                 {!shouldHideTabBar && (
                   <View style={styles.tabBarStyle}>
-                    {(['Home', 'Search', 'Library'] as const).map((tab) => {
-                      const isActive = activeTab === tab;
-                      const iconName = tab === 'Home' ? 'home' : tab === 'Search' ? 'magnify' : 'playlist-music';
+                    {[
+                      { key: 'Home', label: 'Home', icon: 'home' },
+                      { key: 'Search', label: 'Search', icon: 'magnify' },
+                      { key: 'Library', label: 'Library', icon: 'playlist-music' },
+                      { key: 'Videos', label: 'Videos', icon: 'youtube-tv' },
+                    ].map(({ key, label, icon }) => {
+                      const isActive = activeTab === key;
                       const color = isActive ? "#1DB954" : "rgba(255, 255, 255, 0.5)";
                       return (
                         <TouchableOpacity
                           delayPressIn={0}
-                          key={tab}
+                          key={key}
                           onPress={() => {
-                            setActiveTab(tab);
+                            setActiveTab(key as any);
                           }}
                           style={styles.tabBarButton}
                           activeOpacity={0.7}
                         >
-                          <MaterialCommunityIcons name={iconName} color={color} size={24} />
-                          <Text style={[styles.tabBarLabel, { color }]}>{tab}</Text>
+                          <MaterialCommunityIcons name={icon as any} color={color} size={24} />
+                          <Text style={[styles.tabBarLabel, { color }]}>{label}</Text>
                         </TouchableOpacity>
                       );
                     })}
