@@ -765,14 +765,38 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                 opacity: 0 !important;
                 pointer-events: none !important;
               }
-              /* Minimized PiP Mode: Hide ALL YouTube internal controls, progress bar, title, gradients, play/pause buttons, settings, watermarks, etc. */
+              /* Minimized PiP & Standard Player Mode: Hide ALL YouTube internal controls, Share button, Pause shelf, YouTube logo, progress bar, title, gradients, play/pause buttons, settings, watermarks, etc. */
+              .ytp-share-button,
+              .ytp-share-panel,
+              .ytp-share-panel-link,
+              .ytp-show-share-title,
+              .ytp-share-title,
+              .ytp-pause-overlay,
+              .ytp-pause-overlay-container,
+              .ytp-pause-overlay-shelf,
+              .ytp-suggestion-link,
+              .ytp-scroll-min,
+              .ytp-pause-overlay-controls,
+              .ytp-ce-element,
+              .ytp-ce-video,
+              .ytp-ce-channel,
+              .ytp-ce-covering-overlay,
+              .ytp-ce-element-show,
+              .ytp-cards-teaser,
+              .ytp-cards-button,
+              .ytp-youtube-button,
+              a.ytp-youtube-button,
+              .ytp-title-channel,
+              .ytp-title-link,
+              a.ytp-title-link,
+              .ytp-watermark,
+              .ytp-chrome-top,
+              .ytp-gradient-top,
+              .ytp-gradient-bottom,
               body.is-minimized .ytp-large-play-button,
-              body.is-minimized .ytp-chrome-top,
               body.is-minimized .ytp-chrome-bottom,
               body.is-minimized .ytp-progress-bar-container,
               body.is-minimized .ytp-progress-bar,
-              body.is-minimized .ytp-gradient-top,
-              body.is-minimized .ytp-gradient-bottom,
               body.is-minimized .ytp-settings-menu,
               body.is-minimized .ytp-settings-button,
               body.is-minimized .ytp-subtitles-button,
@@ -781,20 +805,17 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
               body.is-minimized .ytp-menuitem,
               body.is-minimized .ytp-popup,
               body.is-minimized .ytp-contextmenu,
-              body.is-minimized .ytp-pause-overlay,
               body.is-minimized .ytp-play-button,
               body.is-minimized .ytp-button,
               body.is-minimized .ytp-title,
-              body.is-minimized .ytp-title-link,
-              body.is-minimized .ytp-title-channel,
-              body.is-minimized .ytp-watermark,
-              body.is-minimized .ytp-youtube-button,
               body.is-minimized .ytp-c4-brand-header,
               body.is-minimized .ytp-spinner {
                 display: none !important;
                 visibility: hidden !important;
                 opacity: 0 !important;
                 pointer-events: none !important;
+                transform: scale(0) !important;
+                -webkit-transform: scale(0) !important;
               }
               /* YouTube Settings & Quality Menu Touch Scrolling & Expanded Visibility */
               body:not(.is-minimized) .ytp-settings-menu,
@@ -959,6 +980,23 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                     '.ytp-bezel-text',
                     '.ytp-bezel-icon',
                     '.ytp-pause-overlay',
+                    '.ytp-pause-overlay-container',
+                    '.ytp-pause-overlay-shelf',
+                    '.ytp-suggestion-link',
+                    '.ytp-scroll-min',
+                    '.ytp-pause-overlay-controls',
+                    '.ytp-ce-element',
+                    '.ytp-ce-video',
+                    '.ytp-ce-channel',
+                    '.ytp-ce-covering-overlay',
+                    '.ytp-ce-element-show',
+                    '.ytp-cards-teaser',
+                    '.ytp-cards-button',
+                    '.ytp-share-button',
+                    '.ytp-share-panel',
+                    '.ytp-share-panel-link',
+                    '.ytp-show-share-title',
+                    '.ytp-share-title',
                     '.ytp-play-button',
                     '.ytp-paid-content-overlay',
                     '.ytp-gradient-top',
@@ -970,6 +1008,8 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                     '.ytp-title',
                     'a.ytp-title-link',
                     'a.ytp-youtube-button',
+                    '.ytp-youtube-button',
+                    '.ytp-title-channel',
                     '.ytp-watermark'
                   ];
                   for (var h = 0; h < allHideSelectors.length; h++) {
