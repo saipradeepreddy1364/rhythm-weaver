@@ -57,7 +57,6 @@
       "favicon": "./assets/favicon.png"
     },
     "updates": {
-      "url": "https://u.expo.dev/593dee03-9473-433c-b11a-76667290cef0",
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0
@@ -65,11 +64,11 @@
     "runtimeVersion": {
       "policy": "appVersion"
     },
+    "owner": "pdd-palagiri",
     "extra": {
       "eas": {
-        "projectId": "593dee03-9473-433c-b11a-76667290cef0"
+        "projectId": "8c3d40d0-a98a-4126-8a4f-f327f3200171"
       }
-    },
-    "owner": "venkatasaipradeepreddyp"
+    }
   }
 }
