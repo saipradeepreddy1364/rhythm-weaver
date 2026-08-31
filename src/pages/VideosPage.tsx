@@ -412,11 +412,15 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => isMinimized && !isSystemPipActive,
-      onStartShouldSetPanResponderCapture: () => false,
-      onMoveShouldSetPanResponder: (evt, gestureState) => {
-        return isMinimized && !isSystemPipActive && (Math.abs(gestureState.dx) > 1 || Math.abs(gestureState.dy) > 1 || (evt.nativeEvent.touches && evt.nativeEvent.touches.length >= 2));
+      onStartShouldSetPanResponderCapture: (evt) => {
+        return isMinimized && !isSystemPipActive && Boolean(evt.nativeEvent.touches && evt.nativeEvent.touches.length >= 2);
       },
-      onMoveShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        return isMinimized && !isSystemPipActive && (Math.abs(gestureState.dx) > 1 || Math.abs(gestureState.dy) > 1 || Boolean(evt.nativeEvent.touches && evt.nativeEvent.touches.length >= 2));
+      },
+      onMoveShouldSetPanResponderCapture: (evt) => {
+        return isMinimized && !isSystemPipActive && Boolean(evt.nativeEvent.touches && evt.nativeEvent.touches.length >= 2);
+      },
       onPanResponderGrant: (evt) => {
         if (evt.nativeEvent.touches && evt.nativeEvent.touches.length >= 2) {
           initialPinchDistRef.current = calcDistance(evt.nativeEvent.touches);
@@ -450,15 +454,8 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
           Animated.event([null, { dx: pan.x, dy: pan.y }], { useNativeDriver: false })(evt, gestureState);
         }
       },
-      onPanResponderRelease: (evt, gestureState) => {
-        if (initialPinchDistRef.current) {
-          initialPinchDistRef.current = null;
-        } else {
-          // Single finger tap on mini player frame toggles app control buttons for 2 seconds
-          if (Math.abs(gestureState.dx) < 8 && Math.abs(gestureState.dy) < 8) {
-            togglePipControls();
-          }
-        }
+      onPanResponderRelease: () => {
+        initialPinchDistRef.current = null;
         pan.flattenOffset();
       },
     })
@@ -1352,79 +1349,73 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                 <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '10%', backgroundColor: '#000', zIndex: 10 }} pointerEvents="none" />
                 <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '8%', backgroundColor: '#000', zIndex: 10 }} pointerEvents="none" />
 
-                {/* APP QUICK CONTROLS: ONLY VISIBLE WHEN USER TOUCHES / TAPS THE MINI PLAYER FRAME */}
-                {showPipControls && (
-                  <>
-                    {/* Top-Right Controls: Expand Fullscreen, Close X */}
-                    <Animated.View
-                      style={[
-                        styles.pipTopControls,
-                        {
-                          zIndex: 50,
-                          elevation: 50,
-                          transform: [{ scale: Animated.divide(1, pinchScale) }],
-                        },
-                      ]}
-                      pointerEvents="box-none"
-                    >
-                      <TouchableOpacity
-                        delayPressIn={0}
-                        onPress={() => {
-                          setIsMinimized(false);
-                          DeviceEventEmitter.emit("NAVIGATE_TO_TAB", "Videos");
-                        }}
-                        style={styles.pipIconBadge}
-                        activeOpacity={0.7}
-                        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                      >
-                        <MaterialCommunityIcons name="arrow-expand" size={16} color="#fff" />
-                      </TouchableOpacity>
+                {/* PERMANENTLY VISIBLE APP QUICK CONTROLS */}
+                {/* Top-Right Controls: Expand Fullscreen, Close X */}
+                <Animated.View
+                  style={[
+                    styles.pipTopControls,
+                    {
+                      zIndex: 50,
+                      elevation: 50,
+                    },
+                  ]}
+                  pointerEvents="box-none"
+                >
+                  <TouchableOpacity
+                    delayPressIn={0}
+                    onPress={() => {
+                      setIsMinimized(false);
+                      DeviceEventEmitter.emit("NAVIGATE_TO_TAB", "Videos");
+                    }}
+                    style={styles.pipIconBadge}
+                    activeOpacity={0.7}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  >
+                    <MaterialCommunityIcons name="arrow-expand" size={16} color="#fff" />
+                  </TouchableOpacity>
 
-                      <TouchableOpacity
-                        delayPressIn={0}
-                        onPress={() => {
-                          setActiveVideo(null);
-                          setIsMinimized(false);
-                        }}
-                        style={styles.pipIconBadge}
-                        activeOpacity={0.7}
-                        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                      >
-                        <MaterialCommunityIcons name="close" size={16} color="#fff" />
-                      </TouchableOpacity>
-                    </Animated.View>
+                  <TouchableOpacity
+                    delayPressIn={0}
+                    onPress={() => {
+                      setActiveVideo(null);
+                      setIsMinimized(false);
+                    }}
+                    style={styles.pipIconBadge}
+                    activeOpacity={0.7}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  >
+                    <MaterialCommunityIcons name="close" size={16} color="#fff" />
+                  </TouchableOpacity>
+                </Animated.View>
 
-                    {/* Bottom-Center Control: Play / Pause */}
-                    <Animated.View
-                      style={[
-                        styles.pipBottomControls,
-                        {
-                          zIndex: 50,
-                          elevation: 50,
-                          transform: [{ scale: Animated.divide(1, pinchScale) }],
-                        },
-                      ]}
-                      pointerEvents="box-none"
-                    >
-                      <TouchableOpacity
-                        delayPressIn={0}
-                        onPress={(e) => {
-                          e.stopPropagation();
-                          handleTogglePipPlay();
-                        }}
-                        style={styles.pipPlayIconBadge}
-                        activeOpacity={0.7}
-                        hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
-                      >
-                        <MaterialCommunityIcons
-                          name={isPipPlaying ? "pause" : "play"}
-                          size={18}
-                          color="#fff"
-                        />
-                      </TouchableOpacity>
-                    </Animated.View>
-                  </>
-                )}
+                {/* Bottom-Center Control: Play / Pause */}
+                <Animated.View
+                  style={[
+                    styles.pipBottomControls,
+                    {
+                      zIndex: 50,
+                      elevation: 50,
+                    },
+                  ]}
+                  pointerEvents="box-none"
+                >
+                  <TouchableOpacity
+                    delayPressIn={0}
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      handleTogglePipPlay();
+                    }}
+                    style={styles.pipPlayIconBadge}
+                    activeOpacity={0.7}
+                    hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
+                  >
+                    <MaterialCommunityIcons
+                      name={isPipPlaying ? "pause" : "play"}
+                      size={18}
+                      color="#fff"
+                    />
+                  </TouchableOpacity>
+                </Animated.View>
               </>
             )}
           </View>
