@@ -4,6 +4,7 @@ import { NavigationContainer, DarkTheme } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { PaperProvider } from "react-native-paper";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import * as Font from "expo-font";
 import * as SplashScreen from "expo-splash-screen";
 import TrackPlayer from "react-native-track-player";
 
@@ -105,7 +106,7 @@ function AppContent() {
 
   const isPipActive = Boolean(isSystemPip);
 
-  const shouldHideTabBar = isPipActive || isVideoMinimized;
+  const shouldHideTabBar = isPipActive;
 
   const [activeTab, setActiveTab] = useState<'Home' | 'Search' | 'Library' | 'Videos'>('Home');
   const scrollViewRef = useRef<ScrollView>(null);
@@ -129,6 +130,11 @@ function AppContent() {
   // Consolidated init: Auth → Connectivity check → set correct state → hide splash
   useEffect(() => {
     const initialize = async () => {
+      // 0. Pre-load vector icons font
+      try {
+        await Font.loadAsync(MaterialCommunityIcons.font);
+      } catch {}
+
       // 1. Auth check (non-blocking if it fails)
       try { await checkAuth(); } catch {}
 
