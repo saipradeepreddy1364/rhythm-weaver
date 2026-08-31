@@ -1590,6 +1590,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
         if (active) {
           const eqSub = DeviceEventEmitter.addListener("EQ_SETTINGS_CHANGED", applyEQSettings);
+          const remoteDuckListener = TrackPlayer.addEventListener(
+            Event.RemoteDuck,
+            async (event) => {
+              console.log("[PlayerContext] RemoteDuck event triggered:", event);
+              if (event.paused || (event as any).ducking) {
+                try { await TrackPlayer.pause(); } catch {}
+                DeviceEventEmitter.emit("PAUSE_ACTIVE_VIDEO");
+              }
+            }
+          );
+
           queueEndedListener = TrackPlayer.addEventListener(
             Event.PlaybackQueueEnded,
             async (event) => {
