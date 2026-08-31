@@ -3,6 +3,9 @@
     "name": "Medley",
     "slug": "rhythm-weaver",
     "version": "1.0.0",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",

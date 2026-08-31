@@ -132,11 +132,11 @@ function AppContent() {
     const initialize = async () => {
       // 0. Pre-load all vector icon font aliases
       try {
+        await Font.loadAsync(MaterialCommunityIcons.font);
         await Font.loadAsync({
-          ...MaterialCommunityIcons.font,
-          "Material Design Icons": require("@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/MaterialCommunityIcons.ttf"),
-          "MaterialCommunityIcons": require("@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/MaterialCommunityIcons.ttf"),
-          "material-community": require("@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/MaterialCommunityIcons.ttf"),
+          "Material Design Icons": MaterialCommunityIcons.font,
+          "MaterialCommunityIcons": MaterialCommunityIcons.font,
+          "material-community": MaterialCommunityIcons.font,
         });
       } catch {}
 

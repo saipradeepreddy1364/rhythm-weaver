@@ -450,8 +450,15 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
           Animated.event([null, { dx: pan.x, dy: pan.y }], { useNativeDriver: false })(evt, gestureState);
         }
       },
-      onPanResponderRelease: () => {
-        initialPinchDistRef.current = null;
+      onPanResponderRelease: (evt, gestureState) => {
+        if (initialPinchDistRef.current) {
+          initialPinchDistRef.current = null;
+        } else {
+          // Single finger tap on mini player frame toggles app control buttons for 2 seconds
+          if (Math.abs(gestureState.dx) < 8 && Math.abs(gestureState.dy) < 8) {
+            togglePipControls();
+          }
+        }
         pan.flattenOffset();
       },
     })
@@ -949,7 +956,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                     adElements[a].style.setProperty('visibility', 'hidden', 'important');
                   }
 
-                  var hideCenterSelectors = [
+                  var allHideSelectors = [
                     '.ytp-large-play-button',
                     '.ytp-bezel',
                     '.ytp-bezel-text',
@@ -964,14 +971,18 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                     '.ytp-progress-bar',
                     '.ytp-progress-bar-container',
                     '.ytp-title',
-                    'a.ytp-title-link'
+                    'a.ytp-title-link',
+                    'a.ytp-youtube-button',
+                    '.ytp-watermark'
                   ];
-                  for (var s = 0; s < hideCenterSelectors.length; s++) {
-                    var parentEls = document.querySelectorAll(hideCenterSelectors[s]);
-                    for (var p = 0; p < parentEls.length; p++) {
-                      parentEls[p].style.setProperty('display', 'none', 'important');
-                      parentEls[p].style.setProperty('visibility', 'hidden', 'important');
-                      parentEls[p].style.setProperty('opacity', '0', 'important');
+                  for (var h = 0; h < allHideSelectors.length; h++) {
+                    var hideEls = document.querySelectorAll(allHideSelectors[h]);
+                    for (var hd = 0; hd < hideEls.length; hd++) {
+                      hideEls[hd].style.setProperty('display', 'none', 'important');
+                      hideEls[hd].style.setProperty('visibility', 'hidden', 'important');
+                      hideEls[hd].style.setProperty('opacity', '0', 'important');
+                      hideEls[hd].style.setProperty('transform', 'scale(0)', 'important');
+                      hideEls[hd].style.setProperty('-webkit-transform', 'scale(0)', 'important');
                     }
                   }
                   var iframes = document.querySelectorAll('iframe');
@@ -979,19 +990,21 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                     try {
                       var doc = iframes[f].contentDocument || (iframes[f].contentWindow && iframes[f].contentWindow.document);
                       if (doc) {
-                        for (var s2 = 0; s2 < hideCenterSelectors.length; s2++) {
-                          var childEls = doc.querySelectorAll(hideCenterSelectors[s2]);
+                        for (var s2 = 0; s2 < allHideSelectors.length; s2++) {
+                          var childEls = doc.querySelectorAll(allHideSelectors[s2]);
                           for (var c = 0; c < childEls.length; c++) {
                             childEls[c].style.setProperty('display', 'none', 'important');
                             childEls[c].style.setProperty('visibility', 'hidden', 'important');
                             childEls[c].style.setProperty('opacity', '0', 'important');
+                            childEls[c].style.setProperty('transform', 'scale(0)', 'important');
+                            childEls[c].style.setProperty('-webkit-transform', 'scale(0)', 'important');
                           }
                         }
                       }
                     } catch(e) {}
                   }
                 } catch(e) {}
-              }, 50);
+              }, 20);
 
               function handleMessageEvent(e) {
                 try {
@@ -1335,76 +1348,83 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
             {/* Minimized Quick Control Badges & YouTube Touch/Link Blocker */}
             {isMinimized && !isSystemPipActive && (
               <>
-                {/* Black Letterbox Mask Top (height 38) & Bottom (height 34) to 100% cover YouTube title bar, channel avatar, and YouTube logo link */}
-                <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 38, backgroundColor: '#000', zIndex: 10 }} pointerEvents="none" />
-                <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 34, backgroundColor: '#000', zIndex: 10 }} pointerEvents="none" />
+                {/* Black Letterbox Mask Top (10%) & Bottom (8%) to cleanly cover YouTube header/footer without squishing the 16:9 video */}
+                <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '10%', backgroundColor: '#000', zIndex: 10 }} pointerEvents="none" />
+                <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '8%', backgroundColor: '#000', zIndex: 10 }} pointerEvents="none" />
 
-                {/* ALWAYS VISIBLE APP QUICK CONTROLS: Expand Fullscreen, Close X */}
-                <Animated.View
-                  style={[
-                    styles.pipTopControls,
-                    {
-                      zIndex: 50,
-                      elevation: 50,
-                    },
-                  ]}
-                  pointerEvents="box-none"
-                >
-                  <TouchableOpacity
-                    delayPressIn={0}
-                    onPress={() => {
-                      setIsMinimized(false);
-                      DeviceEventEmitter.emit("NAVIGATE_TO_TAB", "Videos");
-                    }}
-                    style={styles.pipIconBadge}
-                    activeOpacity={0.7}
-                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                  >
-                    <MaterialCommunityIcons name="arrow-expand" size={16} color="#fff" />
-                  </TouchableOpacity>
+                {/* APP QUICK CONTROLS: ONLY VISIBLE WHEN USER TOUCHES / TAPS THE MINI PLAYER FRAME */}
+                {showPipControls && (
+                  <>
+                    {/* Top-Right Controls: Expand Fullscreen, Close X */}
+                    <Animated.View
+                      style={[
+                        styles.pipTopControls,
+                        {
+                          zIndex: 50,
+                          elevation: 50,
+                          transform: [{ scale: Animated.divide(1, pinchScale) }],
+                        },
+                      ]}
+                      pointerEvents="box-none"
+                    >
+                      <TouchableOpacity
+                        delayPressIn={0}
+                        onPress={() => {
+                          setIsMinimized(false);
+                          DeviceEventEmitter.emit("NAVIGATE_TO_TAB", "Videos");
+                        }}
+                        style={styles.pipIconBadge}
+                        activeOpacity={0.7}
+                        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                      >
+                        <MaterialCommunityIcons name="arrow-expand" size={16} color="#fff" />
+                      </TouchableOpacity>
 
-                  <TouchableOpacity
-                    delayPressIn={0}
-                    onPress={() => {
-                      setActiveVideo(null);
-                      setIsMinimized(false);
-                    }}
-                    style={styles.pipIconBadge}
-                    activeOpacity={0.7}
-                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                  >
-                    <MaterialCommunityIcons name="close" size={16} color="#fff" />
-                  </TouchableOpacity>
-                </Animated.View>
+                      <TouchableOpacity
+                        delayPressIn={0}
+                        onPress={() => {
+                          setActiveVideo(null);
+                          setIsMinimized(false);
+                        }}
+                        style={styles.pipIconBadge}
+                        activeOpacity={0.7}
+                        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                      >
+                        <MaterialCommunityIcons name="close" size={16} color="#fff" />
+                      </TouchableOpacity>
+                    </Animated.View>
 
-                {/* ALWAYS VISIBLE APP QUICK CONTROL: Bottom-Center Play / Pause */}
-                <Animated.View
-                  style={[
-                    styles.pipBottomControls,
-                    {
-                      zIndex: 50,
-                      elevation: 50,
-                    },
-                  ]}
-                  pointerEvents="box-none"
-                >
-                  <TouchableOpacity
-                    delayPressIn={0}
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      handleTogglePipPlay();
-                    }}
-                    style={styles.pipPlayIconBadge}
-                    activeOpacity={0.7}
-                    hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
-                  >
-                    <MaterialCommunityIcons
-                      name={isPipPlaying ? "pause" : "play"}
-                      size={18}
-                      color="#fff"
-                    />
-                  </TouchableOpacity>
-                </Animated.View>
+                    {/* Bottom-Center Control: Play / Pause */}
+                    <Animated.View
+                      style={[
+                        styles.pipBottomControls,
+                        {
+                          zIndex: 50,
+                          elevation: 50,
+                          transform: [{ scale: Animated.divide(1, pinchScale) }],
+                        },
+                      ]}
+                      pointerEvents="box-none"
+                    >
+                      <TouchableOpacity
+                        delayPressIn={0}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          handleTogglePipPlay();
+                        }}
+                        style={styles.pipPlayIconBadge}
+                        activeOpacity={0.7}
+                        hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
+                      >
+                        <MaterialCommunityIcons
+                          name={isPipPlaying ? "pause" : "play"}
+                          size={18}
+                          color="#fff"
+                        />
+                      </TouchableOpacity>
+                    </Animated.View>
+                  </>
+                )}
               </>
             )}
           </View>
