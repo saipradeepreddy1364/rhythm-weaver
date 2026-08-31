@@ -346,34 +346,42 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
   }, []);
 
   const handleTogglePipPlay = useCallback(() => {
+    try {
+      TrackPlayer.pause().catch(() => {});
+    } catch {}
     setIsPipPlaying((prev) => {
       const nextState = !prev;
       try {
         webViewRef.current?.injectJavaScript(`
           (function() {
+            var targetState = ${nextState};
             if (typeof window.toggleVideoPlayback === 'function') {
-              window.toggleVideoPlayback(${nextState});
-            } else {
-              var cmd = ${nextState} ? 'playVideo' : 'pauseVideo';
-              var iframes = document.querySelectorAll('iframe');
-              for (var i = 0; i < iframes.length; i++) {
-                try {
-                  iframes[i].contentWindow.postMessage(JSON.stringify({ event: 'command', func: cmd, args: [] }), '*');
-                } catch(e) {}
-              }
-              if (typeof player !== 'undefined' && player) {
-                if (${nextState} && typeof player.playVideo === 'function') player.playVideo();
-                if (!${nextState} && typeof player.pauseVideo === 'function') player.pauseVideo();
-              }
-              var vids = document.querySelectorAll('video');
-              for (var j = 0; j < vids.length; j++) {
-                if (${nextState}) {
+              window.toggleVideoPlayback(targetState);
+            }
+            if (typeof player !== 'undefined' && player) {
+              try {
+                if (targetState && typeof player.playVideo === 'function') player.playVideo();
+                if (!targetState && typeof player.pauseVideo === 'function') player.pauseVideo();
+              } catch(e) {}
+            }
+            var iframes = document.querySelectorAll('iframe');
+            for (var i = 0; i < iframes.length; i++) {
+              try {
+                var cmd = targetState ? 'playVideo' : 'pauseVideo';
+                iframes[i].contentWindow.postMessage(JSON.stringify({ event: 'command', func: cmd, args: [] }), '*');
+                iframes[i].contentWindow.postMessage(JSON.stringify({ 'event': 'listening', 'id': 1 }), '*');
+              } catch(e) {}
+            }
+            var vids = document.querySelectorAll('video');
+            for (var j = 0; j < vids.length; j++) {
+              try {
+                if (targetState) {
                   var p = vids[j].play();
                   if (p && typeof p.catch === 'function') p.catch(function(){});
                 } else {
                   vids[j].pause();
                 }
-              }
+              } catch(e) {}
             }
           })();
           true;
@@ -402,13 +410,13 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
 
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => isMinimized && !isSystemPipActive,
+      onStartShouldSetPanResponder: () => isMinimized,
       onStartShouldSetPanResponderCapture: () => false,
       onMoveShouldSetPanResponder: (evt, gestureState) => {
-        return isMinimized && !isSystemPipActive && (Math.abs(gestureState.dx) > 2 || Math.abs(gestureState.dy) > 2 || (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2));
+        return isMinimized && (Math.abs(gestureState.dx) > 1 || Math.abs(gestureState.dy) > 1 || (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2));
       },
       onMoveShouldSetPanResponderCapture: (evt, gestureState) => {
-        return isMinimized && !isSystemPipActive && (Math.abs(gestureState.dx) > 2 || Math.abs(gestureState.dy) > 2 || (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2));
+        return isMinimized && (Math.abs(gestureState.dx) > 1 || Math.abs(gestureState.dy) > 1 || (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2));
       },
       onPanResponderGrant: (evt) => {
         if (evt.nativeEvent.touches && evt.nativeEvent.touches.length === 2) {
@@ -1131,7 +1139,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
           }
           {...(isMinimized && !isSystemPipActive ? panResponder.panHandlers : {})}
         >
-          {!isMinimized && !isSystemPipActive && (
+          {!isMinimized && (
             /* Full Screen Header */
             <View style={styles.modalHeader}>
               <TouchableOpacity delayPressIn={0} onPress={() => setIsMinimized(true)} style={styles.closeBtn}>
@@ -1219,13 +1227,22 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
               )
             )}
 
-            {/* Overlaid Minimized Quick Controls (Expand / Close on Top Right, Play/Pause at Bottom Center) */}
+            {/* Overlaid Minimized Quick Controls & YouTube Touch/Link Blocker */}
             {isMinimized && !isSystemPipActive && (
               <>
+                {/* Black Letterbox Mask Top (height 38) & Bottom (height 34) to 100% cover YouTube title bar, channel avatar, and YouTube logo link */}
+                <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 38, backgroundColor: '#000', zIndex: 10 }} pointerEvents="none" />
+                <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 34, backgroundColor: '#000', zIndex: 10 }} pointerEvents="none" />
+
+                {/* Touch Blocker View over YouTube iFrame to 100% prevent external clicks to YouTube */}
+                <View style={[StyleSheet.absoluteFillObject, { zIndex: 5 }]} pointerEvents="auto" />
+
                 <Animated.View
                   style={[
                     styles.pipTopControls,
                     {
+                      zIndex: 50,
+                      elevation: 50,
                       transform: [{ scale: Animated.divide(1, pinchScale) }],
                     },
                   ]}
@@ -1239,6 +1256,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                     }}
                     style={styles.pipIconBadge}
                     activeOpacity={0.8}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   >
                     <MaterialCommunityIcons name="arrow-expand" size={16} color="#fff" />
                   </TouchableOpacity>
@@ -1251,6 +1269,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                     }}
                     style={styles.pipIconBadge}
                     activeOpacity={0.8}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   >
                     <MaterialCommunityIcons name="close" size={16} color="#fff" />
                   </TouchableOpacity>
@@ -1260,6 +1279,8 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                   style={[
                     styles.pipBottomControls,
                     {
+                      zIndex: 50,
+                      elevation: 50,
                       transform: [{ scale: Animated.divide(1, pinchScale) }],
                     },
                   ]}
@@ -1267,9 +1288,13 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                 >
                   <TouchableOpacity
                     delayPressIn={0}
-                    onPress={handleTogglePipPlay}
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      handleTogglePipPlay();
+                    }}
                     style={styles.pipPlayIconBadge}
-                    activeOpacity={0.8}
+                    activeOpacity={0.7}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                   >
                     <MaterialCommunityIcons
                       name={isPipPlaying ? "pause" : "play"}
@@ -1282,7 +1307,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
             )}
           </View>
 
-          {!isMinimized && !isSystemPipActive && (
+          {!isMinimized && (
             /* Full Screen Player Body (Up Next Songs & Info) */
             <ScrollView style={styles.modalBody} contentContainerStyle={{ padding: 16 }}>
               <Text style={styles.infoHeading}>{activeVideo.title}</Text>
