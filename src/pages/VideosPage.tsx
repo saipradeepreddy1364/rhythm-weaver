@@ -490,8 +490,8 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
               baseWidthRef.current = pipWidthRef.current;
             } else {
               const scale = dist / initialPinchDistRef.current;
-              const targetWidth = (baseWidthRef.current || 175) * scale;
-              const clampedWidth = Math.max(130, Math.min(width - 20, Math.round(targetWidth)));
+              const targetWidth = (baseWidthRef.current || 210) * scale;
+              const clampedWidth = Math.max(140, Math.min(windowWidth - 16, Math.round(targetWidth)));
               setPipWidth(clampedWidth);
             }
           }
@@ -1507,6 +1507,12 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                                 transform: scale(0) !important;
                                 -webkit-transform: scale(0) !important;
                               }
+                              video {
+                                width: 100% !important;
+                                height: 100% !important;
+                                object-fit: cover !important;
+                                object-position: center !important;
+                              }
                             \`;
                           } else {
                             style.textContent = \`
@@ -1599,13 +1605,13 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                             var els = document.querySelectorAll(selectors[i]);
                             for (var j = 0; j < els.length; j++) {
                               try {
-                                els[j].style.setProperty('display', 'none', 'important');
-                                els[j].style.setProperty('visibility', 'hidden', 'important');
-                                els[j].style.setProperty('opacity', '0', 'important');
-                                els[j].style.setProperty('pointer-events', 'none', 'important');
-                                els[j].style.setProperty('transform', 'scale(0)', 'important');
-                                els[j].style.setProperty('-webkit-transform', 'scale(0)', 'important');
-                              } catch(err) {}
+                                els[j].remove();
+                              } catch(err) {
+                                try {
+                                  els[j].style.setProperty('display', 'none', 'important');
+                                  els[j].style.setProperty('visibility', 'hidden', 'important');
+                                } catch(e) {}
+                              }
                             }
                           }
                         } catch(e) {}
@@ -1665,9 +1671,6 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
             {/* Minimized Quick Control Badges & YouTube Touch/Link Blocker */}
             {isMinimized && !isSystemPipActive && (
               <>
-                {/* Black Letterbox Mask Top (18%) & Bottom (18%) to cleanly cover YouTube header/footer & progress bar without squishing the 16:9 video */}
-                <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '18%', backgroundColor: '#000', zIndex: 15 }} pointerEvents="none" />
-                <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '18%', backgroundColor: '#000', zIndex: 15 }} pointerEvents="none" />
 
                 {/* Full Frame Touch Overlay to Toggle Controls & Expand to Videos Page on Tap */}
                 <TouchableOpacity

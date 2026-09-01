@@ -66,6 +66,7 @@ module.exports = function withAndroidPip(config) {
     super.onTaskRemoved(rootIntent)
     try {
       finishAndRemoveTask()
+      android.os.Process.killProcess(android.os.Process.myPid())
     } catch (e: Exception) {
       try { finish() } catch (err: Exception) {}
     }
