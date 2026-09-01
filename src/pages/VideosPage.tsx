@@ -1496,7 +1496,6 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                   javaScriptEnabled={true}
                   domStorageEnabled={true}
                   androidLayerType="hardware"
-                  mixedContentMode="always"
                   playInBackground={true}
                   injectedJavaScriptForMainFrameOnly={false}
                   injectedJavaScript={`
@@ -1674,21 +1673,23 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                               } catch(err) {}
                             }
                           }
-                          // 1. Auto-skip Video Ads & fast-forward ad playback
-                          var skipBtn = document.querySelector('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button, .ytp-ad-skip-button-container');
+                          // 1. Auto-skip Video Ads & 16x fast-forward ad playback
+                          var skipBtn = document.querySelector('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button, .ytp-ad-skip-button-container, .ytp-ad-preview-container');
                           if (skipBtn) {
                             try { skipBtn.click(); } catch(e) {}
                           }
-                          var adShowing = document.querySelector('.ad-interrupting, .ad-showing, .video-ads, .ytp-ad-player-overlay');
-                          if (adShowing) {
-                            var adVids = document.querySelectorAll('video');
-                            for (var k = 0; k < adVids.length; k++) {
-                              try {
+                          var adShowing = document.querySelector('.ad-interrupting, .ad-showing, .video-ads, .ytp-ad-player-overlay, .ytp-ad-module');
+                          var adVids = document.querySelectorAll('video');
+                          for (var k = 0; k < adVids.length; k++) {
+                            try {
+                              if (adShowing || adVids[k].classList.contains('ad-showing')) {
+                                adVids[k].muted = true;
+                                adVids[k].playbackRate = 16.0;
                                 if (!isNaN(adVids[k].duration) && adVids[k].currentTime < adVids[k].duration) {
-                                  adVids[k].currentTime = adVids[k].duration - 0.1;
+                                  adVids[k].currentTime = adVids[k].duration - 0.001;
                                 }
-                              } catch(e) {}
-                            }
+                              }
+                            } catch(e) {}
                           }
                           // 2. Remove unwanted ad & control overlays
                           var selectors = [
