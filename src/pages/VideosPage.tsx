@@ -375,6 +375,8 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
   }, []);
 
   const isSystemPipActive = Boolean(isSystemPipProp || isSystemPip);
+  const isSystemPipRef = useRef(false);
+  isSystemPipRef.current = isSystemPipActive;
 
   const pipControlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const webViewRef = useRef<any>(null);
@@ -560,14 +562,16 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
     } catch {}
   }, [isMinimized]);
 
-  // Pause video on incoming phone calls, WhatsApp calls, or background transitions
+  // Pause video on incoming phone calls, WhatsApp calls, or background transitions (unless System PiP is active)
   useEffect(() => {
     const appStateSub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'background' || nextState === 'inactive') {
-        if (webViewRef.current) {
-          webViewRef.current.postMessage(JSON.stringify({ type: 'TOGGLE_PLAY', play: false }));
+        if (!isSystemPipRef.current) {
+          if (webViewRef.current) {
+            webViewRef.current.postMessage(JSON.stringify({ type: 'TOGGLE_PLAY', play: false }));
+          }
+          setIsPipPlaying(false);
         }
-        setIsPipPlaying(false);
       }
     });
 
@@ -827,8 +831,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
               * { box-sizing: border-box; margin: 0; padding: 0; }
               body, html { background-color: #000; width: 100%; height: 100%; overflow: hidden; display: flex; align-items: center; justify-content: center; }
               .player-wrapper { position: relative; width: 100%; height: 100%; overflow: hidden; background: #000; }
-              /* Container Cropping: Shift iframe up by 38px and expand height to clip top Share/Title bar and bottom YouTube logo overflow */
-              #player, iframe { position: absolute; top: -38px; left: 0; width: 100%; height: calc(100% + 48px); border: none; }
+              #player, iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; }
               /* 100% Zero-Ad Youtube CSS Rules */
               .ytp-ad-module, .ytp-ad-overlay-container, .ytp-ad-message-container,
               .ytp-ad-preview-container, .ytp-ad-skip-button-slot, .ytp-ad-text,
@@ -1501,6 +1504,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                               body:not(.is-minimized) .ytp-settings-button,
                               body:not(.is-minimized) .ytp-subtitles-button,
                               body:not(.is-minimized) .ytp-chrome-bottom,
+                              body:not(.is-minimized) .ytp-right-controls,
                               body:not(.is-minimized) .ytp-progress-bar-container,
                               body:not(.is-minimized) .ytp-progress-bar,
                               body:not(.is-minimized) .ytp-play-button {
@@ -1563,9 +1567,9 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
             {/* Minimized Quick Control Badges & YouTube Touch/Link Blocker */}
             {isMinimized && !isSystemPipActive && (
               <>
-                {/* Black Letterbox Mask Top (10%) & Bottom (8%) to cleanly cover YouTube header/footer without squishing the 16:9 video */}
-                <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '10%', backgroundColor: '#000', zIndex: 10 }} pointerEvents="none" />
-                <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '8%', backgroundColor: '#000', zIndex: 10 }} pointerEvents="none" />
+                {/* Black Letterbox Mask Top (16%) & Bottom (16%) to cleanly cover YouTube header/footer & progress bar without squishing the 16:9 video */}
+                <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '16%', backgroundColor: '#000', zIndex: 15 }} pointerEvents="none" />
+                <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '16%', backgroundColor: '#000', zIndex: 15 }} pointerEvents="none" />
 
                 {/* Full Frame Touch Overlay to Toggle Controls Visibility on Tap */}
                 <TouchableOpacity
