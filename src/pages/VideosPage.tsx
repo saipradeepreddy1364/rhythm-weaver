@@ -352,11 +352,21 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
     if (webViewRef.current) {
       try {
         webViewRef.current.injectJavaScript(`
-          if (${isMinimized}) {
-            document.body.classList.add('is-minimized');
-          } else {
-            document.body.classList.remove('is-minimized');
-          }
+          (function() {
+            if (${isMinimized}) {
+              document.body.classList.add('is-minimized');
+              var b = document.querySelector('.ytp-chrome-bottom');
+              if (b) b.style.setProperty('display', 'none', 'important');
+              var p = document.querySelector('.ytp-progress-bar-container');
+              if (p) p.style.setProperty('display', 'none', 'important');
+            } else {
+              document.body.classList.remove('is-minimized');
+              var b2 = document.querySelector('.ytp-chrome-bottom');
+              if (b2) b2.style.setProperty('display', 'block', 'important');
+              var p2 = document.querySelector('.ytp-progress-bar-container');
+              if (p2) p2.style.setProperty('display', 'block', 'important');
+            }
+          })();
           true;
         `);
       } catch (err) {}
@@ -562,19 +572,8 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
     } catch {}
   }, [isMinimized]);
 
-  // Pause video on incoming phone calls, WhatsApp calls, or background transitions (unless System PiP is active)
+  // Video playback continues playing when minimizing app (phone calls / explicit pause events trigger PAUSE_ACTIVE_VIDEO)
   useEffect(() => {
-    const appStateSub = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'background' || nextState === 'inactive') {
-        if (!isSystemPipRef.current) {
-          if (webViewRef.current) {
-            webViewRef.current.postMessage(JSON.stringify({ type: 'TOGGLE_PLAY', play: false }));
-          }
-          setIsPipPlaying(false);
-        }
-      }
-    });
-
     const pauseSub1 = DeviceEventEmitter.addListener("PAUSE_ACTIVE_VIDEO", () => {
       if (webViewRef.current) {
         webViewRef.current.postMessage(JSON.stringify({ type: 'TOGGLE_PLAY', play: false }));
@@ -590,7 +589,6 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
     });
 
     return () => {
-      appStateSub.remove();
       pauseSub1.remove();
       pauseSub2.remove();
     };
@@ -831,7 +829,8 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
               * { box-sizing: border-box; margin: 0; padding: 0; }
               body, html { background-color: #000; width: 100%; height: 100%; overflow: hidden; display: flex; align-items: center; justify-content: center; }
               .player-wrapper { position: relative; width: 100%; height: 100%; overflow: hidden; background: #000; }
-              #player, iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; }
+              /* Container Cropping: Shift iframe up by 50px and expand height to physically clip off top Share/Title bar and bottom YouTube logo overflow */
+              #player, iframe { position: absolute; top: -50px; left: 0; width: 100%; height: calc(100% + 60px); border: none; }
               /* 100% Zero-Ad Youtube CSS Rules */
               .ytp-ad-module, .ytp-ad-overlay-container, .ytp-ad-message-container,
               .ytp-ad-preview-container, .ytp-ad-skip-button-slot, .ytp-ad-text,
@@ -1567,15 +1566,19 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
             {/* Minimized Quick Control Badges & YouTube Touch/Link Blocker */}
             {isMinimized && !isSystemPipActive && (
               <>
-                {/* Black Letterbox Mask Top (16%) & Bottom (16%) to cleanly cover YouTube header/footer & progress bar without squishing the 16:9 video */}
-                <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '16%', backgroundColor: '#000', zIndex: 15 }} pointerEvents="none" />
-                <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '16%', backgroundColor: '#000', zIndex: 15 }} pointerEvents="none" />
+                {/* Black Letterbox Mask Top (18%) & Bottom (18%) to cleanly cover YouTube header/footer & progress bar without squishing the 16:9 video */}
+                <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '18%', backgroundColor: '#000', zIndex: 15 }} pointerEvents="none" />
+                <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '18%', backgroundColor: '#000', zIndex: 15 }} pointerEvents="none" />
 
-                {/* Full Frame Touch Overlay to Toggle Controls Visibility on Tap */}
+                {/* Full Frame Touch Overlay to Toggle Controls & Expand to Videos Page on Tap */}
                 <TouchableOpacity
                   activeOpacity={1}
                   delayPressIn={0}
-                  onPress={togglePipControls}
+                  onPress={() => {
+                    togglePipControls();
+                    setIsMinimized(false);
+                    DeviceEventEmitter.emit("NAVIGATE_TO_TAB", "Videos");
+                  }}
                   style={{
                     position: 'absolute',
                     top: 0,

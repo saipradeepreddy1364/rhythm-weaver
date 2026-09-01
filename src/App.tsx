@@ -154,10 +154,13 @@ function AppContent() {
         offline = true;
       }
 
-      // 3. Set correct state BEFORE revealing the UI
+      // 3. Set correct state BEFORE revealing the UI (compulsorily open Home tab on fresh boot)
       if (offline) {
         setIsOffline(true);
         setActiveTab('Library');
+      } else {
+        setIsOffline(false);
+        setActiveTab('Home');
       }
 
       // 4. Un-hide the app (the correct layout is already in state)
