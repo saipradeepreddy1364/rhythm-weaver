@@ -888,6 +888,13 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                 pointer-events: none !important;
                 transform: scale(0) !important;
                 -webkit-transform: scale(0) !important;
+              body.is-minimized #player,
+              body.is-minimized iframe {
+                width: 100% !important;
+                height: 100% !important;
+                transform: scale(1.65) !important;
+                -webkit-transform: scale(1.65) !important;
+                transform-origin: center center !important;
               }
               /* Explicitly keep Settings gear button, Subtitles/Captions CC button, Progress bar, and Bottom controls ENABLED & VISIBLE in Full Screen */
               body:not(.is-minimized) .ytp-settings-button,
@@ -1549,7 +1556,12 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                                 transform: scale(0) !important;
                                 -webkit-transform: scale(0) !important;
                               }
-                              video, .html5-main-video, .html5-video-player, #player, iframe {
+                              video, .html5-main-video, .html5-video-container, #player, iframe {
+                                position: absolute !important;
+                                top: 0 !important;
+                                left: 0 !important;
+                                margin: 0 !important;
+                                padding: 0 !important;
                                 width: 100% !important;
                                 height: 100% !important;
                                 max-width: 100% !important;
@@ -1558,8 +1570,8 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                                 object-position: center center !important;
                               }
                               video, .html5-main-video {
-                                transform: scale(1.55) !important;
-                                -webkit-transform: scale(1.55) !important;
+                                transform: scale(1.65) !important;
+                                -webkit-transform: scale(1.65) !important;
                                 transform-origin: center center !important;
                               }
                             \`;
@@ -1622,15 +1634,43 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                       function purgeElements() {
                         try {
                           if (isMinMode) {
-                            var vidsToScale = document.querySelectorAll('video');
+                            var vidsToScale = document.querySelectorAll('video, .html5-main-video, .html5-video-container');
                             for (var vs = 0; vs < vidsToScale.length; vs++) {
                               try {
+                                vidsToScale[vs].style.setProperty('top', '0px', 'important');
+                                vidsToScale[vs].style.setProperty('left', '0px', 'important');
+                                vidsToScale[vs].style.setProperty('margin', '0px', 'important');
+                                vidsToScale[vs].style.setProperty('padding', '0px', 'important');
                                 vidsToScale[vs].style.setProperty('object-fit', 'cover', 'important');
                                 vidsToScale[vs].style.setProperty('width', '100%', 'important');
                                 vidsToScale[vs].style.setProperty('height', '100%', 'important');
-                                vidsToScale[vs].style.setProperty('transform', 'scale(1.55)', 'important');
-                                vidsToScale[vs].style.setProperty('-webkit-transform', 'scale(1.55)', 'important');
+                                vidsToScale[vs].style.setProperty('transform', 'scale(1.65)', 'important');
+                                vidsToScale[vs].style.setProperty('-webkit-transform', 'scale(1.65)', 'important');
                                 vidsToScale[vs].style.setProperty('transform-origin', 'center center', 'important');
+                                if (!vidsToScale[vs].__scale_obs) {
+                                  vidsToScale[vs].__scale_obs = true;
+                                  var obs = new MutationObserver(function() {
+                                    var bMin = document.body && document.body.classList.contains('is-minimized');
+                                    if (bMin) {
+                                      var allV = document.querySelectorAll('video, .html5-main-video, .html5-video-container');
+                                      for (var av = 0; av < allV.length; av++) {
+                                        try {
+                                          allV[av].style.setProperty('top', '0px', 'important');
+                                          allV[av].style.setProperty('left', '0px', 'important');
+                                          allV[av].style.setProperty('margin', '0px', 'important');
+                                          allV[av].style.setProperty('padding', '0px', 'important');
+                                          allV[av].style.setProperty('object-fit', 'cover', 'important');
+                                          allV[av].style.setProperty('width', '100%', 'important');
+                                          allV[av].style.setProperty('height', '100%', 'important');
+                                          allV[av].style.setProperty('transform', 'scale(1.65)', 'important');
+                                          allV[av].style.setProperty('-webkit-transform', 'scale(1.65)', 'important');
+                                          allV[av].style.setProperty('transform-origin', 'center center', 'important');
+                                        } catch(errObs) {}
+                                      }
+                                    }
+                                  });
+                                  obs.observe(vidsToScale[vs], { attributes: true, attributeFilter: ['style', 'class'] });
+                                }
                               } catch(err) {}
                             }
                           }
