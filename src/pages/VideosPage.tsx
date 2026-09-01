@@ -1549,11 +1549,18 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                                 transform: scale(0) !important;
                                 -webkit-transform: scale(0) !important;
                               }
-                              video {
+                              video, .html5-main-video, .html5-video-player, #player, iframe {
                                 width: 100% !important;
                                 height: 100% !important;
+                                max-width: 100% !important;
+                                max-height: 100% !important;
                                 object-fit: cover !important;
-                                object-position: center !important;
+                                object-position: center center !important;
+                              }
+                              video, .html5-main-video {
+                                transform: scale(1.55) !important;
+                                -webkit-transform: scale(1.55) !important;
+                                transform-origin: center center !important;
                               }
                             \`;
                           } else {
@@ -1614,7 +1621,50 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
 
                       function purgeElements() {
                         try {
+                          if (isMinMode) {
+                            var vidsToScale = document.querySelectorAll('video');
+                            for (var vs = 0; vs < vidsToScale.length; vs++) {
+                              try {
+                                vidsToScale[vs].style.setProperty('object-fit', 'cover', 'important');
+                                vidsToScale[vs].style.setProperty('width', '100%', 'important');
+                                vidsToScale[vs].style.setProperty('height', '100%', 'important');
+                                vidsToScale[vs].style.setProperty('transform', 'scale(1.55)', 'important');
+                                vidsToScale[vs].style.setProperty('-webkit-transform', 'scale(1.55)', 'important');
+                                vidsToScale[vs].style.setProperty('transform-origin', 'center center', 'important');
+                              } catch(err) {}
+                            }
+                          }
+                          // 1. Auto-skip Video Ads & fast-forward ad playback
+                          var skipBtn = document.querySelector('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button, .ytp-ad-skip-button-container');
+                          if (skipBtn) {
+                            try { skipBtn.click(); } catch(e) {}
+                          }
+                          var adShowing = document.querySelector('.ad-interrupting, .ad-showing, .video-ads, .ytp-ad-player-overlay');
+                          if (adShowing) {
+                            var adVids = document.querySelectorAll('video');
+                            for (var k = 0; k < adVids.length; k++) {
+                              try {
+                                if (!isNaN(adVids[k].duration) && adVids[k].currentTime < adVids[k].duration) {
+                                  adVids[k].currentTime = adVids[k].duration - 0.1;
+                                }
+                              } catch(e) {}
+                            }
+                          }
+                          // 2. Remove unwanted ad & control overlays
                           var selectors = [
+                            '.ytp-ad-module',
+                            '.ytp-ad-overlay-container',
+                            '.ytp-ad-message-container',
+                            '.ytp-ad-preview-container',
+                            '.ytp-ad-skip-button-slot',
+                            '.ytp-ad-text',
+                            '.video-ads',
+                            '.ytp-ad-player-overlay',
+                            '.ytp-ad-image-overlay',
+                            '.annotation',
+                            '.ytp-paid-content-overlay',
+                            '.ytp-ad-action-interstitial',
+                            '.ytp-ad-overlay-slot',
                             '.ytp-share-button',
                             '.ytp-share-panel',
                             '.ytp-share-panel-link',
