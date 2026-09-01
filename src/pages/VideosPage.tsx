@@ -292,13 +292,13 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const { currentSong } = usePlayer();
 
-  // Sync activeVideo with currentSong playing in PlayerContext so video & mini player always match the real song
+  // Sync activeVideo with currentSong only when a video is already active in the current session
   useEffect(() => {
-    if (currentSong && currentSong.title) {
+    if (activeVideo && currentSong && currentSong.title) {
       const currentTitleKey = normalizeSongTitle(currentSong.title, currentSong.movie || currentSong.album);
-      const activeTitleKey = activeVideo ? normalizeSongTitle(activeVideo.title, "") : "";
+      const activeTitleKey = normalizeSongTitle(activeVideo.title, "");
 
-      if (!activeVideo || currentTitleKey !== activeTitleKey) {
+      if (currentTitleKey !== activeTitleKey) {
         let ytId = currentSong.id?.startsWith("yt-") ? currentSong.id.replace("yt-", "") : "";
         if (!ytId && currentSong.audioUrl?.includes("youtube://")) {
           ytId = currentSong.audioUrl.replace("youtube://", "");
@@ -312,25 +312,6 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
             artist: currentSong.artist || "YouTube",
             thumbnail: currentSong.albumArt || `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`,
             duration: currentSong.duration,
-          });
-        } else {
-          getYouTubeVideoId(currentSong.title, currentSong.artist || "").then((resolvedId) => {
-            if (resolvedId) {
-              setActiveVideo((prev) => {
-                const prevKey = prev ? normalizeSongTitle(prev.title, "") : "";
-                if (!prev || prevKey !== currentTitleKey) {
-                  return {
-                    id: `yt_${resolvedId}`,
-                    videoId: resolvedId,
-                    title: currentSong.title,
-                    artist: currentSong.artist || "YouTube",
-                    thumbnail: currentSong.albumArt || `https://i.ytimg.com/vi/${resolvedId}/hqdefault.jpg`,
-                    duration: currentSong.duration,
-                  };
-                }
-                return prev;
-              });
-            }
           });
         }
       }
@@ -351,21 +332,17 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
     DeviceEventEmitter.emit("VIDEO_MINIMIZED_CHANGED", isMinimized);
     if (webViewRef.current) {
       try {
+        const msg = JSON.stringify({ type: 'SET_MINIMIZED', minimized: isMinimized });
+        webViewRef.current.postMessage(msg);
         webViewRef.current.injectJavaScript(`
           (function() {
-            if (${isMinimized}) {
-              document.body.classList.add('is-minimized');
-              var b = document.querySelector('.ytp-chrome-bottom');
-              if (b) b.style.setProperty('display', 'none', 'important');
-              var p = document.querySelector('.ytp-progress-bar-container');
-              if (p) p.style.setProperty('display', 'none', 'important');
-            } else {
-              document.body.classList.remove('is-minimized');
-              var b2 = document.querySelector('.ytp-chrome-bottom');
-              if (b2) b2.style.setProperty('display', 'block', 'important');
-              var p2 = document.querySelector('.ytp-progress-bar-container');
-              if (p2) p2.style.setProperty('display', 'block', 'important');
-            }
+            try {
+              window.postMessage(${msg}, '*');
+              var iframes = document.querySelectorAll('iframe');
+              for (var i = 0; i < iframes.length; i++) {
+                try { iframes[i].contentWindow.postMessage(${msg}, '*'); } catch(e) {}
+              }
+            } catch(e) {}
           })();
           true;
         `);
@@ -829,8 +806,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
               * { box-sizing: border-box; margin: 0; padding: 0; }
               body, html { background-color: #000; width: 100%; height: 100%; overflow: hidden; display: flex; align-items: center; justify-content: center; }
               .player-wrapper { position: relative; width: 100%; height: 100%; overflow: hidden; background: #000; }
-              /* Container Cropping: Shift iframe up by 50px and expand height to physically clip off top Share/Title bar and bottom YouTube logo overflow */
-              #player, iframe { position: absolute; top: -50px; left: 0; width: 100%; height: calc(100% + 60px); border: none; }
+              #player, iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; }
               /* 100% Zero-Ad Youtube CSS Rules */
               .ytp-ad-module, .ytp-ad-overlay-container, .ytp-ad-message-container,
               .ytp-ad-preview-container, .ytp-ad-skip-button-slot, .ytp-ad-text,
@@ -1460,12 +1436,63 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                   injectedJavaScriptForMainFrameOnly={false}
                   injectedJavaScript={`
                     (function() {
-                      function injectHideCSS() {
+                      var isMinMode = false;
+                      function updateFrameStyles() {
                         try {
-                          var styleId = '__yt_custom_hide_styles__';
-                          if (!document.getElementById(styleId)) {
-                            var style = document.createElement('style');
+                          var styleId = '__yt_dynamic_frame_styles__';
+                          var style = document.getElementById(styleId);
+                          if (!style) {
+                            style = document.createElement('style');
                             style.id = styleId;
+                            (document.head || document.documentElement).appendChild(style);
+                          }
+                          if (isMinMode) {
+                            style.textContent = \`
+                              .ytp-chrome-bottom,
+                              .ytp-progress-bar-container,
+                              .ytp-progress-bar,
+                              .ytp-chrome-top,
+                              .ytp-gradient-top,
+                              .ytp-gradient-bottom,
+                              .ytp-share-button,
+                              .ytp-share-panel,
+                              .ytp-share-panel-link,
+                              .ytp-show-share-title,
+                              .ytp-share-title,
+                              .ytp-pause-overlay,
+                              .ytp-pause-overlay-container,
+                              .ytp-pause-overlay-shelf,
+                              .ytp-suggestion-link,
+                              .ytp-scroll-min,
+                              .ytp-pause-overlay-controls,
+                              .ytp-ce-element,
+                              .ytp-ce-video,
+                              .ytp-ce-channel,
+                              .ytp-ce-covering-overlay,
+                              .ytp-ce-element-show,
+                              .ytp-cards-teaser,
+                              .ytp-cards-button,
+                              .ytp-youtube-button,
+                              a.ytp-youtube-button,
+                              .ytp-title-channel,
+                              .ytp-title-link,
+                              a.ytp-title-link,
+                              .ytp-watermark,
+                              .ytp-large-play-button,
+                              .ytp-settings-menu,
+                              .ytp-settings-button,
+                              .ytp-subtitles-button,
+                              .ytp-title,
+                              .ytp-c4-brand-header {
+                                display: none !important;
+                                visibility: hidden !important;
+                                opacity: 0 !important;
+                                pointer-events: none !important;
+                                transform: scale(0) !important;
+                                -webkit-transform: scale(0) !important;
+                              }
+                            \`;
+                          } else {
                             style.textContent = \`
                               .ytp-share-button,
                               .ytp-share-panel,
@@ -1513,19 +1540,71 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                                 pointer-events: auto !important;
                               }
                             \`;
-                            (document.head || document.documentElement).appendChild(style);
                           }
                         } catch (e) {}
                       }
-                      injectHideCSS();
-                      if (!window.__yt_hide_interval) {
-                        window.__yt_hide_interval = setInterval(injectHideCSS, 50);
+                      updateFrameStyles();
+                      if (!window.__yt_frame_interval) {
+                        window.__yt_frame_interval = setInterval(updateFrameStyles, 50);
                       }
+
+                      function purgeElements() {
+                        try {
+                          var selectors = [
+                            '.ytp-share-button',
+                            '.ytp-share-panel',
+                            '.ytp-share-panel-link',
+                            '.ytp-show-share-title',
+                            '.ytp-share-title',
+                            '.ytp-pause-overlay',
+                            '.ytp-pause-overlay-container',
+                            '.ytp-pause-overlay-shelf',
+                            '.ytp-suggestion-link',
+                            '.ytp-scroll-min',
+                            '.ytp-pause-overlay-controls',
+                            '.ytp-ce-element',
+                            '.ytp-ce-video',
+                            '.ytp-ce-channel',
+                            '.ytp-ce-covering-overlay',
+                            '.ytp-ce-element-show',
+                            '.ytp-cards-teaser',
+                            '.ytp-cards-button',
+                            '.ytp-youtube-button',
+                            'a.ytp-youtube-button',
+                            '.ytp-title-channel',
+                            '.ytp-title-link',
+                            'a.ytp-title-link',
+                            '.ytp-watermark',
+                            '.ytp-gradient-top',
+                            '.ytp-c4-brand-header',
+                            '.ytp-title'
+                          ];
+                          for (var i = 0; i < selectors.length; i++) {
+                            var els = document.querySelectorAll(selectors[i]);
+                            for (var j = 0; j < els.length; j++) {
+                              try {
+                                els[j].style.setProperty('display', 'none', 'important');
+                                els[j].style.setProperty('visibility', 'hidden', 'important');
+                                els[j].style.setProperty('opacity', '0', 'important');
+                                els[j].style.setProperty('pointer-events', 'none', 'important');
+                                els[j].style.setProperty('transform', 'scale(0)', 'important');
+                                els[j].style.setProperty('-webkit-transform', 'scale(0)', 'important');
+                              } catch(err) {}
+                            }
+                          }
+                        } catch(e) {}
+                      }
+                      setInterval(purgeElements, 50);
 
                       function handleCrossFrameMsg(e) {
                         try {
                           var raw = e.data;
                           var data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                          if (data && data.type === 'SET_MINIMIZED') {
+                            isMinMode = Boolean(data.minimized);
+                            updateFrameStyles();
+                            purgeElements();
+                          }
                           if (data && data.type === 'TOGGLE_PLAY') {
                             var shouldPlay = Boolean(data.play);
                             if (typeof player !== 'undefined' && player) {
@@ -1538,8 +1617,12 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                             for (var v = 0; v < vids.length; v++) {
                               try {
                                 if (shouldPlay) {
-                                  var p = vids[v].play();
-                                  if (p && typeof p.catch === 'function') p.catch(function(){});
+                                  var promise = vids[v].play();
+                                  if (promise && typeof promise.catch === 'function') {
+                                    promise.catch(function() {
+                                      try { if (typeof player !== 'undefined' && player.playVideo) player.playVideo(); } catch(e) {}
+                                    });
+                                  }
                                 } else {
                                   vids[v].pause();
                                 }

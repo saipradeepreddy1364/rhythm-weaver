@@ -19,6 +19,7 @@
       "bundleIdentifier": "com.medley.app",
       "infoPlist": {
         "UIBackgroundModes": [
+          "audio",
           "audio"
         ]
       }
@@ -42,9 +43,23 @@
         "screenLayout",
         "density",
         "uiMode",
+        "smallestScreenSize",
+        "orientation",
+        "keyboardHidden",
+        "keyboard",
+        "screenSize",
+        "locale",
+        "layoutDirection",
+        "fontScale",
+        "screenLayout",
+        "density",
+        "uiMode",
         "smallestScreenSize"
       ],
       "permissions": [
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "WAKE_LOCK",
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_MEDIA_PLAYBACK",
         "WAKE_LOCK"
@@ -59,7 +74,8 @@
     "updates": {
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
-      "fallbackToCacheTimeout": 0
+      "fallbackToCacheTimeout": 0,
+      "url": "https://u.expo.dev/07a87de4-665a-4fbe-877e-e3ec2a863c5a"
     },
     "runtimeVersion": {
       "policy": "appVersion"

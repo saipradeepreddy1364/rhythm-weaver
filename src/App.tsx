@@ -1,4 +1,4 @@
-import { View, StyleSheet, SafeAreaView, StatusBar, Dimensions, ScrollView, Text, TouchableOpacity, Platform, useWindowDimensions, DeviceEventEmitter, AppState, AppStateStatus } from 'react-native'
+import { View, StyleSheet, SafeAreaView, StatusBar, Dimensions, ScrollView, Text, TouchableOpacity, Platform, useWindowDimensions, DeviceEventEmitter, AppState, AppStateStatus, Alert } from 'react-native'
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { NavigationContainer, DarkTheme } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
@@ -6,6 +6,7 @@ import { PaperProvider } from "react-native-paper";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Font from "expo-font";
 import * as SplashScreen from "expo-splash-screen";
+import * as Updates from "expo-updates";
 import TrackPlayer from "react-native-track-player";
 
 // Register playback service for background lock screen controls
@@ -184,6 +185,28 @@ function AppContent() {
       setActiveTab(tabName);
     });
     return () => { subscription.remove(); };
+  }, []);
+
+  // Check for EAS Updates on startup and prompt user with a popup to reload when downloaded
+  useEffect(() => {
+    async function checkUpdates() {
+      if (__DEV__ || !Updates.isEnabled) return;
+      try {
+        const update = await Updates.checkForUpdateAsync();
+        if (update.isAvailable) {
+          await Updates.fetchUpdateAsync();
+          Alert.alert(
+            "Update Available",
+            "A new update has been downloaded. Would you like to restart the app now to apply the changes?",
+            [
+              { text: "Later", style: "cancel" },
+              { text: "Restart Now", onPress: () => Updates.reloadAsync() }
+            ]
+          );
+        }
+      } catch (err) {}
+    }
+    checkUpdates();
   }, []);
 
   // While initializing keep a plain dark screen visible (native splash still covers it)

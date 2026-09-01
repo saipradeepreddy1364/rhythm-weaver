@@ -62,6 +62,22 @@ module.exports = function withAndroidPip(config) {
       }
     } catch (e: Exception) {}
   }
+  override fun onTaskRemoved(rootIntent: android.content.Intent?) {
+    super.onTaskRemoved(rootIntent)
+    try {
+      finishAndRemoveTask()
+    } catch (e: Exception) {
+      try { finish() } catch (err: Exception) {}
+    }
+  }
+  override fun onDestroy() {
+    super.onDestroy()
+    try {
+      if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N && isInPictureInPictureMode) {
+        finishAndRemoveTask()
+      }
+    } catch (e: Exception) {}
+  }
 `;
       mainActivity = mainActivity.replace(/}\s*$/, `${pipSnippet}\n}`);
       config.modResults.contents = mainActivity;
