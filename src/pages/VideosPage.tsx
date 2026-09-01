@@ -352,35 +352,6 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
     setShowPipControls(false);
   }, [isMinimized]);
 
-  useEffect(() => {
-    const pipSub = DeviceEventEmitter.addListener("ON_PIP_MODE_CHANGED", (data: any) => {
-      if (data && typeof data.isInPictureInPictureMode === "boolean") {
-        setIsSystemPip(data.isInPictureInPictureMode);
-      }
-    });
-    return () => pipSub.remove();
-  }, []);
-
-  const isSystemPipActive = Boolean(isSystemPipProp || isSystemPip);
-  const isSystemPipRef = useRef(false);
-  isSystemPipRef.current = isSystemPipActive;
-
-  const pipControlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const webViewRef = useRef<any>(null);
-
-  const togglePipControls = useCallback(() => {
-    setShowPipControls((prev) => {
-      const next = !prev;
-      if (pipControlsTimeoutRef.current) clearTimeout(pipControlsTimeoutRef.current);
-      if (next) {
-        pipControlsTimeoutRef.current = setTimeout(() => {
-          setShowPipControls(false);
-        }, 2000);
-      }
-      return next;
-    });
-  }, []);
-
   const handleTogglePipPlay = useCallback((overrideState?: boolean) => {
     try {
       TrackPlayer.pause().catch(() => {});
@@ -434,6 +405,41 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
         }
       } catch (err) {}
       return nextState;
+    });
+  }, []);
+
+  useEffect(() => {
+    const pipSub = DeviceEventEmitter.addListener("ON_PIP_MODE_CHANGED", (data: any) => {
+      if (data && typeof data.isInPictureInPictureMode === "boolean") {
+        setIsSystemPip(data.isInPictureInPictureMode);
+      }
+    });
+    const playPauseSub = DeviceEventEmitter.addListener("ON_PIP_PLAY_PAUSE_PRESSED", () => {
+      handleTogglePipPlay();
+    });
+    return () => {
+      pipSub.remove();
+      playPauseSub.remove();
+    };
+  }, [handleTogglePipPlay]);
+
+  const isSystemPipActive = Boolean(isSystemPipProp || isSystemPip);
+  const isSystemPipRef = useRef(false);
+  isSystemPipRef.current = isSystemPipActive;
+
+  const pipControlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const webViewRef = useRef<any>(null);
+
+  const togglePipControls = useCallback(() => {
+    setShowPipControls((prev) => {
+      const next = !prev;
+      if (pipControlsTimeoutRef.current) clearTimeout(pipControlsTimeoutRef.current);
+      if (next) {
+        pipControlsTimeoutRef.current = setTimeout(() => {
+          setShowPipControls(false);
+        }, 2000);
+      }
+      return next;
     });
   }, []);
 
@@ -915,11 +921,26 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                 height: auto !important;
                 padding: 4px 10px !important;
               }
+              .pause-cover-panel {
+                position: absolute;
+                bottom: 30px;
+                left: 0;
+                width: 100%;
+                height: 28%;
+                background: #000;
+                z-index: 10;
+                display: none;
+                pointer-events: auto;
+              }
+              body:not(.is-minimized).is-paused .pause-cover-panel {
+                display: block !important;
+              }
             </style>
           </head>
           <body class="is-minimized">
             <div class="player-wrapper">
               <div id="player"></div>
+              <div class="pause-cover-panel"></div>
             </div>
             <script>
               var tag = document.createElement('script');
@@ -946,6 +967,13 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                   },
                   events: {
                     'onStateChange': function(event) {
+                      try {
+                        if (event.data === 1) {
+                          document.body.classList.remove('is-paused');
+                        } else if (event.data === 2 || event.data === -1 || event.data === 5) {
+                          document.body.classList.add('is-paused');
+                        }
+                      } catch(e) {}
                       if (event && window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
                         if (event.data === 1) {
                           window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_PLAYING' }));
