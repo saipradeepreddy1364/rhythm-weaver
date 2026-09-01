@@ -115,16 +115,6 @@ module.exports = function withAndroidPip(config) {
     } catch (e: Exception) {}
   }
 
-  override fun onTaskRemoved(rootIntent: android.content.Intent?) {
-    super.onTaskRemoved(rootIntent)
-    try {
-      finishAndRemoveTask()
-      android.os.Process.killProcess(android.os.Process.myPid())
-    } catch (e: Exception) {
-      try { finish() } catch (err: Exception) {}
-    }
-  }
-
   override fun onDestroy() {
     super.onDestroy()
     try {
