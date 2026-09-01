@@ -4,7 +4,8 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { WebView } from "react-native-webview";
 import { Song, mapApiSong, decodeHtmlEntities } from "../data/songs";
 import { api, extractResults } from "../services/api";
-import { useLibrary } from "../context/LibraryContext";
+import { useLibrary, normalizeSongTitle } from "../context/LibraryContext";
+import { usePlayer } from "../context/PlayerContext";
 import TrackPlayer from "react-native-track-player";
 
 const { width } = Dimensions.get("window");
@@ -289,6 +290,52 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
   const [isPipPlaying, setIsPipPlaying] = useState(true);
   const [isSystemPip, setIsSystemPip] = useState(isSystemPipProp || false);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const { currentSong } = usePlayer();
+
+  // Sync activeVideo with currentSong playing in PlayerContext so video & mini player always match the real song
+  useEffect(() => {
+    if (currentSong && currentSong.title) {
+      const currentTitleKey = normalizeSongTitle(currentSong.title, currentSong.movie || currentSong.album);
+      const activeTitleKey = activeVideo ? normalizeSongTitle(activeVideo.title, "") : "";
+
+      if (!activeVideo || currentTitleKey !== activeTitleKey) {
+        let ytId = currentSong.id?.startsWith("yt-") ? currentSong.id.replace("yt-", "") : "";
+        if (!ytId && currentSong.audioUrl?.includes("youtube://")) {
+          ytId = currentSong.audioUrl.replace("youtube://", "");
+        }
+
+        if (ytId && /^[a-zA-Z0-9_-]{11}$/.test(ytId)) {
+          setActiveVideo({
+            id: `yt_${ytId}`,
+            videoId: ytId,
+            title: currentSong.title,
+            artist: currentSong.artist || "YouTube",
+            thumbnail: currentSong.albumArt || `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`,
+            duration: currentSong.duration,
+          });
+        } else {
+          getYouTubeVideoId(currentSong.title, currentSong.artist || "").then((resolvedId) => {
+            if (resolvedId) {
+              setActiveVideo((prev) => {
+                const prevKey = prev ? normalizeSongTitle(prev.title, "") : "";
+                if (!prev || prevKey !== currentTitleKey) {
+                  return {
+                    id: `yt_${resolvedId}`,
+                    videoId: resolvedId,
+                    title: currentSong.title,
+                    artist: currentSong.artist || "YouTube",
+                    thumbnail: currentSong.albumArt || `https://i.ytimg.com/vi/${resolvedId}/hqdefault.jpg`,
+                    duration: currentSong.duration,
+                  };
+                }
+                return prev;
+              });
+            }
+          });
+        }
+      }
+    }
+  }, [currentSong]);
 
   useEffect(() => {
     if (typeof isSystemPipProp === "boolean") {
@@ -779,8 +826,9 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
             <style>
               * { box-sizing: border-box; margin: 0; padding: 0; }
               body, html { background-color: #000; width: 100%; height: 100%; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-              #player { width: 100%; height: 100%; border: none; }
-              iframe { width: 100%; height: 100%; border: none; }
+              .player-wrapper { position: relative; width: 100%; height: 100%; overflow: hidden; background: #000; }
+              /* Container Cropping: Shift iframe up by 38px and expand height to clip top Share/Title bar and bottom YouTube logo overflow */
+              #player, iframe { position: absolute; top: -38px; left: 0; width: 100%; height: calc(100% + 48px); border: none; }
               /* 100% Zero-Ad Youtube CSS Rules */
               .ytp-ad-module, .ytp-ad-overlay-container, .ytp-ad-message-container,
               .ytp-ad-preview-container, .ytp-ad-skip-button-slot, .ytp-ad-text,
@@ -791,7 +839,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                 opacity: 0 !important;
                 pointer-events: none !important;
               }
-              /* Minimized PiP & Standard Player Mode: Hide ALL YouTube internal controls, Share button, Pause shelf, YouTube logo, progress bar, title, gradients, play/pause buttons, settings, watermarks, etc. */
+              /* Clean Full Screen Player Rules: Hide Share button, Pause overlay cards, YouTube logo, Top channel title header, and Watermark */
               .ytp-share-button,
               .ytp-share-panel,
               .ytp-share-panel-link,
@@ -816,9 +864,8 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
               .ytp-title-link,
               a.ytp-title-link,
               .ytp-watermark,
-              .ytp-chrome-top,
               .ytp-gradient-top,
-              .ytp-gradient-bottom,
+              .ytp-c4-brand-header,
               body.is-minimized .ytp-large-play-button,
               body.is-minimized .ytp-chrome-bottom,
               body.is-minimized .ytp-progress-bar-container,
@@ -834,7 +881,6 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
               body.is-minimized .ytp-play-button,
               body.is-minimized .ytp-button,
               body.is-minimized .ytp-title,
-              body.is-minimized .ytp-c4-brand-header,
               body.is-minimized .ytp-spinner {
                 display: none !important;
                 visibility: hidden !important;
@@ -842,6 +888,18 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                 pointer-events: none !important;
                 transform: scale(0) !important;
                 -webkit-transform: scale(0) !important;
+              }
+              /* Explicitly keep Settings gear button, Subtitles/Captions CC button, Progress bar, and Bottom controls ENABLED & VISIBLE in Full Screen */
+              body:not(.is-minimized) .ytp-settings-button,
+              body:not(.is-minimized) .ytp-subtitles-button,
+              body:not(.is-minimized) .ytp-chrome-bottom,
+              body:not(.is-minimized) .ytp-progress-bar-container,
+              body:not(.is-minimized) .ytp-progress-bar,
+              body:not(.is-minimized) .ytp-play-button {
+                display: inline-block !important;
+                visibility: visible !important;
+                opacity: 1 !important;
+                pointer-events: auto !important;
               }
               /* YouTube Settings & Quality Menu Touch Scrolling & Expanded Visibility */
               body:not(.is-minimized) .ytp-settings-menu,
@@ -866,7 +924,9 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
             </style>
           </head>
           <body class="is-minimized">
-            <div id="player"></div>
+            <div class="player-wrapper">
+              <div id="player"></div>
+            </div>
             <script>
               var tag = document.createElement('script');
               tag.src = "https://www.youtube.com/iframe_api";
@@ -1023,11 +1083,8 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                     '.ytp-share-panel-link',
                     '.ytp-show-share-title',
                     '.ytp-share-title',
-                    '.ytp-play-button',
                     '.ytp-paid-content-overlay',
                     '.ytp-gradient-top',
-                    '.ytp-gradient-bottom',
-                    '.ytp-chrome-top',
                     '.ytp-title',
                     'a.ytp-title-link',
                     'a.ytp-youtube-button',
@@ -1432,9 +1489,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                               .ytp-title-link,
                               a.ytp-title-link,
                               .ytp-watermark,
-                              .ytp-chrome-top,
                               .ytp-gradient-top,
-                              .ytp-title,
                               .ytp-c4-brand-header {
                                 display: none !important;
                                 visibility: hidden !important;
@@ -1442,6 +1497,17 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                                 pointer-events: none !important;
                                 transform: scale(0) !important;
                                 -webkit-transform: scale(0) !important;
+                              }
+                              body:not(.is-minimized) .ytp-settings-button,
+                              body:not(.is-minimized) .ytp-subtitles-button,
+                              body:not(.is-minimized) .ytp-chrome-bottom,
+                              body:not(.is-minimized) .ytp-progress-bar-container,
+                              body:not(.is-minimized) .ytp-progress-bar,
+                              body:not(.is-minimized) .ytp-play-button {
+                                display: inline-block !important;
+                                visibility: visible !important;
+                                opacity: 1 !important;
+                                pointer-events: auto !important;
                               }
                             \`;
                             (document.head || document.documentElement).appendChild(style);
