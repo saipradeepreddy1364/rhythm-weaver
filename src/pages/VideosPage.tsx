@@ -390,6 +390,12 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
       try {
         if (webViewRef.current) {
           const msg = JSON.stringify({ type: 'TOGGLE_PLAY', play: nextState });
+          const ytCmd = JSON.stringify({
+            event: 'command',
+            func: nextState ? 'playVideo' : 'pauseVideo',
+            args: []
+          });
+
           webViewRef.current.postMessage(msg);
           webViewRef.current.injectJavaScript(`
             (function() {
@@ -402,11 +408,21 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                   if (targetState && typeof player.playVideo === 'function') player.playVideo();
                   if (!targetState && typeof player.pauseVideo === 'function') player.pauseVideo();
                 }
+                var iframes = document.querySelectorAll('iframe');
+                for (var i = 0; i < iframes.length; i++) {
+                  try {
+                    iframes[i].contentWindow.postMessage('${ytCmd}', '*');
+                  } catch(e) {}
+                }
                 var vids = document.querySelectorAll('video');
                 for (var j = 0; j < vids.length; j++) {
                   if (targetState) {
                     var p = vids[j].play();
-                    if (p && typeof p.catch === 'function') p.catch(function(){});
+                    if (p && typeof p.catch === 'function') {
+                      p.catch(function() {
+                        try { if (typeof player !== 'undefined' && player.playVideo) player.playVideo(); } catch(e) {}
+                      });
+                    }
                   } else {
                     vids[j].pause();
                   }
@@ -1605,8 +1621,8 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                             updateFrameStyles();
                             purgeElements();
                           }
-                          if (data && data.type === 'TOGGLE_PLAY') {
-                            var shouldPlay = Boolean(data.play);
+                          if (data && (data.type === 'TOGGLE_PLAY' || data.func === 'playVideo' || data.func === 'pauseVideo')) {
+                            var shouldPlay = data.type === 'TOGGLE_PLAY' ? Boolean(data.play) : (data.func === 'playVideo');
                             if (typeof player !== 'undefined' && player) {
                               try {
                                 if (shouldPlay && typeof player.playVideo === 'function') player.playVideo();
