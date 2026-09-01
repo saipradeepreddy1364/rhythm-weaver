@@ -935,12 +935,26 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
               body:not(.is-minimized).is-paused .pause-cover-panel {
                 display: block !important;
               }
+              .bottom-controls-crop-mask {
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                width: 100%;
+                height: 46px;
+                background: #000;
+                z-index: 99;
+                pointer-events: auto;
+              }
+              body.is-minimized .bottom-controls-crop-mask {
+                display: none !important;
+              }
             </style>
           </head>
           <body class="is-minimized">
             <div class="player-wrapper">
               <div id="player"></div>
               <div class="pause-cover-panel"></div>
+              <div class="bottom-controls-crop-mask"></div>
             </div>
             <script>
               var tag = document.createElement('script');

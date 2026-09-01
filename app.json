@@ -77,9 +77,7 @@
       "fallbackToCacheTimeout": 0,
       "url": "https://u.expo.dev/07a87de4-665a-4fbe-877e-e3ec2a863c5a"
     },
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
+    "runtimeVersion": "1.0.0",
     "owner": "pradeep-palagiri",
     "extra": {
       "eas": {
