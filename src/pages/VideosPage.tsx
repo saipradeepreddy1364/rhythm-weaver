@@ -371,23 +371,35 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
           webViewRef.current.injectJavaScript(`
             (function() {
               try {
-                var targetState = ${nextState ? 'true' : 'false'};
+                var forceTarget = ${typeof overrideState === 'boolean' ? (overrideState ? 'true' : 'false') : 'null'};
+                var vids = document.querySelectorAll('video');
+                var isCurrentlyPaused = true;
+                if (vids.length > 0) {
+                  isCurrentlyPaused = vids[0].paused;
+                }
+                var shouldPlay = forceTarget !== null ? forceTarget : isCurrentlyPaused;
+
                 if (typeof window.toggleVideoPlayback === 'function') {
-                  window.toggleVideoPlayback(targetState);
+                  window.toggleVideoPlayback(shouldPlay);
                 }
                 if (typeof player !== 'undefined' && player) {
-                  if (targetState && typeof player.playVideo === 'function') player.playVideo();
-                  if (!targetState && typeof player.pauseVideo === 'function') player.pauseVideo();
+                  if (shouldPlay && typeof player.playVideo === 'function') player.playVideo();
+                  if (!shouldPlay && typeof player.pauseVideo === 'function') player.pauseVideo();
                 }
+                var ytCmd = JSON.stringify({
+                  event: 'command',
+                  func: shouldPlay ? 'playVideo' : 'pauseVideo',
+                  args: []
+                });
                 var iframes = document.querySelectorAll('iframe');
                 for (var i = 0; i < iframes.length; i++) {
                   try {
-                    iframes[i].contentWindow.postMessage('${ytCmd}', '*');
+                    iframes[i].contentWindow.postMessage(ytCmd, '*');
+                    iframes[i].contentWindow.postMessage(JSON.stringify({ type: 'TOGGLE_PLAY', play: shouldPlay }), '*');
                   } catch(e) {}
                 }
-                var vids = document.querySelectorAll('video');
                 for (var j = 0; j < vids.length; j++) {
-                  if (targetState) {
+                  if (shouldPlay) {
                     var p = vids[j].play();
                     if (p && typeof p.catch === 'function') {
                       p.catch(function() {
