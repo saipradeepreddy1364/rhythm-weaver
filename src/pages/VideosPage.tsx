@@ -31,6 +31,15 @@ const VIDEO_EMBED_PROVIDERS = [
   "https://vid.puffyan.us/embed"
 ];
 
+function shuffleArray<T>(array: T[]): T[] {
+  const arr = [...array];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
 function getBestYouTubeThumbnail(vId?: string, thumbnails?: any[]): string {
   if (Array.isArray(thumbnails) && thumbnails.length > 0) {
     const best = thumbnails[thumbnails.length - 1]?.url || thumbnails[0]?.url;
@@ -621,15 +630,22 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
     try {
       setPageBatch(1);
       const isDefault = !searchQuery || searchQuery.toLowerCase().includes("trending telugu hindi");
+      const TRENDING_POOL = [
+        "latest telugu video songs 2026",
+        "latest hindi video songs 2026",
+        "trending telugu hd video songs",
+        "trending hindi hd video songs",
+        "new telugu movie video songs",
+        "new hindi movie video songs",
+        "latest tamil video songs 2026",
+        "viral trending video songs 2026",
+        "top telugu melody video songs",
+        "top hindi romantic video songs",
+        "popular punjabi video songs 2026",
+        "global viral hit video songs 2026"
+      ];
       const subQueries = isDefault
-        ? [
-            "latest telugu video songs 2026",
-            "latest hindi video songs 2026",
-            "trending telugu hd video songs",
-            "trending hindi hd video songs",
-            "new telugu movie video songs",
-            "new hindi movie video songs"
-          ]
+        ? shuffleArray(TRENDING_POOL).slice(0, 4)
         : [
             searchQuery,
             `${searchQuery} video song hd`,
@@ -653,7 +669,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
       }
 
       if (combined.length > 0) {
-        setVideos(combined);
+        setVideos(isDefault ? shuffleArray(combined) : combined);
         return;
       }
 
