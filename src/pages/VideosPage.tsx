@@ -288,6 +288,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
   const [isVideoBlocked, setIsVideoBlocked] = useState(false);
   const [showPipControls, setShowPipControls] = useState(false);
   const [isPipPlaying, setIsPipPlaying] = useState(true);
+  const userToggleTimeRef = useRef<number>(0);
   const [isSystemPip, setIsSystemPip] = useState(isSystemPipProp || false);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const { currentSong } = usePlayer();
@@ -356,6 +357,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
     try {
       TrackPlayer.pause().catch(() => {});
     } catch {}
+    userToggleTimeRef.current = Date.now();
     setIsPipPlaying((prev) => {
       const nextState = typeof overrideState === 'boolean' ? overrideState : !prev;
       try {
@@ -371,13 +373,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
           webViewRef.current.injectJavaScript(`
             (function() {
               try {
-                var forceTarget = ${typeof overrideState === 'boolean' ? (overrideState ? 'true' : 'false') : 'null'};
-                var vids = document.querySelectorAll('video');
-                var isCurrentlyPaused = true;
-                if (vids.length > 0) {
-                  isCurrentlyPaused = vids[0].paused;
-                }
-                var shouldPlay = forceTarget !== null ? forceTarget : isCurrentlyPaused;
+                var shouldPlay = ${nextState ? 'true' : 'false'};
 
                 if (typeof window.toggleVideoPlayback === 'function') {
                   window.toggleVideoPlayback(shouldPlay);
@@ -398,6 +394,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                     iframes[i].contentWindow.postMessage(JSON.stringify({ type: 'TOGGLE_PLAY', play: shouldPlay }), '*');
                   } catch(e) {}
                 }
+                var vids = document.querySelectorAll('video');
                 for (var j = 0; j < vids.length; j++) {
                   if (shouldPlay) {
                     var p = vids[j].play();
@@ -898,10 +895,11 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
   const handleWebViewMessage = useCallback((event: any) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
+      const isRecentUserToggle = Date.now() - userToggleTimeRef.current < 2500;
       if (data && data.event === "VIDEO_PLAYING") {
-        setIsPipPlaying(true);
+        if (!isRecentUserToggle) setIsPipPlaying(true);
       } else if (data && data.event === "VIDEO_PAUSED") {
-        setIsPipPlaying(false);
+        if (!isRecentUserToggle) setIsPipPlaying(false);
       } else if (data && data.event === "VIDEO_ENDED") {
         playNextVideo();
       } else if (data && data.event === "VIDEO_BLOCKED") {
@@ -991,12 +989,12 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                 transform: scale(0) !important;
                 -webkit-transform: scale(0) !important;
               }
-              body.is-minimized #player,
-              body.is-minimized iframe {
+              #player, iframe, video {
                 width: 100% !important;
                 height: 100% !important;
-                transform: scale(1.65) !important;
-                -webkit-transform: scale(1.65) !important;
+                transform: none !important;
+                -webkit-transform: none !important;
+                object-fit: contain !important;
                 transform-origin: center center !important;
               }
               /* Explicitly keep Settings gear button, Subtitles/Captions CC button, Progress bar, and Bottom controls ENABLED & VISIBLE in Full Screen */
@@ -1240,6 +1238,13 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                     if (data && data.type === 'TOGGLE_PLAY') {
                       if (typeof window.toggleVideoPlayback === 'function') {
                         window.toggleVideoPlayback(data.play);
+                      }
+                    }
+                    if (data && data.type === 'SET_MINIMIZED') {
+                      if (data.minimized) {
+                        document.body.classList.add('is-minimized');
+                      } else {
+                        document.body.classList.remove('is-minimized');
                       }
                     }
                   }
@@ -1632,13 +1637,10 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                                 height: 100% !important;
                                 max-width: 100% !important;
                                 max-height: 100% !important;
-                                object-fit: cover !important;
+                                object-fit: contain !important;
                                 object-position: center center !important;
-                              }
-                              video, .html5-main-video {
-                                transform: scale(1.65) !important;
-                                -webkit-transform: scale(1.65) !important;
-                                transform-origin: center center !important;
+                                transform: none !important;
+                                -webkit-transform: none !important;
                               }
                             \`;
                           } else {
@@ -1676,6 +1678,21 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                                 transform: scale(0) !important;
                                 -webkit-transform: scale(0) !important;
                               }
+                              video, .html5-main-video, .html5-video-container, #player, iframe {
+                                position: absolute !important;
+                                top: 0 !important;
+                                left: 0 !important;
+                                margin: 0 !important;
+                                padding: 0 !important;
+                                width: 100% !important;
+                                height: 100% !important;
+                                max-width: 100% !important;
+                                max-height: 100% !important;
+                                object-fit: contain !important;
+                                object-position: center center !important;
+                                transform: none !important;
+                                -webkit-transform: none !important;
+                              }
                               body:not(.is-minimized) .ytp-settings-button,
                               body:not(.is-minimized) .ytp-subtitles-button,
                               body:not(.is-minimized) .ytp-chrome-bottom,
@@ -1699,47 +1716,6 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
 
                       function purgeElements() {
                         try {
-                          if (isMinMode) {
-                            var vidsToScale = document.querySelectorAll('video, .html5-main-video, .html5-video-container');
-                            for (var vs = 0; vs < vidsToScale.length; vs++) {
-                              try {
-                                vidsToScale[vs].style.setProperty('top', '0px', 'important');
-                                vidsToScale[vs].style.setProperty('left', '0px', 'important');
-                                vidsToScale[vs].style.setProperty('margin', '0px', 'important');
-                                vidsToScale[vs].style.setProperty('padding', '0px', 'important');
-                                vidsToScale[vs].style.setProperty('object-fit', 'cover', 'important');
-                                vidsToScale[vs].style.setProperty('width', '100%', 'important');
-                                vidsToScale[vs].style.setProperty('height', '100%', 'important');
-                                vidsToScale[vs].style.setProperty('transform', 'scale(1.65)', 'important');
-                                vidsToScale[vs].style.setProperty('-webkit-transform', 'scale(1.65)', 'important');
-                                vidsToScale[vs].style.setProperty('transform-origin', 'center center', 'important');
-                                if (!vidsToScale[vs].__scale_obs) {
-                                  vidsToScale[vs].__scale_obs = true;
-                                  var obs = new MutationObserver(function() {
-                                    var bMin = document.body && document.body.classList.contains('is-minimized');
-                                    if (bMin) {
-                                      var allV = document.querySelectorAll('video, .html5-main-video, .html5-video-container');
-                                      for (var av = 0; av < allV.length; av++) {
-                                        try {
-                                          allV[av].style.setProperty('top', '0px', 'important');
-                                          allV[av].style.setProperty('left', '0px', 'important');
-                                          allV[av].style.setProperty('margin', '0px', 'important');
-                                          allV[av].style.setProperty('padding', '0px', 'important');
-                                          allV[av].style.setProperty('object-fit', 'cover', 'important');
-                                          allV[av].style.setProperty('width', '100%', 'important');
-                                          allV[av].style.setProperty('height', '100%', 'important');
-                                          allV[av].style.setProperty('transform', 'scale(1.65)', 'important');
-                                          allV[av].style.setProperty('-webkit-transform', 'scale(1.65)', 'important');
-                                          allV[av].style.setProperty('transform-origin', 'center center', 'important');
-                                        } catch(errObs) {}
-                                      }
-                                    }
-                                  });
-                                  obs.observe(vidsToScale[vs], { attributes: true, attributeFilter: ['style', 'class'] });
-                                }
-                              } catch(err) {}
-                            }
-                          }
                           // 1. Auto-skip Video Ads & 16x fast-forward ad playback
                           var skipBtn = document.querySelector('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button, .ytp-ad-skip-button-container, .ytp-ad-preview-container');
                           if (skipBtn) {
@@ -1877,9 +1853,13 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                   activeOpacity={1}
                   delayPressIn={0}
                   onPress={() => {
-                    togglePipControls();
-                    setIsMinimized(false);
-                    DeviceEventEmitter.emit("NAVIGATE_TO_TAB", "Videos");
+                    if (!showPipControls) {
+                      togglePipControls();
+                    } else {
+                      togglePipControls();
+                      setIsMinimized(false);
+                      DeviceEventEmitter.emit("NAVIGATE_TO_TAB", "Videos");
+                    }
                   }}
                   style={{
                     position: 'absolute',
