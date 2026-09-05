@@ -779,6 +779,92 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
   const isResolvingVideo = activeVideo && !isYouTubeVideoId(activeVideo.videoId);
   const targetId = isYouTubeVideoId(activeVideo?.videoId) ? activeVideo!.videoId : "";
 
+  const injectedBeforeContentLoaded = useMemo(() => {
+    return `
+      (function() {
+        try {
+          // 1. Intercept fetch calls to block ad networks and scrub player response JSON
+          var origFetch = window.fetch;
+          if (origFetch) {
+            window.fetch = function() {
+              var url = arguments[0];
+              var urlStr = typeof url === 'string' ? url : (url && url.url) ? url.url : '';
+              if (urlStr && (
+                urlStr.indexOf('googleads') !== -1 ||
+                urlStr.indexOf('doubleclick.net') !== -1 ||
+                urlStr.indexOf('/pagead/') !== -1 ||
+                urlStr.indexOf('/api/stats/ads') !== -1 ||
+                urlStr.indexOf('ad_break') !== -1 ||
+                urlStr.indexOf('ptracking') !== -1 ||
+                urlStr.indexOf('get_midroll_info') !== -1 ||
+                urlStr.indexOf('adunit') !== -1
+              )) {
+                return Promise.resolve(new Response(JSON.stringify({}), { status: 200 }));
+              }
+              return origFetch.apply(this, arguments).then(function(res) {
+                if (urlStr && (urlStr.indexOf('/player') !== -1 || urlStr.indexOf('/watch') !== -1)) {
+                  return res.clone().json().then(function(data) {
+                    if (data) {
+                      delete data.adPlacements;
+                      delete data.playerAds;
+                      delete data.adSlots;
+                      delete data.adParams;
+                    }
+                    return new Response(JSON.stringify(data), {
+                      status: res.status,
+                      statusText: res.statusText,
+                      headers: res.headers
+                    });
+                  }).catch(function() { return res; });
+                }
+                return res;
+              });
+            };
+          }
+
+          // 2. Intercept XHR calls to block ad networks
+          var origOpen = XMLHttpRequest.prototype.open;
+          if (origOpen) {
+            XMLHttpRequest.prototype.open = function(method, url) {
+              var urlStr = typeof url === 'string' ? url : '';
+              if (urlStr && (
+                urlStr.indexOf('googleads') !== -1 ||
+                urlStr.indexOf('doubleclick.net') !== -1 ||
+                urlStr.indexOf('/pagead/') !== -1 ||
+                urlStr.indexOf('/api/stats/ads') !== -1 ||
+                urlStr.indexOf('ad_break') !== -1 ||
+                urlStr.indexOf('ptracking') !== -1 ||
+                urlStr.indexOf('get_midroll_info') !== -1 ||
+                urlStr.indexOf('adunit') !== -1
+              )) {
+                this.isAdRequest = true;
+              }
+              return origOpen.apply(this, arguments);
+            };
+          }
+
+          var origSend = XMLHttpRequest.prototype.send;
+          if (origSend) {
+            XMLHttpRequest.prototype.send = function(body) {
+              if (this.isAdRequest) {
+                try {
+                  Object.defineProperty(this, 'readyState', { value: 4, writable: true });
+                  Object.defineProperty(this, 'status', { value: 200, writable: true });
+                  Object.defineProperty(this, 'responseText', { value: '{}', writable: true });
+                  if (typeof this.onreadystatechange === 'function') this.onreadystatechange();
+                  if (typeof this.onload === 'function') this.onload();
+                } catch(e) {}
+                return;
+              }
+              return origSend.apply(this, arguments);
+            };
+          }
+        } catch(e) {}
+      })();
+      true;
+    `;
+  }, []);
+
   const handleShouldStartLoad = useCallback((request: any) => {
     const url = (request.url || "").toLowerCase();
     if (
@@ -789,7 +875,9 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
       url.includes("googleadservices") ||
       url.includes("googlesyndication") ||
       url.includes("ptracking") ||
-      url.includes("ad_break")
+      url.includes("ad_break") ||
+      url.includes("adunit") ||
+      url.includes("get_midroll_info")
     ) {
       return false;
     }
@@ -830,6 +918,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
 
   const webViewSource = useMemo(() => {
     if (!targetId) return null;
+    const isPipedOrInvidious = providerBase && !providerBase.includes("youtube");
     return {
       html: `
         <!DOCTYPE html>
@@ -845,7 +934,8 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
               .ytp-ad-module, .ytp-ad-overlay-container, .ytp-ad-message-container,
               .ytp-ad-preview-container, .ytp-ad-skip-button-slot, .ytp-ad-text,
               .video-ads, .ytp-ad-player-overlay, .ytp-ad-image-overlay,
-              .annotation, .ytp-paid-content-overlay, .ytp-ad-action-interstitial {
+              .annotation, .ytp-paid-content-overlay, .ytp-ad-action-interstitial,
+              .ytp-ad-overlay-slot {
                 display: none !important;
                 visibility: hidden !important;
                 opacity: 0 !important;
@@ -900,6 +990,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                 pointer-events: none !important;
                 transform: scale(0) !important;
                 -webkit-transform: scale(0) !important;
+              }
               body.is-minimized #player,
               body.is-minimized iframe {
                 width: 100% !important;
@@ -976,61 +1067,81 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
               <div class="bottom-controls-crop-mask"></div>
             </div>
             <script>
-              var tag = document.createElement('script');
-              tag.src = "https://www.youtube.com/iframe_api";
-              var firstScriptTag = document.getElementsByTagName('script')[0];
-              firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+              ${
+                isPipedOrInvidious
+                  ? `
+                var container = document.getElementById('player');
+                var iframe = document.createElement('iframe');
+                iframe.src = "${providerBase}/${targetId}?autoplay=1&listen=false";
+                iframe.allow = "autoplay; encrypted-media; picture-in-picture";
+                iframe.allowFullscreen = true;
+                iframe.onerror = function() {
+                  if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                    window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_BLOCKED' }));
+                  }
+                };
+                container.appendChild(iframe);
+              `
+                  : `
+                var tag = document.createElement('script');
+                tag.src = "https://www.youtube.com/iframe_api";
+                var firstScriptTag = document.getElementsByTagName('script')[0];
+                firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
 
-              var player;
-              function onYouTubeIframeAPIReady() {
-                player = new YT.Player('player', {
-                  height: '100%',
-                  width: '100%',
-                  videoId: '${targetId}',
-                  playerVars: {
-                    'autoplay': 1,
-                    'controls': 1,
-                    'rel': 0,
-                    'modestbranding': 1,
-                    'playsinline': 1,
-                    'enablejsapi': 1,
-                    'fs': 0,
-                    'iv_load_policy': 3,
-                    'cc_load_policy': 0
-                  },
-                  events: {
-                    'onStateChange': function(event) {
-                      try {
-                        if (event.data === 1) {
-                          document.body.classList.remove('is-paused');
-                        } else if (event.data === 2 || event.data === -1 || event.data === 5) {
-                          document.body.classList.add('is-paused');
-                        }
-                      } catch(e) {}
-                      if (event && window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-                        if (event.data === 1) {
-                          window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_PLAYING' }));
-                        } else if (event.data === 2) {
-                          window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_PAUSED' }));
-                        } else if (event.data === 0) {
-                          window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_ENDED' }));
-                        }
-                      }
+                var player;
+                function onYouTubeIframeAPIReady() {
+                  player = new YT.Player('player', {
+                    height: '100%',
+                    width: '100%',
+                    videoId: '${targetId}',
+                    host: 'https://www.youtube-nocookie.com',
+                    playerVars: {
+                      'autoplay': 1,
+                      'controls': 1,
+                      'rel': 0,
+                      'modestbranding': 1,
+                      'playsinline': 1,
+                      'enablejsapi': 1,
+                      'fs': 0,
+                      'iv_load_policy': 3,
+                      'cc_load_policy': 0,
+                      'adformat': '0'
                     },
-                    'onPlaybackRateChange': function(event) {
-                      if (document.body.classList.contains('is-minimized')) {
-                        if (event && event.data !== 1 && player && typeof player.setPlaybackRate === 'function') {
-                          try { player.setPlaybackRate(1); } catch(err){}
+                    events: {
+                      'onStateChange': function(event) {
+                        try {
+                          if (event.data === 1) {
+                            document.body.classList.remove('is-paused');
+                          } else if (event.data === 2 || event.data === -1 || event.data === 5) {
+                            document.body.classList.add('is-paused');
+                          }
+                        } catch(e) {}
+                        if (event && window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                          if (event.data === 1) {
+                            window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_PLAYING' }));
+                          } else if (event.data === 2) {
+                            window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_PAUSED' }));
+                          } else if (event.data === 0) {
+                            window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_ENDED' }));
+                          }
                         }
-                      }
-                    },
-                    'onError': function(event) {
-                      if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-                        window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_BLOCKED' }));
+                      },
+                      'onPlaybackRateChange': function(event) {
+                        if (document.body.classList.contains('is-minimized')) {
+                          if (event && event.data !== 1 && player && typeof player.setPlaybackRate === 'function') {
+                            try { player.setPlaybackRate(1); } catch(err){}
+                          }
+                        }
+                      },
+                      'onError': function(event) {
+                        if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                          window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_BLOCKED' }));
+                        }
                       }
                     }
-                  }
-                });
+                  });
+                }
+              `
               }
 
               window.toggleVideoPlayback = function(shouldPlay) {
@@ -1089,7 +1200,10 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                     '.ytp-ad-skip-button-modern',
                     '.ytp-ad-skip-button-slot',
                     '.ytp-skip-ad-button',
-                    '.ytp-ad-overlay-close-button'
+                    '.ytp-ad-overlay-close-button',
+                    '.ytp-ad-skip-button-container',
+                    'button.ytp-ad-skip-button-text',
+                    '.ytp-ad-skip-button-text'
                   ];
                   for (var k = 0; k < skipSelectors.length; k++) {
                     var skipBtns = document.querySelectorAll(skipSelectors[k]);
@@ -1101,11 +1215,12 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                   }
 
                   // 2. Fast-forward video immediately if an ad is currently playing
-                  var adShowing = document.querySelector('.ad-showing, .ad-interrupting, .video-ads');
+                  var adShowing = document.querySelector('.ad-showing, .ad-interrupting, .video-ads, .ytp-ad-player-overlay');
                   var vid = document.querySelector('video');
                   if (adShowing && vid && isFinite(vid.duration) && vid.duration > 0) {
-                    vid.currentTime = vid.duration - 0.1;
+                    vid.currentTime = vid.duration - 0.001;
                     vid.playbackRate = 16;
+                    vid.muted = true;
                   }
 
                   // 3. Hide all ad elements
@@ -1113,67 +1228,6 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                   for (var a = 0; a < adElements.length; a++) {
                     adElements[a].style.setProperty('display', 'none', 'important');
                     adElements[a].style.setProperty('visibility', 'hidden', 'important');
-                  }
-
-                  var allHideSelectors = [
-                    '.ytp-large-play-button',
-                    '.ytp-bezel',
-                    '.ytp-bezel-text',
-                    '.ytp-bezel-icon',
-                    '.ytp-pause-overlay',
-                    '.ytp-pause-overlay-container',
-                    '.ytp-pause-overlay-shelf',
-                    '.ytp-suggestion-link',
-                    '.ytp-scroll-min',
-                    '.ytp-pause-overlay-controls',
-                    '.ytp-ce-element',
-                    '.ytp-ce-video',
-                    '.ytp-ce-channel',
-                    '.ytp-ce-covering-overlay',
-                    '.ytp-ce-element-show',
-                    '.ytp-cards-teaser',
-                    '.ytp-cards-button',
-                    '.ytp-share-button',
-                    '.ytp-share-panel',
-                    '.ytp-share-panel-link',
-                    '.ytp-show-share-title',
-                    '.ytp-share-title',
-                    '.ytp-paid-content-overlay',
-                    '.ytp-gradient-top',
-                    '.ytp-title',
-                    'a.ytp-title-link',
-                    'a.ytp-youtube-button',
-                    '.ytp-youtube-button',
-                    '.ytp-title-channel',
-                    '.ytp-watermark'
-                  ];
-                  for (var h = 0; h < allHideSelectors.length; h++) {
-                    var hideEls = document.querySelectorAll(allHideSelectors[h]);
-                    for (var hd = 0; hd < hideEls.length; hd++) {
-                      hideEls[hd].style.setProperty('display', 'none', 'important');
-                      hideEls[hd].style.setProperty('visibility', 'hidden', 'important');
-                      hideEls[hd].style.setProperty('opacity', '0', 'important');
-                      hideEls[hd].style.setProperty('transform', 'scale(0)', 'important');
-                      hideEls[hd].style.setProperty('-webkit-transform', 'scale(0)', 'important');
-                    }
-                  }
-                  var iframes = document.querySelectorAll('iframe');
-                  for (var f = 0; f < iframes.length; f++) {
-                    try {
-                      var doc = iframes[f].contentDocument || (iframes[f].contentWindow && iframes[f].contentWindow.document);
-                      if (doc) {
-                        for (var s2 = 0; s2 < allHideSelectors.length; s2++) {
-                          var childEls = doc.querySelectorAll(allHideSelectors[s2]);
-                          for (var c = 0; c < childEls.length; c++) {
-                            childEls[c].style.setProperty('display', 'none', 'important');
-                            childEls[c].style.setProperty('visibility', 'hidden', 'important');
-                            childEls[c].style.setProperty('opacity', '0', 'important');
-                            childEls[c].style.setProperty('transform', 'scale(0)', 'important');
-                            childEls[c].style.setProperty('-webkit-transform', 'scale(0)', 'important');
-                          }
-                        }
-                      }
-                    } catch(e) {}
                   }
                 } catch(e) {}
               }, 20);
@@ -1217,9 +1271,9 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
           </body>
         </html>
       `,
-      baseUrl: "https://www.google.com",
+      baseUrl: "https://www.youtube-nocookie.com",
     };
-  }, [targetId, selectedInstanceIndex]);
+  }, [targetId, selectedInstanceIndex, providerBase]);
 
   const isVideosTab = (!activeTab || activeTab === "Videos") || isSystemPipActive;
 
@@ -1509,6 +1563,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                   domStorageEnabled={true}
                   androidLayerType="hardware"
                   playInBackground={true}
+                  injectedJavaScriptBeforeContentLoaded={injectedBeforeContentLoaded}
                   injectedJavaScriptForMainFrameOnly={false}
                   injectedJavaScript={`
                     (function() {
