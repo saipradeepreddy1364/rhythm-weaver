@@ -972,12 +972,24 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
               .ytp-cards-button,
               .ytp-youtube-button,
               a.ytp-youtube-button,
+              .ytp-impression-link,
+              .ytp-watch-later-button,
+              .ytp-overflow-button,
+              .ytp-videowall-still,
+              .ytp-videowall-still-info,
+              .ytp-videowall-still-image,
+              .ytp-title,
+              .ytp-title-text,
               .ytp-title-channel,
               .ytp-title-link,
               a.ytp-title-link,
               .ytp-watermark,
+              a.ytp-watermark,
               .ytp-gradient-top,
               .ytp-c4-brand-header,
+              .ytp-chrome-top,
+              .ytp-paid-content-overlay,
+              .ytp-ad-overlay-container,
               body.is-minimized .ytp-large-play-button,
               body.is-minimized .ytp-chrome-bottom,
               body.is-minimized .ytp-progress-bar-container,
@@ -1001,7 +1013,8 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                 transform: scale(0) !important;
                 -webkit-transform: scale(0) !important;
               }
-              #player, iframe, video, .html5-main-video, .html5-video-container {
+              #player, iframe, video, .html5-main-video, .html5-video-container,
+              :fullscreen video, :-webkit-full-screen video, .ytp-fullscreen video {
                 width: 100% !important;
                 height: 100% !important;
                 transform: none !important;
@@ -1476,55 +1489,14 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
           {!isMinimized && !isSystemPipActive && (
             /* Full Screen Header */
             <View style={styles.modalHeader}>
-              <TouchableOpacity delayPressIn={0} onPress={() => setIsMinimized(true)} style={styles.closeBtn}>
+              <TouchableOpacity delayPressIn={0} onPress={() => setIsMinimized(true)} style={styles.closeBtn} activeOpacity={0.7}>
                 <MaterialCommunityIcons name="chevron-down" size={28} color="#fff" />
               </TouchableOpacity>
-              <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={styles.modalVideoTitle} numberOfLines={1}>{activeVideo.title}</Text>
-                <Text style={styles.modalVideoArtist} numberOfLines={1}>{activeVideo.artist}</Text>
+              <View style={{ flex: 1, alignItems: "center" }}>
+                <Text style={styles.modalVideoTitle} numberOfLines={1}>Playing Video</Text>
               </View>
-
-              <TouchableOpacity
-                delayPressIn={0}
-                onPress={playPrevVideo}
-                style={{ padding: 6, marginRight: 2 }}
-                activeOpacity={0.7}
-              >
-                <MaterialCommunityIcons name="skip-previous" size={24} color="#fff" />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                delayPressIn={0}
-                onPress={playNextVideo}
-                style={{ padding: 6, marginRight: 4 }}
-                activeOpacity={0.7}
-              >
-                <MaterialCommunityIcons name="skip-next" size={24} color="#fff" />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                delayPressIn={0}
-                onPress={() => toggleLikeVideo(activeVideo)}
-                style={{ padding: 6, marginRight: 6 }}
-                activeOpacity={0.7}
-              >
-                {isVideoLiked(activeVideo) ? (
-                  <View style={{
-                    width: 24,
-                    height: 24,
-                    borderRadius: 12,
-                    backgroundColor: "#1DB954",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}>
-                    <MaterialCommunityIcons name="check" size={15} color="#000" />
-                  </View>
-                ) : (
-                  <MaterialCommunityIcons name="heart-outline" size={22} color="#fff" />
-                )}
-              </TouchableOpacity>
-              <TouchableOpacity delayPressIn={0} onPress={() => { setActiveVideo(null); setIsMinimized(false); }} style={styles.closeBtn}>
-                <MaterialCommunityIcons name="close" size={22} color="#fff" />
+              <TouchableOpacity delayPressIn={0} onPress={() => { setActiveVideo(null); setIsMinimized(false); }} style={styles.closeBtn} activeOpacity={0.7}>
+                <MaterialCommunityIcons name="close" size={24} color="#fff" />
               </TouchableOpacity>
             </View>
           )}
@@ -1553,11 +1525,8 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                   domStorageEnabled={true}
                   androidLayerType="hardware"
                   playInBackground={true}
-                  injectedJavaScriptBeforeContentLoaded={injectedBeforeContentLoaded}
-                  injectedJavaScriptForMainFrameOnly={false}
                   injectedJavaScript={`
                     (function() {
-                      var isMinMode = false;
                       function updateFrameStyles() {
                         try {
                           var styleId = '__yt_dynamic_frame_styles__';
@@ -1565,143 +1534,59 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                           if (!style) {
                             style = document.createElement('style');
                             style.id = styleId;
+                            style.textContent = '.ytp-share-button, .ytp-share-panel, .ytp-share-panel-link, .ytp-show-share-title, ' +
+                              '.ytp-share-title, .ytp-pause-overlay, .ytp-pause-overlay-container, .ytp-pause-overlay-shelf, ' +
+                              '.ytp-suggestion-link, .ytp-scroll-min, .ytp-pause-overlay-controls, .ytp-ce-element, ' +
+                              '.ytp-ce-video, .ytp-ce-channel, .ytp-ce-covering-overlay, .ytp-ce-element-show, ' +
+                              '.ytp-cards-teaser, .ytp-cards-button, .ytp-youtube-button, a.ytp-youtube-button, ' +
+                              '.ytp-impression-link, .ytp-watch-later-button, .ytp-overflow-button, .ytp-videowall-still, ' +
+                              '.ytp-videowall-still-info, .ytp-videowall-still-image, .ytp-title-channel, .ytp-title-link, ' +
+                              'a.ytp-title-link, .ytp-watermark, a.ytp-watermark, .ytp-gradient-top, .ytp-c4-brand-header, ' +
+                              '.ytp-chrome-top, .ytp-title, .ytp-title-text, .ytp-paid-content-overlay, .ytp-ad-overlay-container { ' +
+                              '  display: none !important; visibility: hidden !important; opacity: 0 !important; ' +
+                              '  pointer-events: none !important; transform: scale(0) !important; -webkit-transform: scale(0) !important; ' +
+                              '} ' +
+                              'video, .html5-main-video, .html5-video-container, #player, iframe, ' +
+                              ':fullscreen video, :-webkit-full-screen video, .ytp-fullscreen video { ' +
+                              '  position: absolute !important; top: 0 !important; left: 0 !important; margin: 0 !important; padding: 0 !important; ' +
+                              '  width: 100% !important; height: 100% !important; max-width: 100% !important; max-height: 100% !important; ' +
+                              '  object-fit: cover !important; object-position: center center !important; transform: none !important; -webkit-transform: none !important; ' +
+                              '} ' +
+                              'body:not(.is-minimized) .ytp-settings-button, body:not(.is-minimized) .ytp-subtitles-button, ' +
+                              'body:not(.is-minimized) .ytp-fullscreen-button, body:not(.is-minimized) .ytp-chrome-bottom, ' +
+                              'body:not(.is-minimized) .ytp-right-controls, body:not(.is-minimized) .ytp-progress-bar-container, ' +
+                              'body:not(.is-minimized) .ytp-progress-bar, body:not(.is-minimized) .ytp-play-button { ' +
+                              '  display: inline-block !important; visibility: visible !important; opacity: 1 !important; pointer-events: auto !important; ' +
+                              '} ' +
+                              'body.is-minimized .ytp-chrome-bottom, body.is-minimized .ytp-progress-bar-container, ' +
+                              'body.is-minimized .ytp-progress-bar, body.is-minimized .ytp-settings-menu, ' +
+                              'body.is-minimized .ytp-settings-button, body.is-minimized .ytp-subtitles-button, body.is-minimized .ytp-play-button { ' +
+                              '  display: none !important; ' +
+                              '}';
                             (document.head || document.documentElement).appendChild(style);
-                          }
-                          if (isMinMode) {
-                            style.textContent = \`
-                              .ytp-chrome-bottom,
-                              .ytp-progress-bar-container,
-                              .ytp-progress-bar,
-                              .ytp-chrome-top,
-                              .ytp-gradient-top,
-                              .ytp-gradient-bottom,
-                              .ytp-share-button,
-                              .ytp-share-panel,
-                              .ytp-share-panel-link,
-                              .ytp-show-share-title,
-                              .ytp-share-title,
-                              .ytp-pause-overlay,
-                              .ytp-pause-overlay-container,
-                              .ytp-pause-overlay-shelf,
-                              .ytp-suggestion-link,
-                              .ytp-scroll-min,
-                              .ytp-pause-overlay-controls,
-                              .ytp-ce-element,
-                              .ytp-ce-video,
-                              .ytp-ce-channel,
-                              .ytp-ce-covering-overlay,
-                              .ytp-ce-element-show,
-                              .ytp-cards-teaser,
-                              .ytp-cards-button,
-                              .ytp-youtube-button,
-                              a.ytp-youtube-button,
-                              .ytp-title-channel,
-                              .ytp-title-link,
-                              a.ytp-title-link,
-                              .ytp-watermark,
-                              .ytp-large-play-button,
-                              .ytp-settings-menu,
-                              .ytp-settings-button,
-                              .ytp-subtitles-button,
-                              .ytp-title,
-                              .ytp-c4-brand-header {
-                                display: none !important;
-                                visibility: hidden !important;
-                                opacity: 0 !important;
-                                pointer-events: none !important;
-                                transform: scale(0) !important;
-                                -webkit-transform: scale(0) !important;
-                              }
-                              video, .html5-main-video, .html5-video-container, #player, iframe {
-                                position: absolute !important;
-                                top: 0 !important;
-                                left: 0 !important;
-                                margin: 0 !important;
-                                padding: 0 !important;
-                                width: 100% !important;
-                                height: 100% !important;
-                                max-width: 100% !important;
-                                max-height: 100% !important;
-                                object-fit: cover !important;
-                                object-position: center center !important;
-                                transform: none !important;
-                                -webkit-transform: none !important;
-                              }
-                            \`;
-                          } else {
-                            style.textContent = \`
-                              .ytp-share-button,
-                              .ytp-share-panel,
-                              .ytp-share-panel-link,
-                              .ytp-show-share-title,
-                              .ytp-share-title,
-                              .ytp-pause-overlay,
-                              .ytp-pause-overlay-container,
-                              .ytp-pause-overlay-shelf,
-                              .ytp-suggestion-link,
-                              .ytp-scroll-min,
-                              .ytp-pause-overlay-controls,
-                              .ytp-ce-element,
-                              .ytp-ce-video,
-                              .ytp-ce-channel,
-                              .ytp-ce-covering-overlay,
-                              .ytp-ce-element-show,
-                              .ytp-cards-teaser,
-                              .ytp-cards-button,
-                              .ytp-youtube-button,
-                              a.ytp-youtube-button,
-                              .ytp-title-channel,
-                              .ytp-title-link,
-                              a.ytp-title-link,
-                              .ytp-watermark,
-                              .ytp-gradient-top,
-                              .ytp-c4-brand-header {
-                                display: none !important;
-                                visibility: hidden !important;
-                                opacity: 0 !important;
-                                pointer-events: none !important;
-                                transform: scale(0) !important;
-                                -webkit-transform: scale(0) !important;
-                              }
-                              video, .html5-main-video, .html5-video-container, #player, iframe {
-                                position: absolute !important;
-                                top: 0 !important;
-                                left: 0 !important;
-                                margin: 0 !important;
-                                padding: 0 !important;
-                                width: 100% !important;
-                                height: 100% !important;
-                                max-width: 100% !important;
-                                max-height: 100% !important;
-                                object-fit: cover !important;
-                                object-position: center center !important;
-                                transform: none !important;
-                                -webkit-transform: none !important;
-                              }
-                              body:not(.is-minimized) .ytp-settings-button,
-                              body:not(.is-minimized) .ytp-subtitles-button,
-                              body:not(.is-minimized) .ytp-fullscreen-button,
-                              body:not(.is-minimized) .ytp-chrome-bottom,
-                              body:not(.is-minimized) .ytp-right-controls,
-                              body:not(.is-minimized) .ytp-progress-bar-container,
-                              body:not(.is-minimized) .ytp-progress-bar,
-                              body:not(.is-minimized) .ytp-play-button {
-                                display: inline-block !important;
-                                visibility: visible !important;
-                                opacity: 1 !important;
-                                pointer-events: auto !important;
-                              }
-                            \`;
                           }
                         } catch (e) {}
                       }
                       updateFrameStyles();
-                      if (!window.__yt_frame_interval) {
-                        window.__yt_frame_interval = setInterval(updateFrameStyles, 50);
-                      }
 
                       function purgeElements() {
                         try {
+                          // 0. Lock video element direct DOM styles to object-fit: cover
+                          var vids = document.querySelectorAll('video, .html5-main-video, .html5-video-container');
+                          for (var v = 0; v < vids.length; v++) {
+                            try {
+                              vids[v].style.setProperty('object-fit', 'cover', 'important');
+                              vids[v].style.setProperty('object-position', 'center center', 'important');
+                              vids[v].style.setProperty('width', '100%', 'important');
+                              vids[v].style.setProperty('height', '100%', 'important');
+                              vids[v].style.setProperty('top', '0px', 'important');
+                              vids[v].style.setProperty('left', '0px', 'important');
+                              vids[v].style.setProperty('margin', '0px', 'important');
+                              vids[v].style.setProperty('padding', '0px', 'important');
+                              vids[v].style.setProperty('transform', 'none', 'important');
+                            } catch(e) {}
+                          }
+
                           // 1. Auto-skip Video Ads & 16x fast-forward ad playback
                           var skipBtn = document.querySelector('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button, .ytp-ad-skip-button-container, .ytp-ad-preview-container');
                           if (skipBtn) {
@@ -1755,13 +1640,22 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                             '.ytp-cards-button',
                             '.ytp-youtube-button',
                             'a.ytp-youtube-button',
+                            '.ytp-impression-link',
+                            '.ytp-watch-later-button',
+                            '.ytp-overflow-button',
+                            '.ytp-videowall-still',
+                            '.ytp-videowall-still-info',
+                            '.ytp-videowall-still-image',
                             '.ytp-title-channel',
                             '.ytp-title-link',
                             'a.ytp-title-link',
                             '.ytp-watermark',
+                            'a.ytp-watermark',
                             '.ytp-gradient-top',
                             '.ytp-c4-brand-header',
-                            '.ytp-title'
+                            '.ytp-chrome-top',
+                            '.ytp-title',
+                            '.ytp-title-text'
                           ];
                           for (var i = 0; i < selectors.length; i++) {
                             var els = document.querySelectorAll(selectors[i]);
@@ -1772,6 +1666,8 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                                 try {
                                   els[j].style.setProperty('display', 'none', 'important');
                                   els[j].style.setProperty('visibility', 'hidden', 'important');
+                                  els[j].style.setProperty('opacity', '0', 'important');
+                                  els[j].style.setProperty('pointer-events', 'none', 'important');
                                 } catch(e) {}
                               }
                             }
@@ -1890,9 +1786,13 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                         delayPressIn={0}
                         onPress={(e) => {
                           e.stopPropagation();
+                          try {
+                            webViewRef.current?.injectJavaScript("if(player && player.pauseVideo) player.pauseVideo(); true;");
+                          } catch(err) {}
                           togglePipControls();
                           setActiveVideo(null);
                           setIsMinimized(false);
+                          setIsPipPlaying(false);
                         }}
                         style={styles.pipIconBadge}
                         activeOpacity={0.7}
@@ -1940,8 +1840,66 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
           {!isMinimized && !isSystemPipActive && (
             /* Full Screen Player Body (Up Next Songs & Info) */
             <ScrollView style={styles.modalBody} contentContainerStyle={{ padding: 16 }}>
-              <Text style={styles.infoHeading}>{activeVideo.title}</Text>
-              <Text style={styles.infoSub}>{activeVideo.artist}</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                <View style={{ flex: 1, marginRight: 12 }}>
+                  <Text style={styles.infoHeading}>{activeVideo.title}</Text>
+                  <Text style={styles.infoSub}>{activeVideo.artist}</Text>
+                </View>
+
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                  <TouchableOpacity
+                    delayPressIn={0}
+                    onPress={playPrevVideo}
+                    style={{
+                      width: 38,
+                      height: 38,
+                      borderRadius: 19,
+                      backgroundColor: "rgba(255,255,255,0.08)",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <MaterialCommunityIcons name="skip-previous" size={22} color="#fff" />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    delayPressIn={0}
+                    onPress={playNextVideo}
+                    style={{
+                      width: 38,
+                      height: 38,
+                      borderRadius: 19,
+                      backgroundColor: "rgba(255,255,255,0.08)",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <MaterialCommunityIcons name="skip-next" size={22} color="#fff" />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    delayPressIn={0}
+                    onPress={() => toggleLikeVideo(activeVideo)}
+                    style={{
+                      width: 38,
+                      height: 38,
+                      borderRadius: 19,
+                      backgroundColor: isVideoLiked(activeVideo) ? "rgba(29,185,84,0.2)" : "rgba(255,255,255,0.08)",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <MaterialCommunityIcons
+                      name={isVideoLiked(activeVideo) ? "heart" : "heart-outline"}
+                      size={20}
+                      color={isVideoLiked(activeVideo) ? "#1DB954" : "#fff"}
+                    />
+                  </TouchableOpacity>
+                </View>
+              </View>
 
               {/* Only render Server Switcher & Open in YouTube buttons when YouTube blocks the video */}
               {isVideoBlocked && (
