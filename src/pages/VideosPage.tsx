@@ -637,12 +637,12 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
         "trending hindi hd video songs",
         "new telugu movie video songs",
         "new hindi movie video songs",
-        "latest tamil video songs 2026",
-        "viral trending video songs 2026",
-        "top telugu melody video songs",
-        "top hindi romantic video songs",
-        "popular punjabi video songs 2026",
-        "global viral hit video songs 2026"
+        "top telugu melody video songs 4k",
+        "top hindi romantic video songs 4k",
+        "telugu party dance video songs",
+        "hindi party dance video songs",
+        "telugu mass folk video songs",
+        "hindi unplugged lo-fi video songs"
       ];
       const subQueries = isDefault
         ? shuffleArray(TRENDING_POOL).slice(0, 4)
