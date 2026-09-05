@@ -1226,7 +1226,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                     adElements[a].style.setProperty('visibility', 'hidden', 'important');
                   }
                 } catch(e) {}
-              }, 20);
+              }, 500);
 
               function handleMessageEvent(e) {
                 try {
@@ -1492,9 +1492,24 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
               <TouchableOpacity delayPressIn={0} onPress={() => setIsMinimized(true)} style={styles.closeBtn} activeOpacity={0.7}>
                 <MaterialCommunityIcons name="chevron-down" size={28} color="#fff" />
               </TouchableOpacity>
-              <View style={{ flex: 1, alignItems: "center" }}>
-                <Text style={styles.modalVideoTitle} numberOfLines={1}>Playing Video</Text>
+
+              {/* Centered Controls Row: Previous, Next, Like */}
+              <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 16 }}>
+                <TouchableOpacity delayPressIn={0} onPress={playPrevVideo} style={{ padding: 6 }} activeOpacity={0.7}>
+                  <MaterialCommunityIcons name="skip-previous" size={24} color="#fff" />
+                </TouchableOpacity>
+                <TouchableOpacity delayPressIn={0} onPress={playNextVideo} style={{ padding: 6 }} activeOpacity={0.7}>
+                  <MaterialCommunityIcons name="skip-next" size={24} color="#fff" />
+                </TouchableOpacity>
+                <TouchableOpacity delayPressIn={0} onPress={() => toggleLikeVideo(activeVideo)} style={{ padding: 6 }} activeOpacity={0.7}>
+                  <MaterialCommunityIcons
+                    name={isVideoLiked(activeVideo) ? "heart" : "heart-outline"}
+                    size={22}
+                    color={isVideoLiked(activeVideo) ? "#1DB954" : "#fff"}
+                  />
+                </TouchableOpacity>
               </View>
+
               <TouchableOpacity delayPressIn={0} onPress={() => { setActiveVideo(null); setIsMinimized(false); }} style={styles.closeBtn} activeOpacity={0.7}>
                 <MaterialCommunityIcons name="close" size={24} color="#fff" />
               </TouchableOpacity>
@@ -1571,22 +1586,6 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
 
                       function purgeElements() {
                         try {
-                          // 0. Lock video element direct DOM styles to object-fit: cover
-                          var vids = document.querySelectorAll('video, .html5-main-video, .html5-video-container');
-                          for (var v = 0; v < vids.length; v++) {
-                            try {
-                              vids[v].style.setProperty('object-fit', 'cover', 'important');
-                              vids[v].style.setProperty('object-position', 'center center', 'important');
-                              vids[v].style.setProperty('width', '100%', 'important');
-                              vids[v].style.setProperty('height', '100%', 'important');
-                              vids[v].style.setProperty('top', '0px', 'important');
-                              vids[v].style.setProperty('left', '0px', 'important');
-                              vids[v].style.setProperty('margin', '0px', 'important');
-                              vids[v].style.setProperty('padding', '0px', 'important');
-                              vids[v].style.setProperty('transform', 'none', 'important');
-                            } catch(e) {}
-                          }
-
                           // 1. Auto-skip Video Ads & 16x fast-forward ad playback
                           var skipBtn = document.querySelector('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button, .ytp-ad-skip-button-container, .ytp-ad-preview-container');
                           if (skipBtn) {
@@ -1674,7 +1673,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                           }
                         } catch(e) {}
                       }
-                      setInterval(purgeElements, 50);
+                      setInterval(purgeElements, 400);
 
                       function handleCrossFrameMsg(e) {
                         try {
@@ -1840,65 +1839,9 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
           {!isMinimized && !isSystemPipActive && (
             /* Full Screen Player Body (Up Next Songs & Info) */
             <ScrollView style={styles.modalBody} contentContainerStyle={{ padding: 16 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                <View style={{ flex: 1, marginRight: 12 }}>
-                  <Text style={styles.infoHeading}>{activeVideo.title}</Text>
-                  <Text style={styles.infoSub}>{activeVideo.artist}</Text>
-                </View>
-
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                  <TouchableOpacity
-                    delayPressIn={0}
-                    onPress={playPrevVideo}
-                    style={{
-                      width: 38,
-                      height: 38,
-                      borderRadius: 19,
-                      backgroundColor: "rgba(255,255,255,0.08)",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <MaterialCommunityIcons name="skip-previous" size={22} color="#fff" />
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    delayPressIn={0}
-                    onPress={playNextVideo}
-                    style={{
-                      width: 38,
-                      height: 38,
-                      borderRadius: 19,
-                      backgroundColor: "rgba(255,255,255,0.08)",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <MaterialCommunityIcons name="skip-next" size={22} color="#fff" />
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    delayPressIn={0}
-                    onPress={() => toggleLikeVideo(activeVideo)}
-                    style={{
-                      width: 38,
-                      height: 38,
-                      borderRadius: 19,
-                      backgroundColor: isVideoLiked(activeVideo) ? "rgba(29,185,84,0.2)" : "rgba(255,255,255,0.08)",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <MaterialCommunityIcons
-                      name={isVideoLiked(activeVideo) ? "heart" : "heart-outline"}
-                      size={20}
-                      color={isVideoLiked(activeVideo) ? "#1DB954" : "#fff"}
-                    />
-                  </TouchableOpacity>
-                </View>
+              <View style={{ marginBottom: 16 }}>
+                <Text style={styles.infoHeading}>{activeVideo.title}</Text>
+                <Text style={styles.infoSub}>{activeVideo.artist}</Text>
               </View>
 
               {/* Only render Server Switcher & Open in YouTube buttons when YouTube blocks the video */}
