@@ -938,8 +938,19 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
             <style>
               * { box-sizing: border-box; margin: 0; padding: 0; }
               body, html { background-color: #000; width: 100%; height: 100%; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-              .player-wrapper { position: relative; width: 100%; height: 100%; overflow: hidden; background: #000; }
-              #player, iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; }
+              .player-wrapper { position: relative; width: 100%; height: 100%; overflow: hidden; background: #000; display: flex; align-items: center; justify-content: center; }
+              #player, iframe {
+                position: absolute !important;
+                top: 50% !important;
+                left: 50% !important;
+                width: 100% !important;
+                height: 100% !important;
+                min-width: 177.78vh !important;
+                min-height: 56.25vw !important;
+                transform: translate(-50%, -50%) !important;
+                -webkit-transform: translate(-50%, -50%) !important;
+                border: none !important;
+              }
               /* 100% Zero-Ad Youtube CSS Rules */
               .ytp-ad-module, .ytp-ad-overlay-container, .ytp-ad-message-container,
               .ytp-ad-preview-container, .ytp-ad-skip-button-slot, .ytp-ad-text,
@@ -1013,15 +1024,12 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                 transform: scale(0) !important;
                 -webkit-transform: scale(0) !important;
               }
-              #player, iframe, video, .html5-main-video, .html5-video-container,
+              video, .html5-main-video, .html5-video-container,
               :fullscreen video, :-webkit-full-screen video, .ytp-fullscreen video {
                 width: 100% !important;
                 height: 100% !important;
-                transform: none !important;
-                -webkit-transform: none !important;
                 object-fit: cover !important;
                 object-position: center center !important;
-                transform-origin: center center !important;
               }
               /* Explicitly keep Settings gear button, Subtitles/Captions CC button, Progress bar, and Bottom controls ENABLED & VISIBLE in Full Screen */
               body:not(.is-minimized) .ytp-settings-button,
