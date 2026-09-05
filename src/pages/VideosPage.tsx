@@ -553,19 +553,20 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
   }, []);
 
   // Auto-minimize active video when switching tabs away from Videos ONLY if video is actively playing
+  const prevTabRef = useRef(activeTab);
+
   useEffect(() => {
-    if (activeTab === "Videos") {
-      if (isMinimized) {
-        setIsMinimized(false);
-      }
-    } else if (activeTab && activeTab !== "Videos") {
+    const prevTab = prevTabRef.current;
+    prevTabRef.current = activeTab;
+
+    if (activeTab && activeTab !== "Videos" && prevTab === "Videos") {
       if (activeVideo && isPipPlaying && !isMinimized) {
         setIsMinimized(true);
-      } else if ((!isPipPlaying || !activeVideo) && isMinimized) {
-        setIsMinimized(false);
       }
+    } else if (activeTab && activeTab !== "Videos" && (!isPipPlaying || !activeVideo) && isMinimized) {
+      setIsMinimized(false);
     }
-  }, [activeTab, activeVideo, isMinimized, isPipPlaying]);
+  }, [activeTab, activeVideo, isPipPlaying]);
 
   // Toggle minimized CSS class & disable playback speed in WebView when minimized
   useEffect(() => {
@@ -886,7 +887,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
     ) {
       return false;
     }
-    // Block all YouTube external link navigations away from the embedded player
+    // Open YouTube external links in YouTube app or system browser
     if (
       url.includes("youtube.com/watch") ||
       url.includes("youtu.be") ||
@@ -895,6 +896,9 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
       url.includes("youtube.com/redirect") ||
       url.includes("m.youtube.com")
     ) {
+      if (request.url) {
+        Linking.openURL(request.url).catch(() => {});
+      }
       return false;
     }
     return true;
@@ -1000,15 +1004,23 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
               #player, iframe, video {
                 width: 100% !important;
                 height: 100% !important;
-                transform: scale(1.22) !important;
-                -webkit-transform: scale(1.22) !important;
-                object-fit: cover !important;
+                transform: none !important;
+                -webkit-transform: none !important;
+                object-fit: contain !important;
                 transform-origin: center center !important;
               }
               /* Explicitly keep Settings gear button, Subtitles/Captions CC button, Progress bar, and Bottom controls ENABLED & VISIBLE in Full Screen */
               body:not(.is-minimized) .ytp-settings-button,
               body:not(.is-minimized) .ytp-subtitles-button,
               body:not(.is-minimized) .ytp-fullscreen-button,
+              body:not(.is-minimized) .ytp-title,
+              body:not(.is-minimized) .ytp-title-link,
+              body:not(.is-minimized) a.ytp-title-link,
+              body:not(.is-minimized) .ytp-youtube-button,
+              body:not(.is-minimized) a.ytp-youtube-button,
+              body:not(.is-minimized) .ytp-title-channel,
+              body:not(.is-minimized) .ytp-chrome-top,
+              body:not(.is-minimized) .ytp-gradient-top,
               body:not(.is-minimized) .ytp-chrome-bottom,
               body:not(.is-minimized) .ytp-progress-bar-container,
               body:not(.is-minimized) .ytp-progress-bar,
@@ -1646,11 +1658,10 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                                 height: 100% !important;
                                 max-width: 100% !important;
                                 max-height: 100% !important;
-                                object-fit: cover !important;
+                                object-fit: contain !important;
                                 object-position: center center !important;
-                                transform: scale(1.22) !important;
-                                -webkit-transform: scale(1.22) !important;
-                                transform-origin: center center !important;
+                                transform: none !important;
+                                -webkit-transform: none !important;
                               }
                             \`;
                           } else {
@@ -1698,15 +1709,22 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                                 height: 100% !important;
                                 max-width: 100% !important;
                                 max-height: 100% !important;
-                                object-fit: cover !important;
+                                object-fit: contain !important;
                                 object-position: center center !important;
-                                transform: scale(1.22) !important;
-                                -webkit-transform: scale(1.22) !important;
-                                transform-origin: center center !important;
+                                transform: none !important;
+                                -webkit-transform: none !important;
                               }
                               body:not(.is-minimized) .ytp-settings-button,
                               body:not(.is-minimized) .ytp-subtitles-button,
                               body:not(.is-minimized) .ytp-fullscreen-button,
+                              body:not(.is-minimized) .ytp-title,
+                              body:not(.is-minimized) .ytp-title-link,
+                              body:not(.is-minimized) a.ytp-title-link,
+                              body:not(.is-minimized) .ytp-youtube-button,
+                              body:not(.is-minimized) a.ytp-youtube-button,
+                              body:not(.is-minimized) .ytp-title-channel,
+                              body:not(.is-minimized) .ytp-chrome-top,
+                              body:not(.is-minimized) .ytp-gradient-top,
                               body:not(.is-minimized) .ytp-chrome-bottom,
                               body:not(.is-minimized) .ytp-right-controls,
                               body:not(.is-minimized) .ytp-progress-bar-container,
