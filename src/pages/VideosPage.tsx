@@ -1001,26 +1001,19 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                 transform: scale(0) !important;
                 -webkit-transform: scale(0) !important;
               }
-              #player, iframe, video {
+              #player, iframe, video, .html5-main-video, .html5-video-container {
                 width: 100% !important;
                 height: 100% !important;
                 transform: none !important;
                 -webkit-transform: none !important;
-                object-fit: contain !important;
+                object-fit: cover !important;
+                object-position: center center !important;
                 transform-origin: center center !important;
               }
               /* Explicitly keep Settings gear button, Subtitles/Captions CC button, Progress bar, and Bottom controls ENABLED & VISIBLE in Full Screen */
               body:not(.is-minimized) .ytp-settings-button,
               body:not(.is-minimized) .ytp-subtitles-button,
               body:not(.is-minimized) .ytp-fullscreen-button,
-              body:not(.is-minimized) .ytp-title,
-              body:not(.is-minimized) .ytp-title-link,
-              body:not(.is-minimized) a.ytp-title-link,
-              body:not(.is-minimized) .ytp-youtube-button,
-              body:not(.is-minimized) a.ytp-youtube-button,
-              body:not(.is-minimized) .ytp-title-channel,
-              body:not(.is-minimized) .ytp-chrome-top,
-              body:not(.is-minimized) .ytp-gradient-top,
               body:not(.is-minimized) .ytp-chrome-bottom,
               body:not(.is-minimized) .ytp-progress-bar-container,
               body:not(.is-minimized) .ytp-progress-bar,
@@ -1050,40 +1043,11 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                 height: auto !important;
                 padding: 4px 10px !important;
               }
-              .pause-cover-panel {
-                position: absolute;
-                bottom: 30px;
-                left: 0;
-                width: 100%;
-                height: 28%;
-                background: #000;
-                z-index: 10;
-                display: none;
-                pointer-events: auto;
-              }
-              body:not(.is-minimized).is-paused .pause-cover-panel {
-                display: block !important;
-              }
-              .bottom-controls-crop-mask {
-                position: absolute;
-                bottom: 0;
-                left: 0;
-                width: 100%;
-                height: 46px;
-                background: #000;
-                z-index: 99;
-                pointer-events: auto;
-              }
-              body.is-minimized .bottom-controls-crop-mask {
-                display: none !important;
-              }
             </style>
           </head>
           <body class="is-minimized">
             <div class="player-wrapper">
               <div id="player"></div>
-              <div class="pause-cover-panel"></div>
-              <div class="bottom-controls-crop-mask"></div>
             </div>
             <script>
               ${
@@ -1658,7 +1622,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                                 height: 100% !important;
                                 max-width: 100% !important;
                                 max-height: 100% !important;
-                                object-fit: contain !important;
+                                object-fit: cover !important;
                                 object-position: center center !important;
                                 transform: none !important;
                                 -webkit-transform: none !important;
@@ -1709,7 +1673,7 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                                 height: 100% !important;
                                 max-width: 100% !important;
                                 max-height: 100% !important;
-                                object-fit: contain !important;
+                                object-fit: cover !important;
                                 object-position: center center !important;
                                 transform: none !important;
                                 -webkit-transform: none !important;
@@ -1717,14 +1681,6 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
                               body:not(.is-minimized) .ytp-settings-button,
                               body:not(.is-minimized) .ytp-subtitles-button,
                               body:not(.is-minimized) .ytp-fullscreen-button,
-                              body:not(.is-minimized) .ytp-title,
-                              body:not(.is-minimized) .ytp-title-link,
-                              body:not(.is-minimized) a.ytp-title-link,
-                              body:not(.is-minimized) .ytp-youtube-button,
-                              body:not(.is-minimized) a.ytp-youtube-button,
-                              body:not(.is-minimized) .ytp-title-channel,
-                              body:not(.is-minimized) .ytp-chrome-top,
-                              body:not(.is-minimized) .ytp-gradient-top,
                               body:not(.is-minimized) .ytp-chrome-bottom,
                               body:not(.is-minimized) .ytp-right-controls,
                               body:not(.is-minimized) .ytp-progress-bar-container,
