@@ -545,7 +545,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
           dragProgressRef.current = null;
           setDragProgress(null);
           isDraggingRef.current = false;
-        }, 4000) as any;
+        }, 400) as any;
       },
       onPanResponderTerminate: () => {
         isDraggingRef.current = false;

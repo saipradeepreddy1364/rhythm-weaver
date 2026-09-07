@@ -1827,19 +1827,35 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const addToQueue = useCallback((song: Song) => {
     setQueue((prev) => {
-      if (prev.some((s) => s.id === song.id)) return prev;
-      const newQ = [...prev, song];
+      const filtered = prev.filter((s) => s.id !== song.id);
+      const currentIdx = queueIndexRef.current;
+      const insertIdx = Math.min(currentIdx + 1, filtered.length);
+      const newQ = [...filtered.slice(0, insertIdx), song, ...filtered.slice(insertIdx)];
 
       AsyncStorage.getItem("rw_downloads")
-        .then((raw) => {
+        .then(async (raw) => {
           let downloads: any[] = [];
           if (raw) {
             try { downloads = JSON.parse(raw); } catch {}
           }
-          TrackPlayer.add(resolveTrack(song, downloads)).catch(() => {});
+          const track = resolveTrack(song, downloads);
+          try {
+            const activeIdx = await TrackPlayer.getActiveTrackIndex();
+            const nativeInsertIdx = activeIdx !== undefined && activeIdx !== null ? activeIdx + 1 : undefined;
+            await TrackPlayer.add(track, nativeInsertIdx);
+          } catch {
+            await TrackPlayer.add(track).catch(() => {});
+          }
         })
-        .catch(() => {
-          TrackPlayer.add(resolveTrack(song)).catch(() => {});
+        .catch(async () => {
+          const track = resolveTrack(song);
+          try {
+            const activeIdx = await TrackPlayer.getActiveTrackIndex();
+            const nativeInsertIdx = activeIdx !== undefined && activeIdx !== null ? activeIdx + 1 : undefined;
+            await TrackPlayer.add(track, nativeInsertIdx);
+          } catch {
+            await TrackPlayer.add(track).catch(() => {});
+          }
         });
 
       return newQ;

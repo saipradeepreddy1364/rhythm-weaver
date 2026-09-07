@@ -951,7 +951,7 @@ interface SearchPageProps {
   onRequireAuth?: () => void;
 }
 
-export default function SearchPage({ onRequireAuth }: SearchPageProps) {
+function SearchPageComponent({ onRequireAuth }: SearchPageProps) {
   const [query, setQuery]             = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [results, setResults]         = useState<Song[]>([]);
@@ -1143,13 +1143,39 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
           <MaterialCommunityIcons name="magnify" size={20} color="rgba(255,255,255,0.4)" style={{ marginRight: 8 }} />
           <TextInput
             value={query}
-            onChangeText={setQuery}
+            onChangeText={(text) => {
+              setQuery(text);
+              if (!text.trim()) {
+                setDebouncedQuery("");
+                setResults([]);
+                setActiveCategory(null);
+                setActiveArtist(null);
+                setActiveAlbum(null);
+              }
+            }}
             placeholder="Artists, songs, or movie soundtracks..."
             placeholderTextColor="rgba(255, 255, 255, 0.4)"
             style={styles.textInput}
             clearButtonMode="while-editing"
             autoCapitalize="none"
           />
+          {query.length > 0 && (
+            <TouchableOpacity
+              delayPressIn={0}
+              onPress={() => {
+                setQuery("");
+                setDebouncedQuery("");
+                setResults([]);
+                setActiveCategory(null);
+                setActiveArtist(null);
+                setActiveAlbum(null);
+              }}
+              style={{ padding: 4 }}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons name="close-circle" size={18} color="rgba(255,255,255,0.4)" />
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* (Filter tabs hidden because YouTube is disabled) */}
@@ -1230,57 +1256,10 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                 <MaterialCommunityIcons name="chevron-right" size={22} color="#1DB954" />
               </TouchableOpacity>
             ) : null}
-            {/* All - JioSaavn Songs */}
-            {activeTab === "all" && jioSongs.length > 0 ? (
-              <View style={styles.resultSection}>
-                <Text style={styles.sectionSubHeader}>Songs</Text>
-                {jioSongs.slice(0, 30).map((song) => (
-                  <SongRow key={song.id} song={song} queue={jioSongs} onRequireAuth={handleRequireAuth} />
-                ))}
-              </View>
-            ) : null}
-
-            {/* All - YouTube Videos */}
-            {activeTab === "all" && ytSongs.length > 0 ? (
-              <View style={styles.resultSection}>
-                <Text style={styles.sectionSubHeader}>YouTube Videos</Text>
-                {ytSongs.slice(0, 6).map((song) => (
-                  <SongRow key={song.id} song={song} queue={ytSongs} onRequireAuth={handleRequireAuth} />
-                ))}
-              </View>
-            ) : null}
-
-            {/* Songs Tab - Show JioSaavn songs only */}
-            {activeTab === "songs" && jioSongs.length > 0 ? (
-              <View style={styles.resultSection}>
-                {jioSongs.map((song) => (
-                  <SongRow key={song.id} song={song} queue={jioSongs} onRequireAuth={handleRequireAuth} />
-                ))}
-              </View>
-            ) : null}
-
-            {/* YouTube Tab - Show YouTube Videos only */}
-            {activeTab === "youtube" && ytSongs.length > 0 ? (
-              <View style={styles.resultSection}>
-                {ytSongs.map((song) => (
-                  <SongRow key={song.id} song={song} queue={ytSongs} onRequireAuth={handleRequireAuth} />
-                ))}
-              </View>
-            ) : null}
-
-            {/* YouTube Tab - Empty State */}
-            {activeTab === "youtube" && ytSongs.length === 0 ? (
-              <View style={styles.emptyContainer}>
-                <MaterialCommunityIcons name="video-off-outline" size={48} color="rgba(255,255,255,0.15)" />
-                <Text style={styles.emptyTitle}>No YouTube videos found</Text>
-                <Text style={styles.emptySubtitle}>We couldn't retrieve video results for this search query.</Text>
-              </View>
-            ) : null}
-
-            {/* All / Albums */}
+            {/* All / Albums — Elevated to top for fast movie/album access */}
             {(activeTab === "all" || activeTab === "albums") && albumsResult.length > 0 ? (
               <View style={styles.resultSection}>
-                {activeTab === "all" && <Text style={styles.sectionSubHeader}>Albums</Text>}
+                {activeTab === "all" && <Text style={styles.sectionSubHeader}>Albums / Movies</Text>}
                 {albumsResult.slice(0, activeTab === "all" ? 6 : undefined).map((album) => (
                   <TouchableOpacity delayPressIn={0} key={album.title} onPress={() => setActiveAlbum(album)} style={styles.albumRowItem} activeOpacity={0.7}>
                     {album.coverArt ? (
@@ -1296,6 +1275,16 @@ export default function SearchPage({ onRequireAuth }: SearchPageProps) {
                     </View>
                     <MaterialCommunityIcons name="chevron-right" size={18} color="rgba(255,255,255,0.4)" />
                   </TouchableOpacity>
+                ))}
+              </View>
+            ) : null}
+
+            {/* All - JioSaavn Songs */}
+            {activeTab === "all" && jioSongs.length > 0 ? (
+              <View style={styles.resultSection}>
+                <Text style={styles.sectionSubHeader}>Songs</Text>
+                {jioSongs.slice(0, 30).map((song) => (
+                  <SongRow key={song.id} song={song} queue={jioSongs} onRequireAuth={handleRequireAuth} />
                 ))}
               </View>
             ) : null}
@@ -1721,3 +1710,5 @@ const modalStyles = StyleSheet.create({
     color: "rgba(255,255,255,0.4)",
   },
 });
+
+export default React.memo(SearchPageComponent);

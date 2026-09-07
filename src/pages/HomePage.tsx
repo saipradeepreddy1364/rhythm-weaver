@@ -1280,7 +1280,7 @@ let sessionEqTreble: number | null = null;
 let sessionEqVocal: number | null = null;
 
 // ─── Main Component ───────────────────────────────────────────────────────────
-export default function HomePage({ onRequireAuth, setParentScrollEnabled }: HomePageProps) {
+function HomePageComponent({ onRequireAuth, setParentScrollEnabled }: HomePageProps) {
   const { user, logout }     = useAuth();
   const { recentlyPlayed }   = useLibrary();
 
@@ -2607,3 +2607,5 @@ const modalStyles = StyleSheet.create({
     textAlign: "right",
   },
 });
+
+export default React.memo(HomePageComponent);

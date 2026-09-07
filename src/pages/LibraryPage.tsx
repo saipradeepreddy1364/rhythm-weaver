@@ -15,7 +15,7 @@ interface LibraryPageProps {
   initialTab?: Tab;
 }
 
-export default function LibraryPage({ onRequireAuth, initialTab }: LibraryPageProps) {
+function LibraryPageComponent({ onRequireAuth, initialTab }: LibraryPageProps) {
   const { user, loading, logout } = useAuth();
   const {
     likedSongs,
@@ -365,7 +365,19 @@ export default function LibraryPage({ onRequireAuth, initialTab }: LibraryPagePr
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.dashboardTitle}>Your Library</Text>
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          {activeTabStr !== "liked" && (
+            <TouchableOpacity
+              delayPressIn={0}
+              onPress={() => setTab("liked")}
+              style={{ marginRight: 8, padding: 4 }}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
+            </TouchableOpacity>
+          )}
+          <Text style={styles.dashboardTitle}>Your Library</Text>
+        </View>
 
         <View style={{ flexDirection: "row", alignItems: "center" }}>
           <TouchableOpacity
@@ -1156,3 +1168,5 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 });
+
+export default React.memo(LibraryPageComponent);

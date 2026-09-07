@@ -250,7 +250,7 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
   }
 }
 
-export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isSystemPip: isSystemPipProp }: { onRequireAuth: () => void; activeTab?: string; floatingOnly?: boolean; isSystemPip?: boolean }) {
+function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemPip: isSystemPipProp }: { onRequireAuth: () => void; activeTab?: string; floatingOnly?: boolean; isSystemPip?: boolean }) {
   const { likedVideos, toggleLikeVideo, isVideoLiked } = useLibrary();
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -335,8 +335,9 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
   }, [isSystemPipProp]);
 
   useEffect(() => {
-    DeviceEventEmitter.emit("VIDEO_ACTIVE_CHANGED", !!activeVideo);
-  }, [activeVideo]);
+    const isEligible = Boolean(activeVideo && isPipPlaying);
+    DeviceEventEmitter.emit("VIDEO_ACTIVE_CHANGED", isEligible);
+  }, [activeVideo, isPipPlaying]);
 
   useEffect(() => {
     DeviceEventEmitter.emit("VIDEO_MINIMIZED_CHANGED", isMinimized);
@@ -1364,10 +1365,13 @@ export default function VideosPage({ onRequireAuth, activeTab, floatingOnly, isS
               <TouchableOpacity
                 delayPressIn={0}
                 onPress={() => {
+                  isSelectingSuggestionRef.current = false;
                   setQuery("");
                   setSuggestions([]);
                   setShowSuggestions(false);
-                  fetchTrendingVideos("trending telugu hindi video songs");
+                  setVideos([]);
+                  setLoading(true);
+                  fetchTrendingVideos("trending telugu hindi video songs 2026", true);
                 }}
               >
                 <MaterialCommunityIcons name="close-circle" size={18} color="rgba(255,255,255,0.4)" />
@@ -2287,3 +2291,5 @@ const styles = StyleSheet.create({
     zIndex: 99999,
   },
 });
+
+export default React.memo(VideosPageComponent);
