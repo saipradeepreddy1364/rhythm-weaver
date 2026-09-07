@@ -7,6 +7,7 @@ import { api, extractResults } from "../services/api";
 import { useLibrary, normalizeSongTitle } from "../context/LibraryContext";
 import { usePlayer } from "../context/PlayerContext";
 import TrackPlayer from "react-native-track-player";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const { width } = Dimensions.get("window");
 
@@ -338,6 +339,32 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
     const isEligible = Boolean(activeVideo && isPipPlaying);
     DeviceEventEmitter.emit("VIDEO_ACTIVE_CHANGED", isEligible);
   }, [activeVideo, isPipPlaying]);
+
+  // Listen for EQ settings changes and apply WebAudio EQ gains to WebView video player
+  useEffect(() => {
+    const applyEqToWebView = async () => {
+      try {
+        const raw = await AsyncStorage.getItem("rw_eq_settings");
+        if (raw && webViewRef.current) {
+          const parsed = JSON.parse(raw);
+          const bassPct = parsed.bass ?? 85;
+          const bandsArr = parsed.bands ?? [8, 6, 2, 0, 0];
+          const enabled = parsed.enabled ?? true;
+
+          const bassGain = Math.min(14, Math.max(-10, ((bassPct - 50) / 50) * 8 + (bandsArr[0] || 0)));
+          const midGain = Math.min(12, Math.max(-10, (bandsArr[2] || 0)));
+          const trebleGain = Math.min(12, Math.max(-10, (bandsArr[4] || 0)));
+
+          const js = `if (typeof window.setWebViewEq === 'function') window.setWebViewEq(${bassGain}, ${midGain}, ${trebleGain}, ${enabled ? 'true' : 'false'}); true;`;
+          webViewRef.current.injectJavaScript(js);
+        }
+      } catch {}
+    };
+
+    applyEqToWebView();
+    const sub = DeviceEventEmitter.addListener("EQ_SETTINGS_CHANGED", applyEqToWebView);
+    return () => sub.remove();
+  }, []);
 
   useEffect(() => {
     DeviceEventEmitter.emit("VIDEO_MINIMIZED_CHANGED", isMinimized);
@@ -1286,6 +1313,64 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                   });
                 } catch (e) {}
               }
+
+              var audioCtx = null;
+              var bassFilter = null;
+              var midFilter = null;
+              var trebleFilter = null;
+              var videoSource = null;
+
+              function initWebAudioEQ() {
+                try {
+                  var vid = document.querySelector('video');
+                  if (!vid || vid.hasWebAudioEq) return;
+                  vid.hasWebAudioEq = true;
+
+                  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                  videoSource = audioCtx.createMediaElementSource(vid);
+
+                  bassFilter = audioCtx.createBiquadFilter();
+                  bassFilter.type = 'lowshelf';
+                  bassFilter.frequency.value = 250;
+
+                  midFilter = audioCtx.createBiquadFilter();
+                  midFilter.type = 'peaking';
+                  midFilter.frequency.value = 1000;
+                  midFilter.Q.value = 1.0;
+
+                  trebleFilter = audioCtx.createBiquadFilter();
+                  trebleFilter.type = 'highshelf';
+                  trebleFilter.frequency.value = 4000;
+
+                  videoSource.connect(bassFilter);
+                  bassFilter.connect(midFilter);
+                  midFilter.connect(trebleFilter);
+                  trebleFilter.connect(audioCtx.destination);
+                } catch(e) {}
+              }
+
+              window.setWebViewEq = function(bassGain, midGain, trebleGain, enabled) {
+                try {
+                  if (!audioCtx) initWebAudioEQ();
+                  if (audioCtx && audioCtx.state === 'suspended') {
+                    audioCtx.resume();
+                  }
+                  if (bassFilter && midFilter && trebleFilter) {
+                    bassFilter.gain.value = enabled ? bassGain : 0;
+                    midFilter.gain.value = enabled ? midGain : 0;
+                    trebleFilter.gain.value = enabled ? trebleGain : 0;
+                  }
+                } catch(e) {}
+              };
+
+              setInterval(function() {
+                try {
+                  var vid = document.querySelector('video');
+                  if (vid && !vid.hasWebAudioEq) {
+                    initWebAudioEQ();
+                  }
+                } catch(e) {}
+              }, 1500);
 
               setInterval(attachVideoListeners, 1000);
 
