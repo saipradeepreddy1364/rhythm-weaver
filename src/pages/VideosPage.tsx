@@ -341,7 +341,10 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
 
     if (Platform.OS === 'android') {
       try {
-        Linking.sendIntent("ACTION_SET_PIP_ELIGIBLE", [{ key: "eligible", value: isEligible }]).catch(() => {});
+        const { NativeModules } = require('react-native');
+        if (NativeModules.PipModule && typeof NativeModules.PipModule.setPipEligible === 'function') {
+          NativeModules.PipModule.setPipEligible(isEligible);
+        }
       } catch {}
     }
   }, [activeVideo, isPipPlaying]);

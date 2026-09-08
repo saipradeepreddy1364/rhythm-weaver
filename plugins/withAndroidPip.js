@@ -1,4 +1,4 @@
-const { withMainActivity, withAndroidManifest } = require('@expo/config-plugins');
+const { withMainActivity, withMainApplication, withAndroidManifest } = require('@expo/config-plugins');
 
 function withAndroidPipManifest(config) {
   return withAndroidManifest(config, (config) => {
@@ -17,14 +17,44 @@ function withAndroidPipManifest(config) {
   });
 }
 
+function withAndroidPipApplication(config) {
+  return withMainApplication(config, (config) => {
+    let mainApp = config.modResults.contents;
+    if (!mainApp.includes('PipPackage()')) {
+      if (mainApp.includes('PackageList(this).packages')) {
+        mainApp = mainApp.replace(
+          'PackageList(this).packages',
+          'PackageList(this).packages.apply { add(com.medley.app.PipPackage()) }'
+        );
+      }
+      config.modResults.contents = mainApp;
+    }
+    return config;
+  });
+}
+
 module.exports = function withAndroidPip(config) {
   config = withAndroidPipManifest(config);
+  config = withAndroidPipApplication(config);
   return withMainActivity(config, (config) => {
     let mainActivity = config.modResults.contents;
 
     if (!mainActivity.includes('getPipRemoteActions')) {
       const pipSnippet = `
-  private var isPipEligible = false
+  var isPipEligible = false
+
+  fun setPipEligibleFromJs(eligible: Boolean) {
+    isPipEligible = eligible
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+      try {
+        val builder = android.app.PictureInPictureParams.Builder()
+        builder.setAspectRatio(android.util.Rational(16, 9))
+        builder.setActions(getPipRemoteActions())
+        builder.setAutoEnterEnabled(eligible)
+        setPictureInPictureParams(builder.build())
+      } catch (e: Exception) {}
+    }
+  }
 
   private val pipActionReceiver = object : android.content.BroadcastReceiver() {
     override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
@@ -36,18 +66,6 @@ module.exports = function withAndroidPip(config) {
               .emit("ON_PIP_PLAY_PAUSE_PRESSED", null)
           }
         } catch (e: Exception) {}
-      } else if (intent?.action == "ACTION_SET_PIP_ELIGIBLE") {
-        val eligible = intent.getBooleanExtra("eligible", false)
-        isPipEligible = eligible
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-          try {
-            val builder = android.app.PictureInPictureParams.Builder()
-            builder.setAspectRatio(android.util.Rational(16, 9))
-            builder.setActions(getPipRemoteActions())
-            builder.setAutoEnterEnabled(eligible)
-            setPictureInPictureParams(builder.build())
-          } catch (e: Exception) {}
-        }
       }
     }
   }
@@ -74,9 +92,7 @@ module.exports = function withAndroidPip(config) {
   override fun onStart() {
     super.onStart()
     try {
-      val filter = android.content.IntentFilter()
-      filter.addAction("ACTION_PIP_PLAY_PAUSE")
-      filter.addAction("ACTION_SET_PIP_ELIGIBLE")
+      val filter = android.content.IntentFilter("ACTION_PIP_PLAY_PAUSE")
       if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
         registerReceiver(pipActionReceiver, filter, android.content.Context.RECEIVER_NOT_EXPORTED)
       } else {
@@ -89,7 +105,7 @@ module.exports = function withAndroidPip(config) {
         val builder = android.app.PictureInPictureParams.Builder()
         builder.setAspectRatio(android.util.Rational(16, 9))
         builder.setActions(getPipRemoteActions())
-        builder.setAutoEnterEnabled(false)
+        builder.setAutoEnterEnabled(isPipEligible)
         setPictureInPictureParams(builder.build())
       } catch (e: Exception) {}
     }
@@ -148,7 +164,33 @@ module.exports = function withAndroidPip(config) {
     } catch (e: Exception) {}
   }
 `;
-      mainActivity = mainActivity.replace(/}\s*$/, `${pipSnippet}\n}`);
+      const packageClassSnippet = `
+class PipModule(private val reactContext: com.facebook.react.bridge.ReactApplicationContext) :
+  com.facebook.react.bridge.ReactContextBaseModule(reactContext) {
+
+  override fun getName(): String = "PipModule"
+
+  @com.facebook.react.bridge.ReactMethod
+  fun setPipEligible(eligible: Boolean) {
+    val activity = currentActivity
+    if (activity is MainActivity) {
+      activity.runOnUiThread {
+        activity.setPipEligibleFromJs(eligible)
+      }
+    }
+  }
+}
+
+class PipPackage : com.facebook.react.ReactPackage {
+  override fun createNativeModules(reactContext: com.facebook.react.bridge.ReactApplicationContext): List<com.facebook.react.bridge.NativeModule> {
+    return listOf(PipModule(reactContext))
+  }
+  override fun createViewManagers(reactContext: com.facebook.react.bridge.ReactApplicationContext): List<com.facebook.react.uimanager.ViewManager<*, *>> {
+    return emptyList()
+  }
+}
+`;
+      mainActivity = mainActivity.replace(/}\s*$/, `${pipSnippet}\n}\n${packageClassSnippet}`);
       config.modResults.contents = mainActivity;
     }
 
