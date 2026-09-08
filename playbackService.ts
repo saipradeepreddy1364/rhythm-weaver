@@ -20,4 +20,8 @@ export const PlaybackService = async () => {
   TrackPlayer.addEventListener(Event.RemoteSeek, (event) => {
     TrackPlayer.seekTo(event.position).catch(() => {});
   });
+
+  TrackPlayer.addEventListener(Event.RemoteStop, () => {
+    TrackPlayer.reset().catch(() => {});
+  });
 };

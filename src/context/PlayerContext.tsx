@@ -17,6 +17,7 @@ import TrackPlayer, {
   useActiveTrack,
   RepeatMode,
   AndroidAudioContentType,
+  AppKilledPlaybackBehavior,
 } from "react-native-track-player";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Song, mapApiSong } from "../data/songs";
@@ -1572,12 +1573,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           androidAudioContentType: AndroidAudioContentType.Music,
         });
         await TrackPlayer.updateOptions({
+          android: {
+            appKilledPlaybackBehavior: AppKilledPlaybackBehavior.StopPlaybackAndRemoveNotification,
+          },
           capabilities: [
             Capability.Play,
             Capability.Pause,
             Capability.SkipToNext,
             Capability.SkipToPrevious,
             Capability.SeekTo,
+            Capability.Stop,
           ],
           compactCapabilities: [
             Capability.Play,
