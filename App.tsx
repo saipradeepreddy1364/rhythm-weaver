@@ -137,7 +137,7 @@ function AppContent() {
       }
     };
 
-    // Delay update checks until 8 seconds (after pages have fully mounted and splash is gone) to avoid startup CPU peak
+    // Check for OTA updates 1.5s after launch
     const checkUpdatesTimer = setTimeout(async () => {
       try {
         console.log("[App] Checking for production OTA updates...");
@@ -150,13 +150,8 @@ function AppContent() {
         }
       } catch (e) {
         console.warn("OTA update check failed:", e);
-        if (__DEV__) {
-          // Fallback to simulated popup in dev mode for UI validation
-          console.log("[App] Falling back to simulated updates popup in dev mode.");
-          setUpdateAvailable(true);
-        }
       }
-    }, 8000);
+    }, 1500);
 
     return () => {
       clearTimeout(checkUpdatesTimer);
