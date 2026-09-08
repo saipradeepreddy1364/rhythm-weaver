@@ -338,6 +338,12 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
   useEffect(() => {
     const isEligible = Boolean(activeVideo && isPipPlaying);
     DeviceEventEmitter.emit("VIDEO_ACTIVE_CHANGED", isEligible);
+
+    if (Platform.OS === 'android') {
+      try {
+        Linking.sendIntent("ACTION_SET_PIP_ELIGIBLE", [{ key: "eligible", value: isEligible }]).catch(() => {});
+      } catch {}
+    }
   }, [activeVideo, isPipPlaying]);
 
   // Listen for EQ settings changes and apply WebAudio EQ gains to WebView video player

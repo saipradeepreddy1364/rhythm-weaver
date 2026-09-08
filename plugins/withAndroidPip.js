@@ -24,6 +24,8 @@ module.exports = function withAndroidPip(config) {
 
     if (!mainActivity.includes('getPipRemoteActions')) {
       const pipSnippet = `
+  private var isPipEligible = false
+
   private val pipActionReceiver = object : android.content.BroadcastReceiver() {
     override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
       if (intent?.action == "ACTION_PIP_PLAY_PAUSE") {
@@ -34,6 +36,18 @@ module.exports = function withAndroidPip(config) {
               .emit("ON_PIP_PLAY_PAUSE_PRESSED", null)
           }
         } catch (e: Exception) {}
+      } else if (intent?.action == "ACTION_SET_PIP_ELIGIBLE") {
+        val eligible = intent.getBooleanExtra("eligible", false)
+        isPipEligible = eligible
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+          try {
+            val builder = android.app.PictureInPictureParams.Builder()
+            builder.setAspectRatio(android.util.Rational(16, 9))
+            builder.setActions(getPipRemoteActions())
+            builder.setAutoEnterEnabled(eligible)
+            setPictureInPictureParams(builder.build())
+          } catch (e: Exception) {}
+        }
       }
     }
   }
@@ -60,7 +74,9 @@ module.exports = function withAndroidPip(config) {
   override fun onStart() {
     super.onStart()
     try {
-      val filter = android.content.IntentFilter("ACTION_PIP_PLAY_PAUSE")
+      val filter = android.content.IntentFilter()
+      filter.addAction("ACTION_PIP_PLAY_PAUSE")
+      filter.addAction("ACTION_SET_PIP_ELIGIBLE")
       if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
         registerReceiver(pipActionReceiver, filter, android.content.Context.RECEIVER_NOT_EXPORTED)
       } else {
@@ -73,7 +89,7 @@ module.exports = function withAndroidPip(config) {
         val builder = android.app.PictureInPictureParams.Builder()
         builder.setAspectRatio(android.util.Rational(16, 9))
         builder.setActions(getPipRemoteActions())
-        builder.setAutoEnterEnabled(true)
+        builder.setAutoEnterEnabled(false)
         setPictureInPictureParams(builder.build())
       } catch (e: Exception) {}
     }
@@ -88,6 +104,8 @@ module.exports = function withAndroidPip(config) {
 
   override fun onUserLeaveHint() {
     super.onUserLeaveHint()
+    if (!isPipEligible) return
+
     try {
       val map = com.facebook.react.bridge.Arguments.createMap()
       map.putBoolean("isInPictureInPictureMode", true)
@@ -98,7 +116,7 @@ module.exports = function withAndroidPip(config) {
       }
     } catch (e: Exception) {}
 
-    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+    if (isPipEligible && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O && android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S) {
       try {
         val builder = android.app.PictureInPictureParams.Builder()
         builder.setAspectRatio(android.util.Rational(16, 9))
