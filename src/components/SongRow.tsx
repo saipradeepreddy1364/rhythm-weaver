@@ -3,6 +3,7 @@ import React, { useState } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Song, formatDuration } from "../data/songs";
 import { usePlayer } from "../context/PlayerContext";
+import TrackPlayer from "react-native-track-player";
 import { LikeButton } from "./LikeButton";
 import { useLibrary } from "../context/LibraryContext";
 
@@ -23,9 +24,18 @@ export function SongRow({ song, queue, onRequireAuth, fromLibrary, hideActions }
   const downloaded = isDownloaded(song.id);
   const downloading = downloadingIds.includes(song.id);
 
-  const handleClick = () => {
+  const handleClick = async () => {
     if (isActive) {
-      togglePlay();
+      try {
+        if (!isPlaying) {
+          togglePlay();
+        } else {
+          await TrackPlayer.seekTo(0);
+          await TrackPlayer.play();
+        }
+      } catch {
+        playSong(song, queue, fromLibrary);
+      }
     } else {
       playSong(song, queue, fromLibrary);
     }

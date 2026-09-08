@@ -722,36 +722,42 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Listen for EQ & Bass Boost settings to dynamically boost volume gain
-  useEffect(() => {
-    const sub = DeviceEventEmitter.addListener("EQ_SETTINGS_CHANGED", async (data: any) => {
-      try {
-        const { bass = 80, enabled = true, bands = [0, 0, 0, 0, 0] } = data || {};
-        if (!enabled) {
-          await TrackPlayer.setVolume(1.0);
-          return;
-        }
-
-        // Low, Mid, and High frequency weighted gain profile
-        const b = Array.isArray(bands) && bands.length >= 5 ? bands : [0, 0, 0, 0, 0];
-        const lowWeight = (b[0] * 0.4) + (b[1] * 0.3);
-        const midWeight = (b[2] * 0.5) + (b[3] * 0.3);
-        const highWeight = b[4] * 0.4;
-
-        const bassBoostFactor = (bass / 100) * 3.2;
-        const bandEqFactor = (lowWeight * 0.12) + (midWeight * 0.15) + (highWeight * 0.12);
-
-        // Vocal mode boost detection (when mids are high and bass is low)
-        const isVocalProfile = midWeight > 4 && bass < 30;
-        const baseVolume = isVocalProfile ? 1.6 : 1.0;
-
-        const finalVolume = Math.min(4.5, Math.max(0.4, baseVolume + bassBoostFactor + bandEqFactor));
-        await TrackPlayer.setVolume(finalVolume);
-      } catch (err) {
-        console.warn("[PlayerContext] Failed to apply EQ gain:", err);
+  const applyAudioEQ = useCallback(async (data?: any) => {
+    try {
+      let settings = data;
+      if (!settings || typeof settings.bass !== 'number') {
+        const raw = await AsyncStorage.getItem("rw_eq_settings");
+        if (raw) settings = JSON.parse(raw);
       }
-    });
-    return () => sub.remove();
+      const { bass = 85, enabled = true, bands = [8, 6, 2, 0, 0] } = settings || {};
+      if (!enabled) {
+        await TrackPlayer.setVolume(1.0);
+        return;
+      }
+
+      const b = Array.isArray(bands) && bands.length >= 5 ? bands : [0, 0, 0, 0, 0];
+      const lowWeight = (b[0] * 0.4) + (b[1] * 0.3);
+      const midWeight = (b[2] * 0.5) + (b[3] * 0.3);
+      const highWeight = b[4] * 0.4;
+
+      const bassBoostFactor = (bass / 100) * 3.5;
+      const bandEqFactor = (lowWeight * 0.15) + (midWeight * 0.18) + (highWeight * 0.15);
+
+      const isVocalProfile = midWeight > 4 && bass < 30;
+      const baseVolume = isVocalProfile ? 1.8 : 1.2;
+
+      const finalVolume = Math.min(5.0, Math.max(0.4, baseVolume + bassBoostFactor + bandEqFactor));
+      await TrackPlayer.setVolume(finalVolume);
+    } catch (err) {
+      console.warn("[PlayerContext] Failed to apply EQ gain:", err);
+    }
   }, []);
+
+  useEffect(() => {
+    applyAudioEQ();
+    const sub = DeviceEventEmitter.addListener("EQ_SETTINGS_CHANGED", applyAudioEQ);
+    return () => sub.remove();
+  }, [applyAudioEQ]);
 
   // Background task to try to fetch a high-res original movie/album cover image for YouTube tracks
   useEffect(() => {

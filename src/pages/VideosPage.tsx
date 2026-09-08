@@ -1360,6 +1360,13 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                     midFilter.gain.value = enabled ? midGain : 0;
                     trebleFilter.gain.value = enabled ? trebleGain : 0;
                   }
+                  var vids = document.querySelectorAll('video');
+                  for (var v = 0; v < vids.length; v++) {
+                    if (vids[v]) {
+                      var mult = enabled ? Math.min(1.0, Math.max(0.2, 0.8 + (bassGain / 20.0) + (midGain / 25.0))) : 1.0;
+                      vids[v].volume = mult;
+                    }
+                  }
                 } catch(e) {}
               };
 

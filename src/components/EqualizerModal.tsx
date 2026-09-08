@@ -141,12 +141,13 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({ visible, onClose
     enabled: boolean
   ) => {
     try {
+      const payload = { preset, bass, bands: b, surround, enabled };
       await AsyncStorage.setItem(
         "rw_eq_settings",
-        JSON.stringify({ preset, bass, bands: b, surround, enabled })
+        JSON.stringify(payload)
       );
       applyNativeAudioEffect(bass, b, enabled);
-      DeviceEventEmitter.emit("EQ_SETTINGS_CHANGED");
+      DeviceEventEmitter.emit("EQ_SETTINGS_CHANGED", payload);
     } catch {}
   };
 
