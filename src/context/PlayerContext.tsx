@@ -729,8 +729,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         const raw = await AsyncStorage.getItem("rw_eq_settings");
         if (raw) settings = JSON.parse(raw);
       }
-      const { bass = 85, enabled = true, bands = [8, 6, 2, 0, 0] } = settings || {};
-      if (!enabled) {
+      const { bass = 85, enabled = true, bands = [8, 6, 2, 0, 0], preset = "" } = settings || {};
+
+      // If EQ is disabled or Normal (Original) preset selected, reset to untouched original audio (1.0x)
+      if (!enabled || preset === "Normal (Original)" || preset === "Flat") {
         await TrackPlayer.setVolume(1.0);
         return;
       }
@@ -1200,7 +1202,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           setQueue(updatedQueue);
           
           try {
-            const tracksToAdd = uniqueRecs.map((s) => resolveTrack(s, downloadedList));
+            const tracksToAdd = await Promise.all(
+              uniqueRecs.map(async (s) => {
+                const track = resolveTrack(s, downloadedList);
+                track.url = await getDirectAudioUrl(track.url);
+                return track;
+              })
+            );
             await TrackPlayer.add(tracksToAdd);
             
             const playbackState = await TrackPlayer.getPlaybackState();
@@ -1393,8 +1401,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      // Proactively load recommendations in the background if queue is short (e.g., single song or short search plays)
-      if (q.length < 5) {
+      // Proactively load recommendations in the background if queue is under 15 songs (e.g., Quick Picks or short search playlists)
+      if (q.length < 15) {
         fetchAndAppendRecommendations(song).catch((err) => {
           console.warn("[PlayerContext] Background recommendations failed in playSong:", err);
         });
