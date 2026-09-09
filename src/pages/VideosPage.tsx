@@ -491,14 +491,17 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
   const pipControlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const webViewRef = useRef<any>(null);
 
-  const togglePipControls = useCallback(() => {
+  const togglePipControls = useCallback((forceState?: boolean) => {
     setShowPipControls((prev) => {
-      const next = !prev;
-      if (pipControlsTimeoutRef.current) clearTimeout(pipControlsTimeoutRef.current);
+      const next = typeof forceState === 'boolean' ? forceState : !prev;
+      if (pipControlsTimeoutRef.current) {
+        clearTimeout(pipControlsTimeoutRef.current);
+        pipControlsTimeoutRef.current = null;
+      }
       if (next) {
         pipControlsTimeoutRef.current = setTimeout(() => {
           setShowPipControls(false);
-        }, 2000);
+        }, 2500);
       }
       return next;
     });
@@ -1863,19 +1866,11 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
             {isMinimized && !isSystemPipActive && (
               <>
 
-                {/* Full Frame Touch Overlay to Toggle Controls & Expand to Videos Page on Tap */}
+                {/* Full Frame Touch Overlay to Toggle Controls Visibility (Show/Hide on Single Tap) */}
                 <TouchableOpacity
                   activeOpacity={1}
                   delayPressIn={0}
-                  onPress={() => {
-                    if (!showPipControls) {
-                      togglePipControls();
-                    } else {
-                      togglePipControls();
-                      setIsMinimized(false);
-                      DeviceEventEmitter.emit("NAVIGATE_TO_TAB", "Videos");
-                    }
-                  }}
+                  onPress={() => togglePipControls()}
                   style={{
                     position: 'absolute',
                     top: 0,
@@ -1886,7 +1881,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                   }}
                 />
 
-                {/* VISIBLE ONLY WHEN TOUCHED / TAPPED (AUTOHIDES AFTER 2 SECONDS) */}
+                {/* VISIBLE ONLY WHEN TOUCHED / TAPPED (AUTOHIDES AFTER 2.5 SECONDS OR INSTANTLY ON RE-TAP) */}
                 {showPipControls && (
                   <>
                     {/* Top-Right Controls: Expand Fullscreen, Close X */}
@@ -1904,7 +1899,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                         delayPressIn={0}
                         onPress={(e) => {
                           e.stopPropagation();
-                          togglePipControls();
+                          togglePipControls(false);
                           setIsMinimized(false);
                           DeviceEventEmitter.emit("NAVIGATE_TO_TAB", "Videos");
                         }}
@@ -1922,7 +1917,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                           try {
                             webViewRef.current?.injectJavaScript("if(player && player.pauseVideo) player.pauseVideo(); true;");
                           } catch(err) {}
-                          togglePipControls();
+                          togglePipControls(false);
                           setActiveVideo(null);
                           setIsMinimized(false);
                           setIsPipPlaying(false);
@@ -1935,7 +1930,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                       </TouchableOpacity>
                     </Animated.View>
 
-                    {/* Bottom-Center Control: Play / Pause */}
+                    {/* Bottom Controls Row: Previous, Play/Pause, Next */}
                     <Animated.View
                       style={[
                         styles.pipBottomControls,
@@ -1950,8 +1945,22 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                         delayPressIn={0}
                         onPress={(e) => {
                           e.stopPropagation();
-                          togglePipControls();
+                          playPrevVideo();
+                          togglePipControls(true);
+                        }}
+                        style={styles.pipIconBadge}
+                        activeOpacity={0.7}
+                        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                      >
+                        <MaterialCommunityIcons name="skip-previous" size={16} color="#fff" />
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        delayPressIn={0}
+                        onPress={(e) => {
+                          e.stopPropagation();
                           handleTogglePipPlay();
+                          togglePipControls(true);
                         }}
                         style={styles.pipPlayIconBadge}
                         activeOpacity={0.7}
@@ -1962,6 +1971,20 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                           size={18}
                           color="#fff"
                         />
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        delayPressIn={0}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          playNextVideo();
+                          togglePipControls(true);
+                        }}
+                        style={styles.pipIconBadge}
+                        activeOpacity={0.7}
+                        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                      >
+                        <MaterialCommunityIcons name="skip-next" size={16} color="#fff" />
                       </TouchableOpacity>
                     </Animated.View>
                   </>
@@ -2358,6 +2381,9 @@ const styles = StyleSheet.create({
     position: "absolute",
     bottom: 8,
     alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
     zIndex: 100,
   },
   pipIconBadge: {
