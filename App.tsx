@@ -8,6 +8,7 @@ import * as Updates from "expo-updates";
 import * as SplashScreen from "expo-splash-screen";
 import TrackPlayer from "react-native-track-player";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import NetInfo from "@react-native-community/netinfo";
 import { PlaybackService } from "./playbackService";
 import { localStorage } from "./src/lib/storage";
 
@@ -92,9 +93,39 @@ function AppContent() {
   const [activeTab, setActiveTabState] = useState<'Home' | 'Search' | 'Videos' | 'Library'>('Home');
   const navigationRef = useRef<any>(null);
   const appState = useRef(AppState.currentState);
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
+  const wasOfflineRef = useRef(false);
 
   const setActiveTab = useCallback((tabName: 'Home' | 'Search' | 'Videos' | 'Library') => {
     setActiveTabState(tabName);
+  }, []);
+
+  // Listen to network status for auto-redirection to Downloads and auto-reconnect reload
+  useEffect(() => {
+    const handleNetworkState = (state: any) => {
+      const isNoNet = state.isConnected === false || state.isInternetReachable === false;
+      if (isNoNet) {
+        wasOfflineRef.current = true;
+        setIsOfflineMode(true);
+        setActiveTabState("Library");
+        DeviceEventEmitter.emit("NAVIGATE_TO_DOWNLOADS");
+      } else {
+        if (wasOfflineRef.current) {
+          wasOfflineRef.current = false;
+          setIsOfflineMode(false);
+          DeviceEventEmitter.emit("NETWORK_RECONNECTED");
+        } else {
+          setIsOfflineMode(false);
+        }
+      }
+    };
+
+    const unsubscribe = NetInfo.addEventListener(handleNetworkState);
+    NetInfo.fetch().then(handleNetworkState);
+
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
   // Track appState changes without force-resetting the active tab to Home on app resume/unminimize
@@ -278,6 +309,12 @@ function AppContent() {
   return (
     <SafeAreaView style={[styles.container, isSystemPipActive && { backgroundColor: "#000" }]}>
       {!isSystemPipActive && <StatusBar barStyle="light-content" backgroundColor="#121212" />}
+      {isOfflineMode && !isSystemPipActive && (
+        <View style={styles.offlineBanner}>
+          <MaterialCommunityIcons name="wifi-off" size={16} color="#000" style={{ marginRight: 6 }} />
+          <Text style={styles.offlineBannerText}>No Internet Connection — Showing Downloaded Songs</Text>
+        </View>
+      )}
       
       {__DEV__ && !isSystemPipActive && !updateAvailable && !isDownloadingUpdate && !updateDownloaded && (
         <TouchableOpacity 

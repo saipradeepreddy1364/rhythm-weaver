@@ -68,6 +68,52 @@ interface LibraryContextType {
   loadLikedVideos: () => Promise<void>;
 }
 
+// ─── Dual-Layer File System Backup Helper ────────────────────────────────────
+const BACKUP_FILE_PATH = (FileSystem.documentDirectory || "") + "rw_library_backup.json";
+
+async function saveLibraryToFileBackup(patch: {
+  likedSongs?: Song[];
+  likedAlbums?: AlbumData[];
+  likedVideos?: any[];
+  playlists?: StoredPlaylist[];
+  recentlyPlayed?: Song[];
+}) {
+  try {
+    let currentData: any = {};
+    const fileInfo = await FileSystem.getInfoAsync(BACKUP_FILE_PATH);
+    if (fileInfo.exists) {
+      const raw = await FileSystem.readAsStringAsync(BACKUP_FILE_PATH);
+      if (raw) {
+        try { currentData = JSON.parse(raw); } catch {}
+      }
+    }
+    const updatedData = {
+      version: 1,
+      updatedAt: new Date().toISOString(),
+      ...currentData,
+      ...patch,
+    };
+    await FileSystem.writeAsStringAsync(BACKUP_FILE_PATH, JSON.stringify(updatedData));
+  } catch (err) {
+    console.warn("Failed to write library backup file:", err);
+  }
+}
+
+async function readLibraryFromFileBackup(): Promise<any | null> {
+  try {
+    const fileInfo = await FileSystem.getInfoAsync(BACKUP_FILE_PATH);
+    if (fileInfo.exists) {
+      const raw = await FileSystem.readAsStringAsync(BACKUP_FILE_PATH);
+      if (raw) {
+        return JSON.parse(raw);
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to read library backup file:", err);
+  }
+  return null;
+}
+
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
 export function normalizeSongTitle(title: string, movie?: string, album?: string): string {
@@ -183,8 +229,15 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         } catch {}
       }
 
-      // Step 3: Load liked songs from canonical key
-      const raw = await localStorage.getItemAsync("rw_liked_songs");
+      // Step 2.5: Load file-system backup if storage keys are empty
+      const fileBackup = await readLibraryFromFileBackup();
+
+      // Step 3: Load liked songs from canonical key or backup file
+      let raw = await localStorage.getItemAsync("rw_liked_songs");
+      if (!raw && fileBackup?.likedSongs && Array.isArray(fileBackup.likedSongs)) {
+        raw = JSON.stringify(fileBackup.likedSongs);
+        await localStorage.setItemAsync("rw_liked_songs", raw);
+      }
       try {
         if (raw && likedSongsSeq.current === 0) {
           const val = JSON.parse(raw);
@@ -196,7 +249,11 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       } catch {}
 
       // Step 4: Load liked albums
-      const rawAlbums = await localStorage.getItemAsync("rw_liked_albums");
+      let rawAlbums = await localStorage.getItemAsync("rw_liked_albums");
+      if (!rawAlbums && fileBackup?.likedAlbums && Array.isArray(fileBackup.likedAlbums)) {
+        rawAlbums = JSON.stringify(fileBackup.likedAlbums);
+        await localStorage.setItemAsync("rw_liked_albums", rawAlbums);
+      }
       try {
         if (rawAlbums) {
           const val = JSON.parse(rawAlbums);
@@ -208,7 +265,11 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       } catch {}
 
       // Step 5: Load custom playlists / folders
-      const rawPlaylists = await localStorage.getItemAsync("rw_playlists");
+      let rawPlaylists = await localStorage.getItemAsync("rw_playlists");
+      if (!rawPlaylists && fileBackup?.playlists && Array.isArray(fileBackup.playlists)) {
+        rawPlaylists = JSON.stringify(fileBackup.playlists);
+        await localStorage.setItemAsync("rw_playlists", rawPlaylists);
+      }
       try {
         if (rawPlaylists) {
           const val = JSON.parse(rawPlaylists);
@@ -219,7 +280,11 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       } catch {}
 
       // Step 6: Load liked videos
-      const rawVideos = await localStorage.getItemAsync("rw_liked_videos");
+      let rawVideos = await localStorage.getItemAsync("rw_liked_videos");
+      if (!rawVideos && fileBackup?.likedVideos && Array.isArray(fileBackup.likedVideos)) {
+        rawVideos = JSON.stringify(fileBackup.likedVideos);
+        await localStorage.setItemAsync("rw_liked_videos", rawVideos);
+      }
       try {
         if (rawVideos && likedVideosSeq.current === 0) {
           const val = JSON.parse(rawVideos);
@@ -483,6 +548,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       likedVideosRef.current = nextLiked;
       setLikedVideos(nextLiked);
       await localStorage.setItemAsync("rw_liked_videos", JSON.stringify(nextLiked));
+      saveLibraryToFileBackup({ likedVideos: nextLiked }).catch(() => {});
       DeviceEventEmitter.emit("LIKED_VIDEOS_UPDATED");
     } catch (err) {
       console.warn("Failed to toggle like video:", err);
@@ -547,6 +613,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
     try {
       await localStorage.setItemAsync("rw_recently_played", JSON.stringify(newRecent));
+      saveLibraryToFileBackup({ recentlyPlayed: newRecent }).catch(() => {});
     } catch { /* ignore */ }
   }, []);
 
@@ -614,6 +681,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         likedSongsRef.current = nextLiked;
         setLikedSongs(nextLiked);
         await localStorage.setItemAsync("rw_liked_songs", JSON.stringify(nextLiked));
+        saveLibraryToFileBackup({ likedSongs: nextLiked }).catch(() => {});
         DeviceEventEmitter.emit("LIKED_SONGS_UPDATED");
       } catch (err) {
         console.warn("Failed to toggle like:", err);
@@ -638,6 +706,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     const jsonStr = JSON.stringify(list);
     await localStorage.setItemAsync("rw_playlists", jsonStr);
     setStoredPlaylists(list);
+    saveLibraryToFileBackup({ playlists: list }).catch(() => {});
     DeviceEventEmitter.emit("PLAYLISTS_UPDATED");
   };
 
@@ -805,6 +874,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         setLikedAlbums(nextLikedAlbums);
         const jsonStr = JSON.stringify(nextLikedAlbums);
         await localStorage.setItemAsync("rw_liked_albums", jsonStr);
+        saveLibraryToFileBackup({ likedAlbums: nextLikedAlbums }).catch(() => {});
         DeviceEventEmitter.emit("LIKED_ALBUMS_UPDATED");
       } catch (err) {
         console.warn("Failed to toggle liked album:", err);

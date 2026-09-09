@@ -18,6 +18,21 @@ interface VideoItem {
   artist: string;
   thumbnail: string;
   duration?: number;
+  uploadedAt?: string;
+  views?: string;
+}
+
+function formatViews(views?: number | string): string {
+  if (!views) return "";
+  if (typeof views === "string") {
+    if (views.toLowerCase().includes("view")) return views;
+    const num = parseInt(views.replace(/[^0-9]/g, ""), 10);
+    if (!isNaN(num) && num > 0) return formatViews(num);
+    return `${views} views`;
+  }
+  if (views >= 1_000_000) return `${(views / 1_000_000).toFixed(1)}M views`;
+  if (views >= 1_000) return `${(views / 1_000).toFixed(0)}K views`;
+  return `${views} views`;
 }
 
 
@@ -148,6 +163,8 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
                 const title = video.title?.runs?.[0]?.text || video.title?.simpleText || searchQuery;
                 const artist = video.ownerText?.runs?.[0]?.text || video.shortBylineText?.runs?.[0]?.text || "YouTube";
                 const thumbnail = getBestYouTubeThumbnail(vId, video.thumbnail?.thumbnails);
+                const uploadedAt = video.publishedTimeText?.simpleText || video.publishedTimeText?.runs?.[0]?.text || "";
+                const views = video.shortViewCountText?.simpleText || video.viewCountText?.simpleText || video.viewCountText?.runs?.[0]?.text || "";
 
                 videoItems.push({
                   id: `yt_${vId}`,
@@ -155,11 +172,11 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
                   title: decodeHtmlEntities(title),
                   artist: decodeHtmlEntities(artist),
                   thumbnail,
+                  uploadedAt: uploadedAt ? decodeHtmlEntities(uploadedAt) : undefined,
+                  views: views ? decodeHtmlEntities(views) : undefined,
                 });
               }
             }
-
-
 
             // 3. Shelf / Horizontal Carousel Items
             const shelfContents = item.shelfRenderer?.content?.verticalListRenderer?.items ||
@@ -173,6 +190,8 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
                   const title = subVideo.title?.runs?.[0]?.text || subVideo.title?.simpleText || searchQuery;
                   const artist = subVideo.ownerText?.runs?.[0]?.text || subVideo.shortBylineText?.runs?.[0]?.text || "YouTube";
                   const thumbnail = getBestYouTubeThumbnail(vId, subVideo.thumbnail?.thumbnails);
+                  const uploadedAt = subVideo.publishedTimeText?.simpleText || subVideo.publishedTimeText?.runs?.[0]?.text || "";
+                  const views = subVideo.shortViewCountText?.simpleText || subVideo.viewCountText?.simpleText || subVideo.viewCountText?.runs?.[0]?.text || "";
 
                   videoItems.push({
                     id: `yt_${vId}`,
@@ -180,6 +199,8 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
                     title: decodeHtmlEntities(title),
                     artist: decodeHtmlEntities(artist),
                     thumbnail,
+                    uploadedAt: uploadedAt ? decodeHtmlEntities(uploadedAt) : undefined,
+                    views: views ? decodeHtmlEntities(views) : undefined,
                   });
                 }
               }
@@ -230,12 +251,16 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
               const vId = rawUrl.replace("/watch?v=", "").split("&")[0]?.trim();
               if (vId && /^[a-zA-Z0-9_-]{11}$/.test(vId) && !seenIds.has(vId)) {
                 seenIds.add(vId);
+                const uploadedAt = item.uploadedDate || item.publishedText || item.uploaded || "";
+                const rawViews = item.views ?? item.viewCount;
                 videoItems.push({
                   id: `yt_${vId}`,
                   videoId: vId,
                   title: decodeHtmlEntities(item.title || searchQuery),
                   artist: decodeHtmlEntities(item.uploaderName || item.author || "YouTube"),
                   thumbnail: `https://i.ytimg.com/vi/${vId}/hqdefault.jpg`,
+                  uploadedAt: uploadedAt ? decodeHtmlEntities(uploadedAt) : undefined,
+                  views: rawViews ? formatViews(rawViews) : undefined,
                 });
               }
             }
@@ -409,48 +434,21 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
       try {
         if (webViewRef.current) {
           const msg = JSON.stringify({ type: 'TOGGLE_PLAY', play: nextState });
-          const ytCmd = JSON.stringify({
-            event: 'command',
-            func: nextState ? 'playVideo' : 'pauseVideo',
-            args: []
-          });
-
           webViewRef.current.postMessage(msg);
           webViewRef.current.injectJavaScript(`
             (function() {
               try {
                 var shouldPlay = ${nextState ? 'true' : 'false'};
-
                 if (typeof window.toggleVideoPlayback === 'function') {
                   window.toggleVideoPlayback(shouldPlay);
-                }
-                if (typeof player !== 'undefined' && player) {
-                  if (shouldPlay && typeof player.playVideo === 'function') player.playVideo();
-                  if (!shouldPlay && typeof player.pauseVideo === 'function') player.pauseVideo();
-                }
-                var ytCmd = JSON.stringify({
-                  event: 'command',
-                  func: shouldPlay ? 'playVideo' : 'pauseVideo',
-                  args: []
-                });
-                var iframes = document.querySelectorAll('iframe');
-                for (var i = 0; i < iframes.length; i++) {
-                  try {
-                    iframes[i].contentWindow.postMessage(ytCmd, '*');
-                    iframes[i].contentWindow.postMessage(JSON.stringify({ type: 'TOGGLE_PLAY', play: shouldPlay }), '*');
-                  } catch(e) {}
-                }
-                var vids = document.querySelectorAll('video');
-                for (var j = 0; j < vids.length; j++) {
-                  if (shouldPlay) {
-                    var p = vids[j].play();
-                    if (p && typeof p.catch === 'function') {
-                      p.catch(function() {
-                        try { if (typeof player !== 'undefined' && player.playVideo) player.playVideo(); } catch(e) {}
-                      });
-                    }
-                  } else {
-                    vids[j].pause();
+                } else {
+                  if (typeof player !== 'undefined' && player) {
+                    if (shouldPlay && typeof player.playVideo === 'function') player.playVideo();
+                    if (!shouldPlay && typeof player.pauseVideo === 'function') player.pauseVideo();
+                  }
+                  var vids = document.querySelectorAll('video');
+                  for (var j = 0; j < vids.length; j++) {
+                    if (shouldPlay) { vids[j].play(); } else { vids[j].pause(); }
                   }
                 }
               } catch(e) {}
@@ -1491,10 +1489,34 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
             )}
           </View>
 
+          {/* Fullscreen backdrop to block touch events from reaching video feed below suggestions */}
+          {showSuggestions && suggestions.length > 0 && (
+            <TouchableOpacity
+              activeOpacity={1}
+              style={styles.suggestionsBackdrop}
+              onPress={() => {
+                setShowSuggestions(false);
+                Keyboard.dismiss();
+              }}
+            />
+          )}
+
           {/* Live Autocomplete Suggestions Dropdown Box */}
           {showSuggestions && suggestions.length > 0 && (
-            <View style={styles.suggestionsBox}>
-              <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled style={{ maxHeight: 240 }}>
+            <View
+              style={styles.suggestionsBox}
+              onStartShouldSetResponder={() => true}
+              onMoveShouldSetResponder={() => true}
+              onStartShouldSetResponderCapture={() => true}
+            >
+              <ScrollView
+                keyboardShouldPersistTaps="always"
+                nestedScrollEnabled={true}
+                showsVerticalScrollIndicator={true}
+                scrollEnabled={true}
+                style={{ maxHeight: 240 }}
+                onScrollBeginDrag={(e) => e.stopPropagation?.()}
+              >
                 {suggestions.map((item, idx) => (
                   <TouchableOpacity
                     delayPressIn={0}
@@ -1526,15 +1548,14 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
           keyboardShouldPersistTaps="always"
           keyboardDismissMode="on-drag"
           onScrollBeginDrag={() => {
-            if (showSuggestions) setShowSuggestions(false);
             Keyboard.dismiss();
+            setShowSuggestions(false);
           }}
           contentContainerStyle={[
             styles.feedContent,
             loading && videos.length === 0 && { flex: 1, justifyContent: "center", alignItems: "center" }
           ]}
           onScroll={({ nativeEvent }) => {
-            if (showSuggestions) setShowSuggestions(false);
             const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
             const isCloseToBottom = layoutMeasurement.height + contentOffset.y >= contentSize.height - 600;
             if (isCloseToBottom && !loadingMore && !loading) {
@@ -1580,6 +1601,9 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                     <View style={{ flex: 1, marginRight: 8 }}>
                       <Text style={styles.videoTitle} numberOfLines={2}>{item.title}</Text>
                       <Text style={styles.videoArtist} numberOfLines={1}>{item.artist}</Text>
+                      {item.uploadedAt ? (
+                        <Text style={styles.videoSubMeta} numberOfLines={1}>{item.uploadedAt}</Text>
+                      ) : null}
                     </View>
                     <TouchableOpacity
                       delayPressIn={0}
@@ -1675,7 +1699,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                 <WebView
                   ref={webViewRef}
                   key={`${activeVideo.videoId}_${selectedInstanceIndex}`}
-                  pointerEvents={(isMinimized || isSystemPipActive) ? "none" : "auto"}
+                  pointerEvents="auto"
                   source={webViewSource}
                   style={{ flex: 1, backgroundColor: "#000" }}
                   userAgent="Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
@@ -2059,6 +2083,9 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                       <View style={styles.upNextMeta}>
                         <Text style={styles.upNextSongTitle} numberOfLines={2}>{item.title}</Text>
                         <Text style={styles.upNextSongArtist} numberOfLines={1}>{item.artist}</Text>
+                        {item.uploadedAt ? (
+                          <Text style={styles.upNextSubMeta} numberOfLines={1}>{item.uploadedAt}</Text>
+                        ) : null}
                       </View>
                       <MaterialCommunityIcons name="play-circle-outline" size={24} color="#1DB954" />
                     </TouchableOpacity>
@@ -2211,6 +2238,11 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.5)",
     marginTop: 4,
   },
+  videoSubMeta: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.45)",
+    marginTop: 3,
+  },
   fullScreenPlayerOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "#121212",
@@ -2330,6 +2362,20 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.5)",
     fontSize: 11,
     marginTop: 2,
+  },
+  upNextSubMeta: {
+    color: "rgba(255,255,255,0.4)",
+    fontSize: 10,
+    marginTop: 2,
+  },
+  suggestionsBackdrop: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: -9999,
+    backgroundColor: "transparent",
+    zIndex: 9990,
   },
   suggestionsBox: {
     position: "absolute",
