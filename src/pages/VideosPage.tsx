@@ -326,7 +326,8 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
   const userToggleTimeRef = useRef<number>(0);
   const [isSystemPip, setIsSystemPip] = useState(isSystemPipProp || false);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
-  const isLandscape = windowWidth > windowHeight;
+  const [isManualLandscape, setIsManualLandscape] = useState(false);
+  const isLandscape = (windowWidth > windowHeight) || isManualLandscape;
   const { currentSong } = usePlayer();
 
   // Sync activeVideo with currentSong only when a video is already active in the current session
@@ -537,29 +538,64 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
         Animated.timing(zoomToastAnim, { toValue: 0, duration: 300, useNativeDriver: true }),
       ]).start(() => setZoomToastText(null));
 
-      const css = next
-        ? `(function() {
-            var style = document.getElementById('__yt_zoom_fill_style__');
-            if (!style) {
-              style = document.createElement('style');
-              style.id = '__yt_zoom_fill_style__';
-              document.head.appendChild(style);
-            }
-            style.textContent = 'video, .html5-main-video { object-fit: cover !important; transform: scale(1.35) !important; -webkit-transform: scale(1.35) !important; width: 100% !important; height: 100% !important; }';
-          })(); true;`
-        : `(function() {
-            var style = document.getElementById('__yt_zoom_fill_style__');
-            if (style) {
-              style.textContent = 'video, .html5-main-video { object-fit: contain !important; transform: scale(1) !important; -webkit-transform: scale(1) !important; width: 100% !important; height: 100% !important; }';
-            }
-          })(); true;`;
+      const js = `
+        (function() {
+          function applyZoom(doc, zoom) {
+            try {
+              var styleId = '__yt_zoom_fill_style__';
+              var style = doc.getElementById(styleId);
+              if (!style) {
+                style = doc.createElement('style');
+                style.id = styleId;
+                (doc.head || doc.body || doc.documentElement).appendChild(style);
+              }
+              if (zoom) {
+                style.textContent = 'video, .video-stream, .html5-main-video { object-fit: cover !important; transform: scale(1.35) !important; -webkit-transform: scale(1.35) !important; width: 100% !important; height: 100% !important; } .html5-video-container { overflow: hidden !important; width: 100% !important; height: 100% !important; }';
+              } else {
+                style.textContent = 'video, .video-stream, .html5-main-video { object-fit: contain !important; transform: scale(1) !important; -webkit-transform: scale(1) !important; width: 100% !important; height: 100% !important; }';
+              }
+            } catch(e) {}
+          }
+          applyZoom(document, ${next ? 'true' : 'false'});
+          var iframes = document.querySelectorAll('iframe');
+          for (var i = 0; i < iframes.length; i++) {
+            try {
+              if (iframes[i].contentDocument) {
+                applyZoom(iframes[i].contentDocument, ${next ? 'true' : 'false'});
+              }
+            } catch(e) {}
+          }
+        })(); true;
+      `;
 
       try {
-        webViewRef.current?.injectJavaScript(css);
+        webViewRef.current?.injectJavaScript(js);
       } catch (e) {}
       return next;
     });
   }, [zoomToastAnim]);
+
+  const handlePlayerTap = useCallback(() => {
+    const now = Date.now();
+    if (now - lastTapTimeRef.current < 350) {
+      // Double tap: Toggle Zoom to Fill (YouTube style)
+      toggleZoomToFill();
+      lastTapTimeRef.current = 0;
+    } else {
+      lastTapTimeRef.current = now;
+      // Single tap: toggle landscape controls overlay
+      setShowLandscapeControls((prev) => {
+        const next = !prev;
+        if (landscapeControlsTimeoutRef.current) clearTimeout(landscapeControlsTimeoutRef.current);
+        if (next) {
+          landscapeControlsTimeoutRef.current = setTimeout(() => {
+            setShowLandscapeControls(false);
+          }, 3500);
+        }
+        return next;
+      });
+    }
+  }, [toggleZoomToFill]);
 
   // Reset zoom style when leaving landscape mode
   useEffect(() => {
@@ -581,16 +617,21 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
   const landscapePanResponder = useMemo(
     () =>
       PanResponder.create({
-        onStartShouldSetPanResponder: () => isLandscape && !isMinimized && !isSystemPipActive,
+        onStartShouldSetPanResponder: () => false,
+        onStartShouldSetPanResponderCapture: () => false,
         onMoveShouldSetPanResponder: (_, gestureState) =>
-          isLandscape && !isMinimized && !isSystemPipActive &&
-          Math.abs(gestureState.dy) > 6 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx),
+          !isMinimized && !isSystemPipActive &&
+          Math.abs(gestureState.dy) > 8 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx),
+        onMoveShouldSetPanResponderCapture: (_, gestureState) =>
+          !isMinimized && !isSystemPipActive &&
+          Math.abs(gestureState.dy) > 8 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx),
         onPanResponderGrant: (evt) => {
           isLandscapeDraggingRef.current = false;
           const touchX = evt.nativeEvent.pageX;
           startBrightnessRef.current = brightnessRef.current;
           startVolumeRef.current = volumeRef.current;
-          if (touchX < windowWidth / 2) {
+          const splitWidth = isLandscape ? Math.max(windowWidth, windowHeight) / 2 : windowWidth / 2;
+          if (touchX < splitWidth) {
             activeGestureRef.current = 'brightness';
             setActiveGesture('brightness');
           } else {
@@ -599,7 +640,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
           }
         },
         onPanResponderMove: (_, gestureState) => {
-          if (Math.abs(gestureState.dy) > 6) {
+          if (Math.abs(gestureState.dy) > 8) {
             isLandscapeDraggingRef.current = true;
             if (hudFadeTimeoutRef.current) clearTimeout(hudFadeTimeoutRef.current);
             Animated.timing(hudFadeAnim, { toValue: 1, duration: 100, useNativeDriver: true }).start();
@@ -620,16 +661,28 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                 webViewRef.current?.injectJavaScript(`
                   (function() {
                     try {
-                      if (typeof player !== 'undefined' && player && player.setVolume) {
+                      if (typeof player !== 'undefined' && player && typeof player.setVolume === 'function') {
                         player.setVolume(${newV});
-                        if (${newV} > 0 && player.isMuted && player.isMuted()) {
+                        if (${newV} > 0 && typeof player.isMuted === 'function' && player.isMuted()) {
                           player.unMute();
                         }
                       }
-                      var v = document.querySelector('video');
-                      if (v) {
-                        v.volume = ${newV / 100};
-                        if (${newV} > 0) v.muted = false;
+                      var vids = document.querySelectorAll('video');
+                      for (var k = 0; k < vids.length; k++) {
+                        vids[k].volume = ${newV / 100};
+                        if (${newV} > 0) vids[k].muted = false;
+                      }
+                      var iframes = document.querySelectorAll('iframe');
+                      for (var m = 0; m < iframes.length; m++) {
+                        try {
+                          if (iframes[m].contentDocument) {
+                            var ivs = iframes[m].contentDocument.querySelectorAll('video');
+                            for (var n = 0; n < ivs.length; n++) {
+                              ivs[n].volume = ${newV / 100};
+                              if (${newV} > 0) ivs[n].muted = false;
+                            }
+                          }
+                        } catch(err) {}
                       }
                     } catch(e) {}
                   })(); true;
@@ -639,37 +692,13 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
           }
         },
         onPanResponderRelease: () => {
-          if (!isLandscapeDraggingRef.current) {
-            // Tap event
-            const now = Date.now();
-            if (now - lastTapTimeRef.current < 320) {
-              // Double-tap: Toggle Zoom to Fill (YouTube style)
-              toggleZoomToFill();
-              lastTapTimeRef.current = 0;
-            } else {
-              lastTapTimeRef.current = now;
-              // Single tap: toggle landscape controls overlay
-              setShowLandscapeControls((prev) => {
-                const next = !prev;
-                if (landscapeControlsTimeoutRef.current) clearTimeout(landscapeControlsTimeoutRef.current);
-                if (next) {
-                  landscapeControlsTimeoutRef.current = setTimeout(() => {
-                    setShowLandscapeControls(false);
-                  }, 3500);
-                }
-                return next;
-              });
-            }
-          } else {
-            // Finished dragging: fade HUD out after 1.2 seconds
-            if (hudFadeTimeoutRef.current) clearTimeout(hudFadeTimeoutRef.current);
-            hudFadeTimeoutRef.current = setTimeout(() => {
-              Animated.timing(hudFadeAnim, { toValue: 0, duration: 250, useNativeDriver: true }).start(() => {
-                setActiveGesture(null);
-                activeGestureRef.current = null;
-              });
-            }, 1200);
-          }
+          if (hudFadeTimeoutRef.current) clearTimeout(hudFadeTimeoutRef.current);
+          hudFadeTimeoutRef.current = setTimeout(() => {
+            Animated.timing(hudFadeAnim, { toValue: 0, duration: 250, useNativeDriver: true }).start(() => {
+              setActiveGesture(null);
+              activeGestureRef.current = null;
+            });
+          }, 1200);
           isLandscapeDraggingRef.current = false;
         },
         onPanResponderTerminate: () => {
@@ -680,7 +709,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
           });
         },
       }),
-    [windowWidth, windowHeight, isLandscape, isMinimized, isSystemPipActive, toggleZoomToFill]
+    [windowWidth, windowHeight, isLandscape, isMinimized, isSystemPipActive]
   );
 
   const [pipWidth, setPipWidth] = useState(210);
@@ -1898,8 +1927,20 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                     ],
                   },
                 ]
-              : isLandscape
+              : windowWidth > windowHeight
               ? styles.fullScreenLandscapeContainer
+              : isManualLandscape
+              ? {
+                  position: 'absolute',
+                  top: (windowHeight - windowWidth) / 2,
+                  left: -(windowHeight - windowWidth) / 2,
+                  width: windowHeight,
+                  height: windowWidth,
+                  transform: [{ rotate: '90deg' }],
+                  zIndex: 99999,
+                  elevation: 99999,
+                  backgroundColor: '#000',
+                }
               : styles.fullScreenPlayerOverlay
           }
           {...(isMinimized && !isSystemPipActive ? panResponder.panHandlers : {})}
@@ -1911,8 +1952,8 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                 <MaterialCommunityIcons name="chevron-down" size={28} color="#fff" />
               </TouchableOpacity>
 
-              {/* Centered Controls Row: Previous, Next, Like */}
-              <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 16 }}>
+              {/* Centered Controls Row: Previous, Next, Like, Zoom, Fullscreen */}
+              <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 12 }}>
                 <TouchableOpacity delayPressIn={0} onPress={playPrevVideo} style={{ padding: 6 }} activeOpacity={0.7}>
                   <MaterialCommunityIcons name="skip-previous" size={24} color="#fff" />
                 </TouchableOpacity>
@@ -1926,9 +1967,23 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                     color={isVideoLiked(activeVideo) ? "#1DB954" : "#fff"}
                   />
                 </TouchableOpacity>
+
+                {/* Zoom to Fill button in header */}
+                <TouchableOpacity delayPressIn={0} onPress={toggleZoomToFill} style={{ padding: 6 }} activeOpacity={0.7}>
+                  <MaterialCommunityIcons
+                    name={isZoomToFill ? "arrow-collapse-all" : "arrow-expand-all"}
+                    size={22}
+                    color={isZoomToFill ? "#1DB954" : "#fff"}
+                  />
+                </TouchableOpacity>
+
+                {/* Fullscreen / Rotate button */}
+                <TouchableOpacity delayPressIn={0} onPress={() => setIsManualLandscape(true)} style={{ padding: 6 }} activeOpacity={0.7}>
+                  <MaterialCommunityIcons name="fullscreen" size={24} color="#fff" />
+                </TouchableOpacity>
               </View>
 
-              <TouchableOpacity delayPressIn={0} onPress={() => { setActiveVideo(null); setIsMinimized(false); }} style={styles.closeBtn} activeOpacity={0.7}>
+              <TouchableOpacity delayPressIn={0} onPress={() => { setActiveVideo(null); setIsMinimized(false); setIsManualLandscape(false); }} style={styles.closeBtn} activeOpacity={0.7}>
                 <MaterialCommunityIcons name="close" size={24} color="#fff" />
               </TouchableOpacity>
             </View>
@@ -2257,21 +2312,36 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                   {
                     backgroundColor: "#000",
                     opacity: (1 - (brightness / 100)) * 0.85,
-                    zIndex: 15,
+                    zIndex: 90,
+                    elevation: 90,
                   },
                 ]}
               />
             )}
 
-            {/* Landscape Gesture & Touch Overlay (YouTube Zoom to Fill & Hotstar Gestures) */}
-            {isLandscape && !isMinimized && !isSystemPipActive && (
+            {/* Gesture & Touch Overlay (Active whenever video is NOT minimized and NOT in system pip) */}
+            {!isMinimized && !isSystemPipActive && (
               <View
-                style={StyleSheet.absoluteFill}
+                style={[
+                  StyleSheet.absoluteFill,
+                  { zIndex: 100, elevation: 100 },
+                ]}
                 {...landscapePanResponder.panHandlers}
+                pointerEvents="box-none"
               >
+                {/* Background Tap Detector (Double-tap to Zoom, Single-tap for Controls) */}
+                <TouchableOpacity
+                  activeOpacity={1}
+                  onPress={handlePlayerTap}
+                  style={StyleSheet.absoluteFill}
+                />
+
                 {/* Hotstar Left Brightness HUD */}
                 {activeGesture === 'brightness' && (
-                  <Animated.View style={[styles.gestureHudContainer, styles.gestureHudLeft, { opacity: hudFadeAnim }]}>
+                  <Animated.View
+                    pointerEvents="none"
+                    style={[styles.gestureHudContainer, styles.gestureHudLeft, { opacity: hudFadeAnim }]}
+                  >
                     <MaterialCommunityIcons name="weather-sunny" size={24} color="#FFD700" style={{ marginBottom: 10 }} />
                     <View style={styles.gestureBarTrack}>
                       <View style={[styles.gestureBarFill, { height: `${brightness}%`, backgroundColor: '#FFD700' }]} />
@@ -2282,7 +2352,10 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
 
                 {/* Hotstar Right Volume HUD */}
                 {activeGesture === 'volume' && (
-                  <Animated.View style={[styles.gestureHudContainer, styles.gestureHudRight, { opacity: hudFadeAnim }]}>
+                  <Animated.View
+                    pointerEvents="none"
+                    style={[styles.gestureHudContainer, styles.gestureHudRight, { opacity: hudFadeAnim }]}
+                  >
                     <MaterialCommunityIcons
                       name={volume === 0 ? "volume-variant-off" : volume < 50 ? "volume-medium" : "volume-high"}
                       size={24}
@@ -2298,7 +2371,10 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
 
                 {/* YouTube-style Centered Toast ("Zoomed to fill" / "Original") */}
                 {zoomToastText && (
-                  <Animated.View style={[styles.zoomToast, { opacity: zoomToastAnim }]}>
+                  <Animated.View
+                    pointerEvents="none"
+                    style={[styles.zoomToast, { opacity: zoomToastAnim }]}
+                  >
                     <MaterialCommunityIcons
                       name={isZoomToFill ? "arrow-collapse-all" : "arrow-expand-all"}
                       size={18}
@@ -2310,7 +2386,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                 )}
 
                 {/* Landscape On-Screen Controls (Auto-hiding after 3.5s or on tap) */}
-                {showLandscapeControls && (
+                {isLandscape && showLandscapeControls && (
                   <View style={styles.landscapeControlsOverlay} pointerEvents="box-none">
                     {/* Top Controls Row */}
                     <View style={styles.landscapeTopBar}>
@@ -2346,6 +2422,16 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                         </Text>
                       </TouchableOpacity>
 
+                      {/* Exit Landscape Fullscreen Button */}
+                      <TouchableOpacity
+                        delayPressIn={0}
+                        onPress={() => setIsManualLandscape(false)}
+                        style={[styles.landscapeIconBtn, { marginRight: 8 }]}
+                        activeOpacity={0.7}
+                      >
+                        <MaterialCommunityIcons name="fullscreen-exit" size={24} color="#fff" />
+                      </TouchableOpacity>
+
                       {/* Like button in landscape */}
                       <TouchableOpacity
                         delayPressIn={0}
@@ -2363,7 +2449,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                       {/* Close player */}
                       <TouchableOpacity
                         delayPressIn={0}
-                        onPress={() => { setActiveVideo(null); setIsMinimized(false); }}
+                        onPress={() => { setActiveVideo(null); setIsMinimized(false); setIsManualLandscape(false); }}
                         style={styles.landscapeIconBtn}
                         activeOpacity={0.7}
                       >
