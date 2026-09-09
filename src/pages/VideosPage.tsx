@@ -641,6 +641,59 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
     } catch {}
   }, [isMinimized]);
 
+  // When Android system PiP activates, hide all YouTube player controls so only clean video shows
+  useEffect(() => {
+    try {
+      if (isSystemPipActive) {
+        webViewRef.current?.injectJavaScript(`
+          (function() {
+            try {
+              if (document && document.body) {
+                document.body.classList.add('is-minimized');
+              }
+              // Hide all YouTube UI overlays and controls
+              var style = document.getElementById('__pip_hide_controls__');
+              if (!style) {
+                style = document.createElement('style');
+                style.id = '__pip_hide_controls__';
+                style.textContent =
+                  '.ytp-chrome-bottom, .ytp-chrome-top, .ytp-gradient-top, .ytp-gradient-bottom,' +
+                  '.ytp-settings-button, .ytp-subtitles-button, .ytp-fullscreen-button,' +
+                  '.ytp-play-button, .ytp-right-controls, .ytp-left-controls,' +
+                  '.ytp-progress-bar-container, .ytp-progress-bar,' +
+                  '.ytp-time-display, .ytp-volume-panel,' +
+                  '.ytp-pause-overlay, .ytp-large-play-button,' +
+                  '.ytp-bezel, .ytp-spinner, .ytp-mobile-content-overlay,' +
+                  '.ytp-mobile-controls-overlay, .ytp-unstarted-overlay,' +
+                  '.ytp-watermark, .ytp-title, .ytp-title-text,' +
+                  '.ytp-ce-element, .ytp-cards-teaser { display: none !important; opacity: 0 !important; pointer-events: none !important; }' +
+                  'video, .html5-main-video { width: 100% !important; height: 100% !important; object-fit: cover !important; }';
+                (document.head || document.documentElement).appendChild(style);
+              }
+            } catch(e) {}
+          })();
+          true;
+        `);
+      } else {
+        // Remove the system PiP hide style when returning to full screen
+        webViewRef.current?.injectJavaScript(`
+          (function() {
+            try {
+              var style = document.getElementById('__pip_hide_controls__');
+              if (style) style.remove();
+              if (document && document.body) {
+                document.body.classList.remove('is-minimized');
+              }
+            } catch(e) {}
+          })();
+          true;
+        `);
+      }
+    } catch {}
+  }, [isSystemPipActive]);
+
+
+
   // Video playback continues playing when minimizing app (phone calls / explicit pause events trigger PAUSE_ACTIVE_VIDEO)
   useEffect(() => {
     const pauseSub1 = DeviceEventEmitter.addListener("PAUSE_ACTIVE_VIDEO", () => {
@@ -848,6 +901,32 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
     return `
       (function() {
         try {
+          // 0. Completely replace navigator.mediaSession with a no-op fake so YouTube
+          //    can NEVER register prev/next/play/pause handlers with Android system PiP.
+          try {
+            var noopMediaSession = {
+              setActionHandler: function() {},
+              setPositionState: function() {},
+              setCameraActive: function() {},
+              setMicrophoneActive: function() {},
+              playbackState: 'none',
+              metadata: null
+            };
+            Object.defineProperty(navigator, 'mediaSession', {
+              get: function() { return noopMediaSession; },
+              configurable: true
+            });
+          } catch(e) {}
+
+          // 0b. Block system PiP on video elements
+          try {
+            Object.defineProperty(document, 'pictureInPictureEnabled', { get: function() { return false; }, configurable: true });
+            if (typeof HTMLVideoElement !== 'undefined' && HTMLVideoElement.prototype) {
+              HTMLVideoElement.prototype.requestPictureInPicture = function() { return Promise.reject(new Error('PiP disabled')); };
+            }
+          } catch(e) {}
+
+        
           // 1. Intercept fetch calls to block ad networks and scrub player response JSON
           var origFetch = window.fetch;
           if (origFetch) {
@@ -1328,16 +1407,27 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
               document.addEventListener('message', handleMessageEvent);
               window.addEventListener('message', handleMessageEvent);
 
-              if ('mediaSession' in navigator) {
+              // Re-enforce the mediaSession no-op every 500ms to defeat YouTube's async re-registrations
+              function enforceNoopMediaSession() {
                 try {
-                  navigator.mediaSession.setActionHandler('play', function() {
-                    if (typeof window.toggleVideoPlayback === 'function') window.toggleVideoPlayback(true);
+                  var noopMs = {
+                    setActionHandler: function() {},
+                    setPositionState: function() {},
+                    setCameraActive: function() {},
+                    setMicrophoneActive: function() {},
+                    playbackState: 'none',
+                    metadata: null
+                  };
+                  Object.defineProperty(navigator, 'mediaSession', {
+                    get: function() { return noopMs; },
+                    configurable: true
                   });
-                  navigator.mediaSession.setActionHandler('pause', function() {
-                    if (typeof window.toggleVideoPlayback === 'function') window.toggleVideoPlayback(false);
-                  });
-                } catch (e) {}
+                } catch(e) {}
               }
+              enforceNoopMediaSession();
+              setInterval(enforceNoopMediaSession, 500);
+
+
 
               var audioCtx = null;
               var bassFilter = null;
@@ -1899,20 +1989,39 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
             {isMinimized && !isSystemPipActive && (
               <>
 
-                {/* Full Frame Touch Overlay to Toggle Controls Visibility (Show/Hide on Single Tap) */}
-                <TouchableOpacity
-                  activeOpacity={1}
-                  delayPressIn={0}
-                  onPress={() => togglePipControls()}
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    zIndex: 20,
-                  }}
-                />
+                {/* Full Frame Touch Overlay — only active when controls are hidden, to show them on tap */}
+                {/* When controls are visible, this overlay is hidden so button taps don't double-fire */}
+                {!showPipControls && (
+                  <TouchableOpacity
+                    activeOpacity={1}
+                    delayPressIn={0}
+                    onPress={() => togglePipControls(true)}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      zIndex: 20,
+                    }}
+                  />
+                )}
+                {/* Tap-to-hide overlay — only active when controls ARE showing, covers area outside buttons */}
+                {showPipControls && (
+                  <TouchableOpacity
+                    activeOpacity={1}
+                    delayPressIn={0}
+                    onPress={() => togglePipControls(false)}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      zIndex: 20,
+                    }}
+                  />
+                )}
 
                 {/* VISIBLE ONLY WHEN TOUCHED / TAPPED (AUTOHIDES AFTER 2.5 SECONDS OR INSTANTLY ON RE-TAP) */}
                 {showPipControls && (

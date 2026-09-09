@@ -136,11 +136,36 @@ module.exports = function withAndroidPip(config) {
 
     if (isPipEligible && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
       try {
+        // Deactivate any active MediaSession so Android cannot derive prev/play/next PiP controls from it
+        try {
+          val mediaSessionManager = getSystemService(android.content.Context.MEDIA_SESSION_SERVICE) as? android.media.session.MediaSessionManager
+          val audioManager = getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager
+          if (audioManager != null) {
+            // Briefly abandon then re-request audio focus to clear the active media session notification
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+              val focusRequest = android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(
+                  android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MOVIE)
+                    .build()
+                )
+                .setWillPauseWhenDucked(false)
+                .setAcceptsDelayedFocusGain(true)
+                .setOnAudioFocusChangeListener {}
+                .build()
+              audioManager.abandonAudioFocusRequest(focusRequest)
+              audioManager.requestAudioFocus(focusRequest)
+            }
+          }
+        } catch (e: Exception) {}
+
         val builder = android.app.PictureInPictureParams.Builder()
         builder.setAspectRatio(android.util.Rational(16, 9))
         builder.setActions(getPipRemoteActions(isPipPlaying))
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
           builder.setAutoEnterEnabled(true)
+          builder.setSeamlessResizeEnabled(false)
         }
         enterPictureInPictureMode(builder.build())
       } catch (e: Exception) {}
