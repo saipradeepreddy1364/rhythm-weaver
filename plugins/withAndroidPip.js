@@ -7,10 +7,11 @@ function withAndroidPipManifest(config) {
     );
     if (mainActivity) {
       mainActivity['$']['android:supportsPictureInPicture'] = 'true';
+      mainActivity['$']['android:resizeableActivity'] = 'true';
       const existingConfigChanges = mainActivity['$']['android:configChanges'] || '';
       const pipConfigChanges = 'keyboard|keyboardHidden|orientation|screenSize|uiMode|screenLayout|smallestScreenSize';
       mainActivity['$']['android:configChanges'] = existingConfigChanges
-        ? `${existingConfigChanges}|screenSize|smallestScreenSize|screenLayout`
+        ? `${existingConfigChanges}|keyboard|keyboardHidden|orientation|screenSize|uiMode|screenLayout|smallestScreenSize`
         : pipConfigChanges;
     }
     return config;
