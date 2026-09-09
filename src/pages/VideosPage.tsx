@@ -472,11 +472,17 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
     const playPauseSub = DeviceEventEmitter.addListener("ON_PIP_PLAY_PAUSE_PRESSED", () => {
       handleTogglePipPlay();
     });
+    const audioFocusSub = DeviceEventEmitter.addListener("ON_AUDIO_FOCUS_GAINED", () => {
+      if (activeVideo && !isPipPlaying) {
+        handleTogglePipPlay(true);
+      }
+    });
     return () => {
       pipSub.remove();
       playPauseSub.remove();
+      audioFocusSub.remove();
     };
-  }, [handleTogglePipPlay]);
+  }, [handleTogglePipPlay, activeVideo, isPipPlaying]);
 
   const isSystemPipActive = Boolean(isSystemPipProp || isSystemPip);
   const isSystemPipRef = useRef(false);
@@ -1512,7 +1518,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
         {/* Video Feed */}
         <ScrollView
           style={styles.feed}
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always"
           keyboardDismissMode="on-drag"
           onScrollBeginDrag={() => {
             if (showSuggestions) setShowSuggestions(false);

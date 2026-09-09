@@ -88,24 +88,7 @@ module.exports = function withAndroidPip(config) {
   }
 
   private fun getPipRemoteActions(playing: Boolean): java.util.ArrayList<android.app.RemoteAction> {
-    val actions = java.util.ArrayList<android.app.RemoteAction>()
-    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-      try {
-        val intent = android.content.Intent("ACTION_PIP_PLAY_PAUSE")
-        val pendingIntent = android.app.PendingIntent.getBroadcast(
-          this,
-          0,
-          intent,
-          android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
-        )
-        val iconRes = if (playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
-        val title = if (playing) "Pause" else "Play"
-        val icon = android.graphics.drawable.Icon.createWithResource(this, iconRes)
-        val action = android.app.RemoteAction(icon, title, title, pendingIntent)
-        actions.add(action)
-      } catch (e: Exception) {}
-    }
-    return actions
+    return java.util.ArrayList<android.app.RemoteAction>()
   }
 
   override fun onStart() {
