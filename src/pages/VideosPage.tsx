@@ -1064,7 +1064,17 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
               .ytp-paid-content-overlay,
               .ytp-ad-overlay-container,
               body.is-minimized .ytp-large-play-button,
+              body.is-minimized .ytp-chrome-top,
               body.is-minimized .ytp-chrome-bottom,
+              body.is-minimized .ytp-gradient-top,
+              body.is-minimized .ytp-gradient-bottom,
+              body.is-minimized .ytp-mobile-content-overlay,
+              body.is-minimized .ytp-mobile-controls-overlay,
+              body.is-minimized .ytp-bezel,
+              body.is-minimized .ytp-bezel-text-wrapper,
+              body.is-minimized .ytp-pause-overlay,
+              body.is-minimized .ytp-pause-overlay-container,
+              body.is-minimized .ytp-unstarted-overlay,
               body.is-minimized .ytp-progress-bar-container,
               body.is-minimized .ytp-progress-bar,
               body.is-minimized .ytp-settings-menu,
@@ -1710,10 +1720,15 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                               'body:not(.is-minimized) .ytp-progress-bar, body:not(.is-minimized) .ytp-play-button { ' +
                               '  display: inline-block !important; visibility: visible !important; opacity: 1 !important; pointer-events: auto !important; ' +
                               '} ' +
-                              'body.is-minimized .ytp-chrome-bottom, body.is-minimized .ytp-progress-bar-container, ' +
-                              'body.is-minimized .ytp-progress-bar, body.is-minimized .ytp-settings-menu, ' +
-                              'body.is-minimized .ytp-settings-button, body.is-minimized .ytp-subtitles-button, body.is-minimized .ytp-play-button { ' +
-                              '  display: none !important; ' +
+                              'body.is-minimized .ytp-chrome-bottom, body.is-minimized .ytp-chrome-top, ' +
+                              'body.is-minimized .ytp-gradient-top, body.is-minimized .ytp-gradient-bottom, ' +
+                              'body.is-minimized .ytp-mobile-content-overlay, body.is-minimized .ytp-mobile-controls-overlay, ' +
+                              'body.is-minimized .ytp-bezel, body.is-minimized .ytp-pause-overlay, ' +
+                              'body.is-minimized .ytp-unstarted-overlay, body.is-minimized .ytp-large-play-button, ' +
+                              'body.is-minimized .ytp-progress-bar-container, body.is-minimized .ytp-progress-bar, ' +
+                              'body.is-minimized .ytp-settings-menu, body.is-minimized .ytp-settings-button, ' +
+                              'body.is-minimized .ytp-subtitles-button, body.is-minimized .ytp-play-button { ' +
+                              '  display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; ' +
                               '}';
                             (document.head || document.documentElement).appendChild(style);
                           }
