@@ -39,10 +39,10 @@ module.exports = function withAndroidPip(config) {
   return withMainActivity(config, (config) => {
     let mainActivity = config.modResults.contents;
 
-    if (!mainActivity.includes('import com.facebook.react.bridge.ReactContextBaseModule')) {
+    if (!mainActivity.includes('import com.facebook.react.bridge.ReactContextBaseJavaModule')) {
       mainActivity = mainActivity.replace(
         'package com.medley.app',
-        `package com.medley.app\n\nimport com.facebook.react.bridge.ReactApplicationContext\nimport com.facebook.react.bridge.ReactContextBaseModule\nimport com.facebook.react.bridge.ReactMethod\nimport com.facebook.react.bridge.NativeModule\nimport com.facebook.react.ReactPackage\nimport com.facebook.react.uimanager.ViewManager`
+        `package com.medley.app\n\nimport com.facebook.react.bridge.ReactApplicationContext\nimport com.facebook.react.bridge.ReactContextBaseJavaModule\nimport com.facebook.react.bridge.ReactMethod\nimport com.facebook.react.bridge.NativeModule\nimport com.facebook.react.ReactPackage\nimport com.facebook.react.uimanager.ViewManager`
       );
     }
 
@@ -183,7 +183,7 @@ module.exports = function withAndroidPip(config) {
   }
 `;
       const packageClassSnippet = `
-class PipModule(reactContext: ReactApplicationContext) : ReactContextBaseModule(reactContext) {
+class PipModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
   override fun getName(): String = "PipModule"
 
   @ReactMethod
