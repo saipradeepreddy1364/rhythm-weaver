@@ -336,18 +336,18 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
   }, [isSystemPipProp]);
 
   useEffect(() => {
-    const isEligible = Boolean(activeVideo && isPipPlaying);
+    const isEligible = isSystemPip ? Boolean(activeVideo) : Boolean(activeVideo && isPipPlaying);
     DeviceEventEmitter.emit("VIDEO_ACTIVE_CHANGED", isEligible);
 
     if (Platform.OS === 'android') {
       try {
         const { NativeModules } = require('react-native');
         if (NativeModules.PipModule && typeof NativeModules.PipModule.setPipEligible === 'function') {
-          NativeModules.PipModule.setPipEligible(isEligible);
+          NativeModules.PipModule.setPipEligible(isEligible, isPipPlaying);
         }
       } catch {}
     }
-  }, [activeVideo, isPipPlaying]);
+  }, [activeVideo, isPipPlaying, isSystemPip]);
 
   // Listen for EQ settings changes and apply WebAudio EQ gains to WebView video player
   useEffect(() => {

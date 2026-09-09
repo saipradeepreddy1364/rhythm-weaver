@@ -39,18 +39,34 @@ module.exports = function withAndroidPip(config) {
   return withMainActivity(config, (config) => {
     let mainActivity = config.modResults.contents;
 
+    if (!mainActivity.includes('import com.facebook.react.bridge.ReactContextBaseModule')) {
+      mainActivity = mainActivity.replace(
+        'package com.medley.app',
+        `package com.medley.app\n\nimport com.facebook.react.bridge.ReactApplicationContext\nimport com.facebook.react.bridge.ReactContextBaseModule\nimport com.facebook.react.bridge.ReactMethod\nimport com.facebook.react.bridge.NativeModule\nimport com.facebook.react.ReactPackage\nimport com.facebook.react.uimanager.ViewManager`
+      );
+    }
+
     if (!mainActivity.includes('getPipRemoteActions')) {
       const pipSnippet = `
   var isPipEligible = false
+  var isPipPlaying = true
 
-  fun setPipEligibleFromJs(eligible: Boolean) {
+  fun setPipEligibleFromJs(eligible: Boolean, playing: Boolean = true) {
     isPipEligible = eligible
+    isPipPlaying = playing
     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
       try {
         val builder = android.app.PictureInPictureParams.Builder()
         builder.setAspectRatio(android.util.Rational(16, 9))
-        builder.setActions(getPipRemoteActions())
+        builder.setActions(getPipRemoteActions(playing))
         builder.setAutoEnterEnabled(eligible)
+        setPictureInPictureParams(builder.build())
+      } catch (e: Exception) {}
+    } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+      try {
+        val builder = android.app.PictureInPictureParams.Builder()
+        builder.setAspectRatio(android.util.Rational(16, 9))
+        builder.setActions(getPipRemoteActions(playing))
         setPictureInPictureParams(builder.build())
       } catch (e: Exception) {}
     }
@@ -70,7 +86,7 @@ module.exports = function withAndroidPip(config) {
     }
   }
 
-  private fun getPipRemoteActions(): java.util.ArrayList<android.app.RemoteAction> {
+  private fun getPipRemoteActions(playing: Boolean): java.util.ArrayList<android.app.RemoteAction> {
     val actions = java.util.ArrayList<android.app.RemoteAction>()
     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
       try {
@@ -81,8 +97,10 @@ module.exports = function withAndroidPip(config) {
           intent,
           android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
         )
-        val icon = android.graphics.drawable.Icon.createWithResource(this, android.R.drawable.ic_media_play)
-        val action = android.app.RemoteAction(icon, "Play/Pause", "Play or Pause Video", pendingIntent)
+        val iconRes = if (playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
+        val title = if (playing) "Pause" else "Play"
+        val icon = android.graphics.drawable.Icon.createWithResource(this, iconRes)
+        val action = android.app.RemoteAction(icon, title, title, pendingIntent)
         actions.add(action)
       } catch (e: Exception) {}
     }
@@ -104,7 +122,7 @@ module.exports = function withAndroidPip(config) {
       try {
         val builder = android.app.PictureInPictureParams.Builder()
         builder.setAspectRatio(android.util.Rational(16, 9))
-        builder.setActions(getPipRemoteActions())
+        builder.setActions(getPipRemoteActions(isPipPlaying))
         builder.setAutoEnterEnabled(isPipEligible)
         setPictureInPictureParams(builder.build())
       } catch (e: Exception) {}
@@ -136,7 +154,7 @@ module.exports = function withAndroidPip(config) {
       try {
         val builder = android.app.PictureInPictureParams.Builder()
         builder.setAspectRatio(android.util.Rational(16, 9))
-        builder.setActions(getPipRemoteActions())
+        builder.setActions(getPipRemoteActions(isPipPlaying))
         enterPictureInPictureMode(builder.build())
       } catch (e: Exception) {}
     }
@@ -165,35 +183,35 @@ module.exports = function withAndroidPip(config) {
   }
 `;
       const packageClassSnippet = `
-class PipModule(private val reactContext: com.facebook.react.bridge.ReactApplicationContext) :
-  com.facebook.react.bridge.ReactContextBaseModule(reactContext) {
-
+class PipModule(reactContext: ReactApplicationContext) : ReactContextBaseModule(reactContext) {
   override fun getName(): String = "PipModule"
 
-  @com.facebook.react.bridge.ReactMethod
-  fun setPipEligible(eligible: Boolean) {
+  @ReactMethod
+  fun setPipEligible(eligible: Boolean, playing: Boolean = true) {
     val activity = currentActivity
     if (activity is MainActivity) {
       activity.runOnUiThread {
-        activity.setPipEligibleFromJs(eligible)
+        activity.setPipEligibleFromJs(eligible, playing)
       }
     }
   }
 }
 
-class PipPackage : com.facebook.react.ReactPackage {
-  override fun createNativeModules(reactContext: com.facebook.react.bridge.ReactApplicationContext): List<com.facebook.react.bridge.NativeModule> {
-    return listOf(PipModule(reactContext))
+class PipPackage : ReactPackage {
+  override fun createNativeModules(reactContext: ReactApplicationContext): MutableList<NativeModule> {
+    val modules = ArrayList<NativeModule>()
+    modules.add(PipModule(reactContext))
+    return modules
   }
-  override fun createViewManagers(reactContext: com.facebook.react.bridge.ReactApplicationContext): List<com.facebook.react.uimanager.ViewManager<*, *>> {
-    return emptyList()
+  override fun createViewManagers(reactContext: ReactApplicationContext): MutableList<ViewManager<*, *>> {
+    return ArrayList()
   }
 }
 `;
       mainActivity = mainActivity.replace(/}\s*$/, `${pipSnippet}\n}\n${packageClassSnippet}`);
-      config.modResults.contents = mainActivity;
     }
 
+    config.modResults.contents = mainActivity;
     return config;
   });
 };
