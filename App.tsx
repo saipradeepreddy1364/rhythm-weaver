@@ -693,4 +693,15 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginTop: 4,
   },
+  offlineBanner: {
+    backgroundColor: "#e50914",
+    paddingVertical: 6,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  offlineBannerText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "bold",
+  },
 });
