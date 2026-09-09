@@ -150,11 +150,14 @@ module.exports = function withAndroidPip(config) {
       }
     } catch (e: Exception) {}
 
-    if (isPipEligible && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O && android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S) {
+    if (isPipEligible && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
       try {
         val builder = android.app.PictureInPictureParams.Builder()
         builder.setAspectRatio(android.util.Rational(16, 9))
         builder.setActions(getPipRemoteActions(isPipPlaying))
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+          builder.setAutoEnterEnabled(true)
+        }
         enterPictureInPictureMode(builder.build())
       } catch (e: Exception) {}
     }

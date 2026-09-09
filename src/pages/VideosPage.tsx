@@ -1457,7 +1457,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                 Keyboard.dismiss();
                 handleSearchSubmit();
               }}
-              placeholder=""
+              placeholder="Search music videos..."
               placeholderTextColor="rgba(255,255,255,0.3)"
               style={styles.searchInput}
               returnKeyType="search"
@@ -1512,11 +1512,18 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
         {/* Video Feed */}
         <ScrollView
           style={styles.feed}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          onScrollBeginDrag={() => {
+            if (showSuggestions) setShowSuggestions(false);
+            Keyboard.dismiss();
+          }}
           contentContainerStyle={[
             styles.feedContent,
             loading && videos.length === 0 && { flex: 1, justifyContent: "center", alignItems: "center" }
           ]}
           onScroll={({ nativeEvent }) => {
+            if (showSuggestions) setShowSuggestions(false);
             const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
             const isCloseToBottom = layoutMeasurement.height + contentOffset.y >= contentSize.height - 600;
             if (isCloseToBottom && !loadingMore && !loading) {

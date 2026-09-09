@@ -1181,7 +1181,12 @@ function SearchPageComponent({ onRequireAuth }: SearchPageProps) {
         {/* (Filter tabs hidden because YouTube is disabled) */}
       </View>
 
-      <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
+      <ScrollView
+        style={styles.body}
+        contentContainerStyle={styles.bodyContent}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+      >
         {query.trim().length === 0 ? (
           // Category Grid View (when query is empty)
           <View>
