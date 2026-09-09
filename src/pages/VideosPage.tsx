@@ -1427,14 +1427,6 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
             <Text style={styles.headerTitle}>Music Videos</Text>
             <Text style={styles.headerSubtitle}>Watch in-app videos</Text>
           </View>
-          <TouchableOpacity
-            delayPressIn={0}
-            onPress={() => DeviceEventEmitter.emit("OPEN_EQUALIZER_MODAL")}
-            style={{ padding: 6 }}
-            activeOpacity={0.7}
-          >
-            <MaterialCommunityIcons name="equalizer" size={22} color="#1DB954" />
-          </TouchableOpacity>
         </View>
 
         {/* Search Input Container with Autocomplete Dropdown */}
