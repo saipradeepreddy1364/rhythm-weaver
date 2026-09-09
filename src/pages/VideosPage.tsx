@@ -535,7 +535,6 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
         return isMinimized && !isSystemPipActive && Boolean(evt.nativeEvent.touches && evt.nativeEvent.touches.length >= 2);
       },
       onPanResponderGrant: (evt) => {
-        togglePipControls();
         if (evt.nativeEvent.touches && evt.nativeEvent.touches.length >= 2) {
           initialPinchDistRef.current = calcDistance(evt.nativeEvent.touches);
           baseWidthRef.current = pipWidthRef.current;
@@ -1459,6 +1458,14 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                   setShowSuggestions(true);
                 }
               }}
+              onBlur={() => {
+                // Delay to allow suggestion tap to register before closing
+                setTimeout(() => {
+                  if (!isSelectingSuggestionRef.current) {
+                    setShowSuggestions(false);
+                  }
+                }, 150);
+              }}
               onSubmitEditing={() => {
                 isSelectingSuggestionRef.current = true;
                 setShowSuggestions(false);
@@ -1489,17 +1496,6 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
             )}
           </View>
 
-          {/* Fullscreen backdrop to block touch events from reaching video feed below suggestions */}
-          {showSuggestions && suggestions.length > 0 && (
-            <TouchableOpacity
-              activeOpacity={1}
-              style={styles.suggestionsBackdrop}
-              onPress={() => {
-                setShowSuggestions(false);
-                Keyboard.dismiss();
-              }}
-            />
-          )}
 
           {/* Live Autocomplete Suggestions Dropdown Box */}
           {showSuggestions && suggestions.length > 0 && (
@@ -1507,7 +1503,6 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
               style={styles.suggestionsBox}
               onStartShouldSetResponder={() => true}
               onMoveShouldSetResponder={() => true}
-              onStartShouldSetResponderCapture={() => true}
             >
               <ScrollView
                 keyboardShouldPersistTaps="always"
@@ -1515,7 +1510,6 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                 showsVerticalScrollIndicator={true}
                 scrollEnabled={true}
                 style={{ maxHeight: 240 }}
-                onScrollBeginDrag={(e) => e.stopPropagation?.()}
               >
                 {suggestions.map((item, idx) => (
                   <TouchableOpacity
@@ -1969,63 +1963,6 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                       </TouchableOpacity>
                     </Animated.View>
 
-                    {/* Bottom Controls Row: Previous, Play/Pause, Next */}
-                    <Animated.View
-                      style={[
-                        styles.pipBottomControls,
-                        {
-                          zIndex: 50,
-                          elevation: 50,
-                        },
-                      ]}
-                      pointerEvents="box-none"
-                    >
-                      <TouchableOpacity
-                        delayPressIn={0}
-                        onPress={(e) => {
-                          e.stopPropagation();
-                          playPrevVideo();
-                          togglePipControls(true);
-                        }}
-                        style={styles.pipIconBadge}
-                        activeOpacity={0.7}
-                        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                      >
-                        <MaterialCommunityIcons name="skip-previous" size={16} color="#fff" />
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        delayPressIn={0}
-                        onPress={(e) => {
-                          e.stopPropagation();
-                          handleTogglePipPlay();
-                          togglePipControls(true);
-                        }}
-                        style={styles.pipPlayIconBadge}
-                        activeOpacity={0.7}
-                        hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
-                      >
-                        <MaterialCommunityIcons
-                          name={isPipPlaying ? "pause" : "play"}
-                          size={18}
-                          color="#fff"
-                        />
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        delayPressIn={0}
-                        onPress={(e) => {
-                          e.stopPropagation();
-                          playNextVideo();
-                          togglePipControls(true);
-                        }}
-                        style={styles.pipIconBadge}
-                        activeOpacity={0.7}
-                        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                      >
-                        <MaterialCommunityIcons name="skip-next" size={16} color="#fff" />
-                      </TouchableOpacity>
-                    </Animated.View>
                   </>
                 )}
               </>
