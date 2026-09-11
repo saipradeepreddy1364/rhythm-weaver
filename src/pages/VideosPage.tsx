@@ -386,12 +386,46 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
           const bassPct = parsed.bass ?? 85;
           const bandsArr = parsed.bands ?? [8, 6, 2, 0, 0];
           const enabled = parsed.enabled ?? true;
+          const preset = (parsed.preset || "").toLowerCase();
+
+          let targetVol = 85;
+          if (enabled) {
+            if (preset.includes("bass") || preset.includes("hip-hop")) {
+              targetVol = 100;
+            } else if (preset.includes("rock") || preset.includes("electronic")) {
+              targetVol = 96;
+            } else if (preset.includes("pop")) {
+              targetVol = 90;
+            } else if (preset.includes("vocal")) {
+              targetVol = 78;
+            } else {
+              targetVol = 85;
+            }
+          }
 
           const bassGain = Math.min(14, Math.max(-10, ((bassPct - 50) / 50) * 8 + (bandsArr[0] || 0)));
           const midGain = Math.min(12, Math.max(-10, (bandsArr[2] || 0)));
           const trebleGain = Math.min(12, Math.max(-10, (bandsArr[4] || 0)));
 
-          const js = `if (typeof window.setWebViewEq === 'function') window.setWebViewEq(${bassGain}, ${midGain}, ${trebleGain}, ${enabled ? 'true' : 'false'}); true;`;
+          const js = `
+            (function() {
+              try {
+                if (typeof player !== 'undefined' && player && typeof player.setVolume === 'function') {
+                  player.setVolume(${targetVol});
+                }
+                var iframes = document.querySelectorAll('iframe');
+                for (var i = 0; i < iframes.length; i++) {
+                  try {
+                    iframes[i].contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'setVolume', args: [${targetVol}] }), '*');
+                  } catch(e) {}
+                }
+                if (typeof window.setWebViewEq === 'function') {
+                  window.setWebViewEq(${bassGain}, ${midGain}, ${trebleGain}, ${enabled ? 'true' : 'false'});
+                }
+              } catch(e) {}
+            })();
+            true;
+          `;
           webViewRef.current.injectJavaScript(js);
         }
       } catch {}
@@ -1465,7 +1499,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
               }
             </style>
           </head>
-          <body class="is-minimized">
+          <body class="${isMinimized ? 'is-minimized' : ''}">
             <div class="player-wrapper">
               <div id="player"></div>
             </div>
@@ -1596,28 +1630,11 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
               document.addEventListener('mozfullscreenchange', notifyFullscreenState);
               document.addEventListener('MSFullscreenChange', notifyFullscreenState);
 
-              try {
-                var notifyToggleLandscape = function() {
-                  if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-                    window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'TOGGLE_LANDSCAPE' }));
-                  }
-                  return Promise.resolve();
-                };
-                if (typeof Element !== 'undefined' && Element.prototype) {
-                  Element.prototype.requestFullscreen = notifyToggleLandscape;
-                  Element.prototype.webkitRequestFullscreen = notifyToggleLandscape;
-                }
-              } catch(e) {}
-
               document.addEventListener('click', function(e) {
                 try {
                   var fsBtn = e.target && e.target.closest ? e.target.closest('.ytp-fullscreen-button') : null;
                   if (fsBtn) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-                      window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'TOGGLE_LANDSCAPE' }));
-                    }
+                    setTimeout(notifyFullscreenState, 250);
                   }
                 } catch(e) {}
               }, true);
@@ -2147,7 +2164,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                   allowsPictureInPicture={true}
                   allowsInlineMediaPlayback={true}
                   mediaPlaybackRequiresUserAction={false}
-                  allowsFullscreenVideo={false}
+                  allowsFullscreenVideo={true}
                   javaScriptEnabled={true}
                   domStorageEnabled={true}
                   androidLayerType="hardware"

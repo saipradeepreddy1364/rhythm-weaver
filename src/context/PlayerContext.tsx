@@ -731,8 +731,29 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
       const { bass = 85, enabled = true, bands = [8, 6, 2, 0, 0], preset = "" } = settings || {};
 
-      // Keep master track volume clean without artificial clipping
-      await TrackPlayer.setVolume(1.0);
+      const lowerPreset = (preset || "").toLowerCase();
+      let targetVolume = 0.85;
+
+      if (!enabled || lowerPreset.includes("normal") || lowerPreset.includes("flat")) {
+        targetVolume = 0.84;
+      } else if (lowerPreset.includes("bass")) {
+        targetVolume = 1.0;
+      } else if (lowerPreset.includes("hip")) {
+        targetVolume = 1.0;
+      } else if (lowerPreset.includes("rock")) {
+        targetVolume = 0.98;
+      } else if (lowerPreset.includes("electron")) {
+        targetVolume = 0.96;
+      } else if (lowerPreset.includes("pop")) {
+        targetVolume = 0.90;
+      } else if (lowerPreset.includes("vocal")) {
+        targetVolume = 0.78;
+      } else {
+        const avgBass = ((bands[0] || 0) + (bands[1] || 0)) / 2;
+        targetVolume = Math.min(1.0, Math.max(0.75, 0.85 + (avgBass / 40)));
+      }
+
+      await TrackPlayer.setVolume(targetVolume);
 
       if (Platform.OS === 'android') {
         const TrackPlayerModule = NativeModules.TrackPlayerModule;
@@ -742,10 +763,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             return;
           }
 
-          const lowerPreset = (preset || "").toLowerCase();
-          let bassVal: number;
-          let trebleVal: number;
-          let vocalVal: number;
+          let bassVal = 5;
+          let trebleVal = 5;
+          let vocalVal = 5;
 
           if (lowerPreset.includes("bass")) {
             bassVal = 10; trebleVal = 3; vocalVal = 5;
