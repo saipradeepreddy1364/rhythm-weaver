@@ -388,18 +388,20 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
           const enabled = parsed.enabled ?? true;
           const preset = (parsed.preset || "").toLowerCase();
 
-          let targetVol = 85;
+          let targetVol = 70;
           if (enabled) {
             if (preset.includes("bass") || preset.includes("hip-hop")) {
               targetVol = 100;
-            } else if (preset.includes("rock") || preset.includes("electronic")) {
+            } else if (preset.includes("rock")) {
               targetVol = 96;
+            } else if (preset.includes("electronic")) {
+              targetVol = 92;
             } else if (preset.includes("pop")) {
-              targetVol = 90;
+              targetVol = 80;
             } else if (preset.includes("vocal")) {
-              targetVol = 78;
+              targetVol = 60;
             } else {
-              targetVol = 85;
+              targetVol = 70;
             }
           }
 
@@ -891,6 +893,16 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
     if (activeTab && activeTab !== "Videos" && prevTab === "Videos") {
       if (activeVideo && isPipPlaying && !isMinimized) {
         setIsMinimized(true);
+      } else if (!activeVideo) {
+        setQuery("");
+        setSuggestions([]);
+        setShowSuggestions(false);
+      }
+    } else if (activeTab === "Videos" && prevTab && prevTab !== "Videos") {
+      // Returned to Videos tab: refresh feed if no video is playing
+      if (!activeVideo) {
+        setQuery("");
+        fetchTrendingVideos("trending telugu hindi video songs 2026", true);
       }
     } else if (activeTab && activeTab !== "Videos" && (!isPipPlaying || !activeVideo) && isMinimized) {
       setIsMinimized(false);

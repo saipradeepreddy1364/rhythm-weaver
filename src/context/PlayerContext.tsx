@@ -735,22 +735,20 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       let targetVolume = 0.85;
 
       if (!enabled || lowerPreset.includes("normal") || lowerPreset.includes("flat")) {
-        targetVolume = 0.84;
-      } else if (lowerPreset.includes("bass")) {
-        targetVolume = 1.0;
-      } else if (lowerPreset.includes("hip")) {
-        targetVolume = 1.0;
-      } else if (lowerPreset.includes("rock")) {
-        targetVolume = 0.98;
-      } else if (lowerPreset.includes("electron")) {
-        targetVolume = 0.96;
-      } else if (lowerPreset.includes("pop")) {
-        targetVolume = 0.90;
+        targetVolume = 0.70;
       } else if (lowerPreset.includes("vocal")) {
-        targetVolume = 0.78;
+        targetVolume = 0.60;
+      } else if (lowerPreset.includes("pop")) {
+        targetVolume = 0.80;
+      } else if (lowerPreset.includes("electron")) {
+        targetVolume = 0.92;
+      } else if (lowerPreset.includes("rock")) {
+        targetVolume = 0.96;
+      } else if (lowerPreset.includes("bass") || lowerPreset.includes("hip")) {
+        targetVolume = 1.00;
       } else {
         const avgBass = ((bands[0] || 0) + (bands[1] || 0)) / 2;
-        targetVolume = Math.min(1.0, Math.max(0.75, 0.85 + (avgBass / 40)));
+        targetVolume = Math.min(1.0, Math.max(0.60, 0.70 + (avgBass / 30)));
       }
 
       await TrackPlayer.setVolume(targetVolume);
