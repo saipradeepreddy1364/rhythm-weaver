@@ -543,31 +543,22 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
 
     const js = `
       (function() {
-        function applyZoom(doc, zoom) {
-          try {
-            var styleId = '__yt_zoom_fill_style__';
-            var style = doc.getElementById(styleId);
-            if (!style) {
-              style = doc.createElement('style');
-              style.id = styleId;
-              (doc.head || doc.body || doc.documentElement).appendChild(style);
-            }
-            if (zoom) {
-              style.textContent = 'video, .video-stream, .html5-main-video { object-fit: cover !important; transform: scale(1.35) !important; -webkit-transform: scale(1.35) !important; width: 100% !important; height: 100% !important; } .html5-video-container { overflow: hidden !important; width: 100% !important; height: 100% !important; }';
-            } else {
-              style.textContent = 'video, .video-stream, .html5-main-video { object-fit: contain !important; transform: scale(1) !important; -webkit-transform: scale(1) !important; width: 100% !important; height: 100% !important; }';
-            }
-          } catch(e) {}
-        }
-        applyZoom(document, ${zoom ? 'true' : 'false'});
-        var iframes = document.querySelectorAll('iframe');
-        for (var i = 0; i < iframes.length; i++) {
-          try {
-            if (iframes[i].contentDocument) {
-              applyZoom(iframes[i].contentDocument, ${zoom ? 'true' : 'false'});
-            }
-          } catch(e) {}
-        }
+        try {
+          var styleId = '__yt_zoom_fill_style__';
+          var style = document.getElementById(styleId);
+          if (!style) {
+            style = document.createElement('style');
+            style.id = styleId;
+            (document.head || document.documentElement).appendChild(style);
+          }
+          if (${zoom ? 'true' : 'false'}) {
+            style.textContent = '#player, iframe, .html5-main-video { transform: translate(-50%, -50%) scale(1.35) !important; -webkit-transform: translate(-50%, -50%) scale(1.35) !important; } .player-wrapper { overflow: hidden !important; } video { object-fit: cover !important; }';
+            document.body.classList.add('is-zoomed');
+          } else {
+            style.textContent = '#player, iframe, .html5-main-video { transform: translate(-50%, -50%) scale(1.0) !important; -webkit-transform: translate(-50%, -50%) scale(1.0) !important; } .player-wrapper { overflow: hidden !important; } video { object-fit: contain !important; }';
+            document.body.classList.remove('is-zoomed');
+          }
+        } catch(e) {}
       })(); true;
     `;
 
@@ -606,24 +597,14 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
   const landscapePanResponder = useMemo(
     () =>
       PanResponder.create({
-        onStartShouldSetPanResponder: (evt) => {
-          return isLandscape && !isMinimized && !isSystemPipActive && (evt.nativeEvent.touches?.length ?? 0) >= 2;
-        },
-        onStartShouldSetPanResponderCapture: (evt) => {
-          return isLandscape && !isMinimized && !isSystemPipActive && (evt.nativeEvent.touches?.length ?? 0) >= 2;
-        },
-        onMoveShouldSetPanResponder: (evt, gestureState) => {
-          if (!isLandscape || isMinimized || isSystemPipActive) return false;
-          const touches = evt.nativeEvent.touches || [];
-          if (touches.length >= 2) return true;
-          return Math.abs(gestureState.dy) > 8 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx);
-        },
-        onMoveShouldSetPanResponderCapture: (evt, gestureState) => {
-          if (!isLandscape || isMinimized || isSystemPipActive) return false;
-          const touches = evt.nativeEvent.touches || [];
-          if (touches.length >= 2) return true;
-          return Math.abs(gestureState.dy) > 8 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx);
-        },
+        onStartShouldSetPanResponder: () => isLandscape && !isMinimized && !isSystemPipActive,
+        onStartShouldSetPanResponderCapture: () => false,
+        onMoveShouldSetPanResponder: (evt, gestureState) =>
+          isLandscape &&
+          !isMinimized &&
+          !isSystemPipActive &&
+          (Math.abs(gestureState.dx) > 4 || Math.abs(gestureState.dy) > 4 || Boolean(evt.nativeEvent.touches && evt.nativeEvent.touches.length >= 2)),
+        onMoveShouldSetPanResponderCapture: () => false,
         onPanResponderGrant: (evt) => {
           isLandscapeDraggingRef.current = false;
           const touches = evt.nativeEvent.touches || [];
@@ -637,47 +618,61 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
           isPinchingRef.current = false;
           landscapePinchDistRef.current = null;
 
-          const touchX = evt.nativeEvent.pageX;
+          const isTrueLandscape = windowWidth > windowHeight;
+          const splitWidth = (isTrueLandscape ? windowWidth : windowHeight) / 2;
+          const touchX = isTrueLandscape ? evt.nativeEvent.pageX : evt.nativeEvent.pageY;
+
           startBrightnessRef.current = brightnessRef.current;
           startVolumeRef.current = volumeRef.current;
-          const splitWidth = isLandscape ? Math.max(windowWidth, windowHeight) / 2 : windowWidth / 2;
+
           if (touchX < splitWidth) {
             activeGestureRef.current = 'brightness';
-            setActiveGesture('brightness');
           } else {
             activeGestureRef.current = 'volume';
-            setActiveGesture('volume');
           }
         },
         onPanResponderMove: (evt, gestureState) => {
           const touches = evt.nativeEvent.touches || [];
           if (touches.length >= 2) {
             // Two-finger pinch gesture: pinch out to zoom-to-fill, pinch in for original
+            isPinchingRef.current = true;
             const dx = touches[0].pageX - touches[1].pageX;
             const dy = touches[0].pageY - touches[1].pageY;
             const currentDist = Math.sqrt(dx * dx + dy * dy);
             if (landscapePinchDistRef.current && landscapePinchDistRef.current > 0) {
               const ratio = currentDist / landscapePinchDistRef.current;
-              if (ratio > 1.25) {
+              if (ratio > 1.15) {
                 applyZoomDirect(true);
-              } else if (ratio < 0.8) {
+                landscapePinchDistRef.current = currentDist;
+              } else if (ratio < 0.85) {
                 applyZoomDirect(false);
+                landscapePinchDistRef.current = currentDist;
               }
             } else {
               landscapePinchDistRef.current = currentDist;
+            }
+            if (activeGestureRef.current) {
+              activeGestureRef.current = null;
+              setActiveGesture(null);
             }
             return;
           }
 
           if (isPinchingRef.current) return;
 
-          if (Math.abs(gestureState.dy) > 8) {
-            isLandscapeDraggingRef.current = true;
-            if (hudFadeTimeoutRef.current) clearTimeout(hudFadeTimeoutRef.current);
-            Animated.timing(hudFadeAnim, { toValue: 1, duration: 100, useNativeDriver: true }).start();
+          const isTrueLandscape = windowWidth > windowHeight;
+          const dragDelta = isTrueLandscape ? -gestureState.dy : gestureState.dx;
 
-            const sensitivity = Math.max(windowHeight, 300) * 0.55;
-            const delta = (-gestureState.dy / sensitivity) * 100;
+          if (Math.abs(dragDelta) > 4) {
+            isLandscapeDraggingRef.current = true;
+            if (activeGestureRef.current && activeGesture !== activeGestureRef.current) {
+              setActiveGesture(activeGestureRef.current);
+            }
+            if (hudFadeTimeoutRef.current) clearTimeout(hudFadeTimeoutRef.current);
+            Animated.timing(hudFadeAnim, { toValue: 1, duration: 60, useNativeDriver: true }).start();
+
+            const effectiveHeight = Math.max(windowHeight, windowWidth, 300);
+            const delta = (dragDelta / (effectiveHeight * 0.4)) * 100;
 
             if (activeGestureRef.current === 'brightness') {
               const newB = Math.round(Math.min(100, Math.max(0, startBrightnessRef.current + delta)));
@@ -721,9 +716,17 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
             }
           }
         },
-        onPanResponderRelease: () => {
+        onPanResponderRelease: (_, gestureState) => {
+          const wasDragging = isLandscapeDraggingRef.current;
+          const wasPinching = isPinchingRef.current;
           isPinchingRef.current = false;
           landscapePinchDistRef.current = null;
+          isLandscapeDraggingRef.current = false;
+
+          if (!wasDragging && !wasPinching && Math.abs(gestureState.dx) < 10 && Math.abs(gestureState.dy) < 10) {
+            handlePlayerTap();
+          }
+
           if (hudFadeTimeoutRef.current) clearTimeout(hudFadeTimeoutRef.current);
           hudFadeTimeoutRef.current = setTimeout(() => {
             Animated.timing(hudFadeAnim, { toValue: 0, duration: 250, useNativeDriver: true }).start(() => {
@@ -731,7 +734,6 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
               activeGestureRef.current = null;
             });
           }, 1200);
-          isLandscapeDraggingRef.current = false;
         },
         onPanResponderTerminate: () => {
           isPinchingRef.current = false;
@@ -743,7 +745,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
           });
         },
       }),
-    [windowWidth, windowHeight, isLandscape, isMinimized, isSystemPipActive, applyZoomDirect]
+    [windowWidth, windowHeight, isLandscape, isManualLandscape, isMinimized, isSystemPipActive, activeGesture, applyZoomDirect, handlePlayerTap]
   );
 
   const [pipWidth, setPipWidth] = useState(210);
@@ -1293,16 +1295,20 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
         if (!isRecentUserToggle) setIsPipPlaying(false);
       } else if (data && data.event === "VIDEO_ENDED") {
         playNextVideo();
-      } else if (data && data.event === "FULLSCREEN_ENTER") {
-        setIsManualLandscape(true);
+      } else if (data && (data.event === "TOGGLE_LANDSCAPE" || data.event === "FULLSCREEN_ENTER")) {
+        setIsManualLandscape((prev) => !prev);
       } else if (data && data.event === "FULLSCREEN_EXIT") {
         setIsManualLandscape(false);
+      } else if (data && data.event === "PINCH_ZOOM_IN") {
+        applyZoomDirect(true);
+      } else if (data && data.event === "PINCH_ZOOM_OUT") {
+        applyZoomDirect(false);
       } else if (data && data.event === "VIDEO_BLOCKED") {
         setIsVideoBlocked(true);
         setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length);
       }
     } catch {}
-  }, [playNextVideo]);
+  }, [playNextVideo, applyZoomDirect]);
 
   const handleWebViewError = useCallback(() => {
     setIsVideoBlocked(true);
@@ -1590,11 +1596,28 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
               document.addEventListener('mozfullscreenchange', notifyFullscreenState);
               document.addEventListener('MSFullscreenChange', notifyFullscreenState);
 
+              try {
+                var notifyToggleLandscape = function() {
+                  if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                    window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'TOGGLE_LANDSCAPE' }));
+                  }
+                  return Promise.resolve();
+                };
+                if (typeof Element !== 'undefined' && Element.prototype) {
+                  Element.prototype.requestFullscreen = notifyToggleLandscape;
+                  Element.prototype.webkitRequestFullscreen = notifyToggleLandscape;
+                }
+              } catch(e) {}
+
               document.addEventListener('click', function(e) {
                 try {
                   var fsBtn = e.target && e.target.closest ? e.target.closest('.ytp-fullscreen-button') : null;
                   if (fsBtn) {
-                    setTimeout(notifyFullscreenState, 200);
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                      window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'TOGGLE_LANDSCAPE' }));
+                    }
                   }
                 } catch(e) {}
               }, true);
@@ -1793,6 +1816,41 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                   e.stopPropagation();
                 }
               }, { passive: false });
+
+              var webPinchStartDist = 0;
+              window.addEventListener('touchstart', function(e) {
+                if (e.touches && e.touches.length === 2) {
+                  var dx = e.touches[0].pageX - e.touches[1].pageX;
+                  var dy = e.touches[0].pageY - e.touches[1].pageY;
+                  webPinchStartDist = Math.sqrt(dx * dx + dy * dy);
+                }
+              }, { passive: true });
+
+              window.addEventListener('touchmove', function(e) {
+                if (e.touches && e.touches.length === 2 && webPinchStartDist > 0) {
+                  var dx = e.touches[0].pageX - e.touches[1].pageX;
+                  var dy = e.touches[0].pageY - e.touches[1].pageY;
+                  var currentDist = Math.sqrt(dx * dx + dy * dy);
+                  var ratio = currentDist / webPinchStartDist;
+                  if (ratio > 1.15) {
+                    webPinchStartDist = currentDist;
+                    if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                      window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'PINCH_ZOOM_IN' }));
+                    }
+                  } else if (ratio < 0.85) {
+                    webPinchStartDist = currentDist;
+                    if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                      window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'PINCH_ZOOM_OUT' }));
+                    }
+                  }
+                }
+              }, { passive: true });
+
+              window.addEventListener('touchend', function(e) {
+                if (!e.touches || e.touches.length < 2) {
+                  webPinchStartDist = 0;
+                }
+              }, { passive: true });
             </script>
           </body>
         </html>
@@ -2065,7 +2123,10 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
               (isMinimized || isSystemPipActive)
                 ? styles.pipVideoBox
                 : isLandscape
-                ? styles.videoPlayerBoxLandscape
+                ? [
+                    styles.videoPlayerBoxLandscape,
+                    isZoomToFill ? { transform: [{ scale: 1.34 }] } : null,
+                  ]
                 : styles.videoPlayerBox
             }
           >
@@ -2086,7 +2147,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                   allowsPictureInPicture={true}
                   allowsInlineMediaPlayback={true}
                   mediaPlaybackRequiresUserAction={false}
-                  allowsFullscreenVideo={true}
+                  allowsFullscreenVideo={false}
                   javaScriptEnabled={true}
                   domStorageEnabled={true}
                   androidLayerType="hardware"
@@ -2397,14 +2458,8 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                   { zIndex: 100, elevation: 100 },
                 ]}
                 {...landscapePanResponder.panHandlers}
-                pointerEvents="box-none"
+                pointerEvents="auto"
               >
-                {/* Background Tap Detector (Single-tap for Controls in Landscape) */}
-                <TouchableOpacity
-                  activeOpacity={1}
-                  onPress={handlePlayerTap}
-                  style={StyleSheet.absoluteFill}
-                />
 
                 {/* Hotstar Left Brightness HUD */}
                 {activeGesture === 'brightness' && (
