@@ -12,6 +12,7 @@ import {
   DeviceEventEmitter,
   PanResponder,
   NativeModules,
+  Linking,
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -194,6 +195,18 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({ visible, onClose
   };
 
   const bandLabels = ["60 Hz", "230 Hz", "910 Hz", "4 kHz", "14 kHz"];
+
+  const openSystemEqualizer = async () => {
+    if (Platform.OS === "android") {
+      try {
+        await Linking.sendIntent("android.media.action.DISPLAY_AUDIO_EFFECT_CONTROL_PANEL");
+      } catch {
+        try {
+          await Linking.openSettings();
+        } catch {}
+      }
+    }
+  };
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -395,6 +408,22 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({ visible, onClose
                 ))}
               </View>
             </View>
+
+            {/* 5. Device Hardware Audio Effects / Dolby Atmos */}
+            {Platform.OS === "android" && (
+              <TouchableOpacity
+                style={styles.systemEqCard}
+                onPress={openSystemEqualizer}
+                activeOpacity={0.7}
+              >
+                <MaterialCommunityIcons name="cog-refresh-outline" size={22} color="#1DB954" style={{ marginRight: 10 }} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.systemEqTitle}>System Dolby & Hardware EQ</Text>
+                  <Text style={styles.systemEqSub}>Open device Dolby Atmos / Sound Alive control panel</Text>
+                </View>
+                <MaterialCommunityIcons name="chevron-right" size={22} color="#888" />
+              </TouchableOpacity>
+            )}
           </ScrollView>
         </View>
       </View>
@@ -599,5 +628,25 @@ const styles = StyleSheet.create({
   activePresetText: {
     color: "#000",
     fontWeight: "bold",
+  },
+  systemEqCard: {
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 14,
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: "rgba(29, 185, 84, 0.3)",
+  },
+  systemEqTitle: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  systemEqSub: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 11,
+    marginTop: 2,
   },
 });

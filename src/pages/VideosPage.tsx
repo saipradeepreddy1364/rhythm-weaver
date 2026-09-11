@@ -640,7 +640,11 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
           !isMinimized &&
           !isSystemPipActive &&
           (Math.abs(gestureState.dx) > 4 || Math.abs(gestureState.dy) > 4 || Boolean(evt.nativeEvent.touches && evt.nativeEvent.touches.length >= 2)),
-        onMoveShouldSetPanResponderCapture: () => false,
+        onMoveShouldSetPanResponderCapture: (evt, gestureState) =>
+          isLandscape &&
+          !isMinimized &&
+          !isSystemPipActive &&
+          (Math.abs(gestureState.dx) > 4 || Math.abs(gestureState.dy) > 4 || Boolean(evt.nativeEvent.touches && evt.nativeEvent.touches.length >= 2)),
         onPanResponderGrant: (evt) => {
           isLandscapeDraggingRef.current = false;
           const touches = evt.nativeEvent.touches || [];
@@ -656,7 +660,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
 
           const isTrueLandscape = windowWidth > windowHeight;
           const splitWidth = (isTrueLandscape ? windowWidth : windowHeight) / 2;
-          const touchX = isTrueLandscape ? evt.nativeEvent.pageX : evt.nativeEvent.pageY;
+          const touchX = isTrueLandscape ? evt.nativeEvent.pageX : (windowHeight - evt.nativeEvent.pageY);
 
           startBrightnessRef.current = brightnessRef.current;
           startVolumeRef.current = volumeRef.current;
@@ -697,7 +701,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
           if (isPinchingRef.current) return;
 
           const isTrueLandscape = windowWidth > windowHeight;
-          const dragDelta = isTrueLandscape ? -gestureState.dy : gestureState.dx;
+          const dragDelta = isTrueLandscape ? -gestureState.dy : -gestureState.dx;
 
           if (Math.abs(dragDelta) > 4) {
             isLandscapeDraggingRef.current = true;
@@ -1031,11 +1035,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
       ];
       const subQueries = isDefault
         ? shuffleArray(TRENDING_POOL).slice(0, 4)
-        : [
-            searchQuery,
-            `${searchQuery} video song hd`,
-            `${searchQuery} official video song`
-          ];
+        : [searchQuery];
 
       const resultsArray = await Promise.all(
         subQueries.map((q) => searchYouTubeVideos(q))
@@ -1646,6 +1646,9 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                 try {
                   var fsBtn = e.target && e.target.closest ? e.target.closest('.ytp-fullscreen-button') : null;
                   if (fsBtn) {
+                    if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                      window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'TOGGLE_LANDSCAPE' }));
+                    }
                     setTimeout(notifyFullscreenState, 250);
                   }
                 } catch(e) {}
@@ -1967,11 +1970,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
 
           {/* Live Autocomplete Suggestions Dropdown Box */}
           {showSuggestions && suggestions.length > 0 && (
-            <View
-              style={styles.suggestionsBox}
-              onStartShouldSetResponder={() => true}
-              onMoveShouldSetResponder={() => true}
-            >
+            <View style={styles.suggestionsBox}>
               <ScrollView
                 keyboardShouldPersistTaps="always"
                 nestedScrollEnabled={true}
@@ -2176,7 +2175,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                   allowsPictureInPicture={true}
                   allowsInlineMediaPlayback={true}
                   mediaPlaybackRequiresUserAction={false}
-                  allowsFullscreenVideo={true}
+                  allowsFullscreenVideo={false}
                   javaScriptEnabled={true}
                   domStorageEnabled={true}
                   androidLayerType="hardware"
@@ -2461,6 +2460,15 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                   </>
                 )}
               </>
+            )}
+
+            {/* Portrait YouTube Fullscreen Button Overlay Target */}
+            {!isLandscape && !isMinimized && !isSystemPipActive && (
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => setIsManualLandscape(true)}
+                style={styles.youtubeFullscreenTouchTarget}
+              />
             )}
 
             {/* Hotstar Brightness Dimming Overlay (Only in landscape mode) */}
@@ -3165,6 +3173,14 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     zIndex: 9999,
     overflow: "hidden",
+  },
+  youtubeFullscreenTouchTarget: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    width: 68,
+    height: 54,
+    zIndex: 50,
   },
   suggestionRow: {
     flexDirection: "row",
