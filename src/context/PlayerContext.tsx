@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image, DeviceEventEmitter } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image, DeviceEventEmitter, Platform, NativeModules } from 'react-native'
 import React, {
   createContext,
   useContext,
@@ -721,7 +721,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     load();
   }, []);
 
-  // Listen for EQ & Bass Boost settings to dynamically boost volume gain
+  // Listen for EQ & Bass Boost settings and apply directly to hardware equalizer
   const applyAudioEQ = useCallback(async (data?: any) => {
     try {
       let settings = data;
@@ -731,27 +731,52 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
       const { bass = 85, enabled = true, bands = [8, 6, 2, 0, 0], preset = "" } = settings || {};
 
-      // If EQ is disabled or Normal (Original) preset selected, reset to untouched original audio (1.0x)
-      if (!enabled || preset === "Normal (Original)" || preset === "Flat") {
-        await TrackPlayer.setVolume(1.0);
-        return;
+      // Keep master track volume clean without artificial clipping
+      await TrackPlayer.setVolume(1.0);
+
+      if (Platform.OS === 'android') {
+        const TrackPlayerModule = NativeModules.TrackPlayerModule;
+        if (TrackPlayerModule && typeof TrackPlayerModule.setEqualizerBands === 'function') {
+          if (!enabled || preset === "Normal (Original)" || preset === "Flat") {
+            TrackPlayerModule.setEqualizerBands(5, 5, 5).catch(() => {});
+            return;
+          }
+
+          const lowerPreset = (preset || "").toLowerCase();
+          let bassVal: number;
+          let trebleVal: number;
+          let vocalVal: number;
+
+          if (lowerPreset.includes("bass")) {
+            bassVal = 10; trebleVal = 3; vocalVal = 5;
+          } else if (lowerPreset.includes("pop")) {
+            bassVal = 7; trebleVal = 8; vocalVal = 9;
+          } else if (lowerPreset.includes("electron")) {
+            bassVal = 10; trebleVal = 10; vocalVal = 4;
+          } else if (lowerPreset.includes("vocal")) {
+            bassVal = 3; trebleVal = 7; vocalVal = 10;
+          } else if (lowerPreset.includes("rock")) {
+            bassVal = 8; trebleVal = 9; vocalVal = 5;
+          } else if (lowerPreset.includes("hip")) {
+            bassVal = 10; trebleVal = 7; vocalVal = 6;
+          } else {
+            const b = Array.isArray(bands) && bands.length >= 5 ? bands : [0, 0, 0, 0, 0];
+            const avgBass = ((b[0] || 0) + (b[1] || 0)) / 2;
+            const bassOffset = ((bass - 50) / 50) * 3;
+            bassVal = Math.min(10, Math.max(0, Math.round(5 + (avgBass / 10) * 3.5 + bassOffset)));
+
+            const vocalDb = b[2] || 0;
+            vocalVal = Math.min(10, Math.max(0, Math.round(5 + (vocalDb / 10) * 5)));
+
+            const avgTreble = ((b[3] || 0) + (b[4] || 0)) / 2;
+            trebleVal = Math.min(10, Math.max(0, Math.round(5 + (avgTreble / 10) * 5)));
+          }
+
+          TrackPlayerModule.setEqualizerBands(bassVal, trebleVal, vocalVal).catch(() => {});
+        }
       }
-
-      const b = Array.isArray(bands) && bands.length >= 5 ? bands : [0, 0, 0, 0, 0];
-      const lowWeight = (b[0] * 0.4) + (b[1] * 0.3);
-      const midWeight = (b[2] * 0.5) + (b[3] * 0.3);
-      const highWeight = b[4] * 0.4;
-
-      const bassBoostFactor = (bass / 100) * 3.5;
-      const bandEqFactor = (lowWeight * 0.15) + (midWeight * 0.18) + (highWeight * 0.15);
-
-      const isVocalProfile = midWeight > 4 && bass < 30;
-      const baseVolume = isVocalProfile ? 1.8 : 1.2;
-
-      const finalVolume = Math.min(5.0, Math.max(0.4, baseVolume + bassBoostFactor + bandEqFactor));
-      await TrackPlayer.setVolume(finalVolume);
     } catch (err) {
-      console.warn("[PlayerContext] Failed to apply EQ gain:", err);
+      console.warn("[PlayerContext] Failed to apply EQ settings:", err);
     }
   }, []);
 
@@ -1605,10 +1630,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           ],
         });
         await TrackPlayer.setVolume(volume);
-        applyEQSettings();
+        applyAudioEQ();
 
         if (active) {
-          const eqSub = DeviceEventEmitter.addListener("EQ_SETTINGS_CHANGED", applyEQSettings);
+          const eqSub = DeviceEventEmitter.addListener("EQ_SETTINGS_CHANGED", applyAudioEQ);
           const remoteDuckListener = TrackPlayer.addEventListener(
             Event.RemoteDuck,
             async (event) => {

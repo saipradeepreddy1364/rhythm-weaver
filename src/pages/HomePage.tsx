@@ -1387,16 +1387,29 @@ function HomePageComponent({ onRequireAuth, setParentScrollEnabled }: HomePagePr
   const handlePresetSelect = (preset: "normal" | "bass" | "treble" | "vocal" | "electronic") => {
     setEqPreset(preset);
     let b = 5, t = 5, v = 5;
+    let bands = [0, 0, 0, 0, 0];
+    let bassPct = 0;
+
     if (preset === "normal") {
       b = 5; t = 5; v = 5;
+      bands = [0, 0, 0, 0, 0];
+      bassPct = 0;
     } else if (preset === "bass") {
-      b = 9; t = 6; v = 5; // +4 bass, +1 treble, +0 vocals
+      b = 10; t = 3; v = 5;
+      bands = [12, 10, 2, -2, -4];
+      bassPct = 100;
     } else if (preset === "treble") {
-      b = 9; t = 8; v = 6; // +4 bass, +3 treble, +1 vocals
+      b = 6; t = 10; v = 6;
+      bands = [2, 4, 2, 8, 12];
+      bassPct = 50;
     } else if (preset === "vocal") {
-      b = 7; t = 6; v = 9; // +2 bass, +1 treble, +4 vocals
+      b = 3; t = 7; v = 10;
+      bands = [-6, -4, 12, 8, 4];
+      bassPct = 15;
     } else if (preset === "electronic") {
-      b = 8; t = 7; v = 4; // unchanged electronic preset
+      b = 10; t = 10; v = 4;
+      bands = [10, 8, -2, 8, 12];
+      bassPct = 95;
     }
 
     sessionEqPreset = preset;
@@ -1409,11 +1422,12 @@ function HomePageComponent({ onRequireAuth, setParentScrollEnabled }: HomePagePr
     setEqVocal(v);
     applyNativeEqualizer(b, t, v);
     
-    // Save preset and its values to ensure correct values reload on restart
+    const payload = { preset, bass: bassPct, bands, enabled: true };
     AsyncStorage.setItem(
       "rw_eq_settings",
-      JSON.stringify({ preset, bass: b, treble: t, vocal: v })
+      JSON.stringify(payload)
     ).catch(() => {});
+    DeviceEventEmitter.emit("EQ_SETTINGS_CHANGED", payload);
   };
 
   const [sections,     setSections]     = useState<SectionData[]>(() => homePagePrefetcher.sections);

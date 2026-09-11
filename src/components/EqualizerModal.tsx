@@ -23,16 +23,19 @@ export interface EQPreset {
   bass: number; // 0 to 100
   bands: number[]; // 5 bands: 60Hz, 230Hz, 910Hz, 4kHz, 14kHz (-10 to +10 dB)
   surround: boolean;
+  nativeBass?: number; // 0 to 10
+  nativeTreble?: number; // 0 to 10
+  nativeVocal?: number; // 0 to 10
 }
 
 export const EQ_PRESETS: EQPreset[] = [
-  { name: "Normal (Original)", bass: 0, bands: [0, 0, 0, 0, 0], surround: false },
-  { name: "Bass Booster", bass: 100, bands: [12, 10, 2, -2, -4], surround: true },
-  { name: "Vocal", bass: 10, bands: [-6, -4, 12, 10, 4], surround: false },
-  { name: "Rock", bass: 80, bands: [10, 6, -2, 8, 10], surround: true },
-  { name: "Pop", bass: 50, bands: [4, 6, 8, 6, 4], surround: false },
-  { name: "Hip-Hop", bass: 95, bands: [12, 9, 3, 5, 7], surround: true },
-  { name: "Electronic", bass: 90, bands: [10, 7, -1, 8, 12], surround: true },
+  { name: "Normal (Original)", bass: 0, bands: [0, 0, 0, 0, 0], surround: false, nativeBass: 5, nativeTreble: 5, nativeVocal: 5 },
+  { name: "Bass Booster", bass: 100, bands: [12, 10, 2, -2, -4], surround: true, nativeBass: 10, nativeTreble: 3, nativeVocal: 5 },
+  { name: "Pop", bass: 60, bands: [4, 6, 8, 6, 4], surround: false, nativeBass: 7, nativeTreble: 8, nativeVocal: 9 },
+  { name: "Electronic", bass: 95, bands: [10, 8, -2, 8, 12], surround: true, nativeBass: 10, nativeTreble: 10, nativeVocal: 4 },
+  { name: "Vocal", bass: 15, bands: [-6, -4, 12, 8, 4], surround: false, nativeBass: 3, nativeTreble: 7, nativeVocal: 10 },
+  { name: "Rock", bass: 75, bands: [8, 6, 0, 7, 10], surround: true, nativeBass: 8, nativeTreble: 9, nativeVocal: 5 },
+  { name: "Hip-Hop", bass: 95, bands: [12, 9, 3, 4, 6], surround: true, nativeBass: 10, nativeTreble: 7, nativeVocal: 6 },
 ];
 
 interface EqualizerModalProps {
@@ -80,7 +83,7 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({ visible, onClose
     })
   ).current;
 
-  const applyNativeAudioEffect = (bassPct: number, bandsArr: number[], enabled: boolean) => {
+  const applyNativeAudioEffect = (bassPct: number, bandsArr: number[], enabled: boolean, presetName?: string) => {
     if (Platform.OS === 'android') {
       try {
         const TrackPlayerModule = NativeModules.TrackPlayerModule;
@@ -89,19 +92,30 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({ visible, onClose
             TrackPlayerModule.setEqualizerBands(5, 5, 5).catch(() => {});
             return;
           }
-          const b0 = bandsArr[0] || 0; // 60Hz
-          const b1 = bandsArr[1] || 0; // 230Hz
-          const maxBassDb = Math.max(b0, b1);
-          // Map bass: 0% -> 5 (neutral), 100% -> 10 (MAXIMUM INTENSE HARDWARE BASS BOOST)
-          const bassVal = Math.min(10, Math.max(0, Math.round(5 + (bassPct / 100) * 5 + (maxBassDb / 12) * 3)));
 
-          const t0 = bandsArr[3] || 0; // 4kHz
-          const t1 = bandsArr[4] || 0; // 14kHz
-          const maxTrebleDb = Math.max(t0, t1);
-          const trebleVal = Math.min(10, Math.max(0, Math.round(5 + (maxTrebleDb / 10) * 5)));
+          const matchedPreset = EQ_PRESETS.find(
+            (p) => p.name.toLowerCase() === (presetName || selectedPreset || "").toLowerCase()
+          );
 
-          const vocalDb = bandsArr[2] || 0; // 910Hz
-          const vocalVal = Math.min(10, Math.max(0, Math.round(5 + (vocalDb / 10) * 5)));
+          let bassVal: number;
+          let trebleVal: number;
+          let vocalVal: number;
+
+          if (matchedPreset && typeof matchedPreset.nativeBass === 'number') {
+            bassVal = matchedPreset.nativeBass;
+            trebleVal = matchedPreset.nativeTreble ?? 5;
+            vocalVal = matchedPreset.nativeVocal ?? 5;
+          } else {
+            const avgBass = ((bandsArr[0] || 0) + (bandsArr[1] || 0)) / 2;
+            const bassOffset = ((bassPct - 50) / 50) * 3;
+            bassVal = Math.min(10, Math.max(0, Math.round(5 + (avgBass / 10) * 3.5 + bassOffset)));
+
+            const vocalDb = bandsArr[2] || 0;
+            vocalVal = Math.min(10, Math.max(0, Math.round(5 + (vocalDb / 10) * 5)));
+
+            const avgTreble = ((bandsArr[3] || 0) + (bandsArr[4] || 0)) / 2;
+            trebleVal = Math.min(10, Math.max(0, Math.round(5 + (avgTreble / 10) * 5)));
+          }
 
           TrackPlayerModule.setEqualizerBands(bassVal, trebleVal, vocalVal).catch(() => {});
         }
@@ -121,12 +135,17 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({ visible, onClose
           if (Array.isArray(parsed.bands)) setBands(parsed.bands);
           if (typeof parsed.surround === "boolean") setSurroundEnabled(parsed.surround);
           if (typeof parsed.enabled === "boolean") setEqEnabled(parsed.enabled);
-          applyNativeAudioEffect(parsed.bass ?? 85, parsed.bands ?? [8, 6, 2, 0, 0], parsed.enabled ?? true);
+          applyNativeAudioEffect(
+            parsed.bass ?? 85,
+            parsed.bands ?? [8, 6, 2, 0, 0],
+            parsed.enabled ?? true,
+            parsed.preset
+          );
         } else {
-          applyNativeAudioEffect(85, [8, 6, 2, 0, 0], true);
+          applyNativeAudioEffect(85, [8, 6, 2, 0, 0], true, "Bass Booster");
         }
       } catch {
-        applyNativeAudioEffect(85, [8, 6, 2, 0, 0], true);
+        applyNativeAudioEffect(85, [8, 6, 2, 0, 0], true, "Bass Booster");
       }
     };
     loadSettings();
@@ -146,7 +165,7 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({ visible, onClose
         "rw_eq_settings",
         JSON.stringify(payload)
       );
-      applyNativeAudioEffect(bass, b, enabled);
+      applyNativeAudioEffect(bass, b, enabled, preset);
       DeviceEventEmitter.emit("EQ_SETTINGS_CHANGED", payload);
     } catch {}
   };
