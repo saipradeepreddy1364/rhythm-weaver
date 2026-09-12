@@ -11,4 +11,8 @@
 -keep class com.swmansion.reanimated.** { *; }
 -keep class com.facebook.react.turbomodule.** { *; }
 
-# Add any project specific keep options here:
+# Keep KotlinAudio and ExoPlayer fields for native equalizer reflection
+-keep class com.doublesymmetry.** { *; }
+-keepclassmembers class com.doublesymmetry.** { *; }
+-keep class com.google.android.exoplayer2.** { *; }
+-keepclassmembers class com.google.android.exoplayer2.** { *; }

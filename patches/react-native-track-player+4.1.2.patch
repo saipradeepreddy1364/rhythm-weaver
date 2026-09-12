@@ -41,10 +41,10 @@ index b2409a0..0675a51 100644
 +    }
  }
 diff --git a/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt b/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
-index afa6b0f..d40a744 100644
+index afa6b0f..7a438ec 100644
 --- a/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
 +++ b/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
-@@ -38,6 +38,8 @@ import kotlinx.coroutines.*
+@@ -38,6 +38,9 @@ import kotlinx.coroutines.*
  import kotlinx.coroutines.flow.flow
  import java.util.concurrent.TimeUnit
  import kotlin.system.exitProcess
@@ -54,7 +54,7 @@ index afa6b0f..d40a744 100644
  import timber.log.Timber
  
  @MainThread
-@@ -47,6 +49,94 @@ class MusicService : HeadlessJsTaskService() {
+@@ -47,6 +50,114 @@ class MusicService : HeadlessJsTaskService() {
      private val scope = MainScope()
      private var progressUpdateJob: Job? = null
  
@@ -75,39 +75,50 @@ index afa6b0f..d40a744 100644
 +        if (!::player.isInitialized) return
 +        
 +        try {
-+            // Retrieve the protected exoPlayer instance via reflection
++            // Retrieve the protected exoPlayer instance via reflection (resilient to ProGuard)
 +            var exoPlayer: com.google.android.exoplayer2.ExoPlayer? = null
 +            var currentClass: Class<*>? = player.javaClass
-+            while (currentClass != null) {
++            while (currentClass != null && exoPlayer == null) {
 +                try {
 +                    val field = currentClass.getDeclaredField("exoPlayer")
 +                    field.isAccessible = true
 +                    exoPlayer = field.get(player) as? com.google.android.exoplayer2.ExoPlayer
-+                    break
-+                } catch (e: NoSuchFieldException) {
-+                    currentClass = currentClass.superclass
++                } catch (e: Throwable) {}
++
++                if (exoPlayer == null) {
++                    for (field in currentClass.declaredFields) {
++                        try {
++                            field.isAccessible = true
++                            val obj = field.get(player)
++                            if (obj is com.google.android.exoplayer2.ExoPlayer) {
++                                exoPlayer = obj
++                                break
++                            }
++                        } catch (e: Throwable) {}
++                    }
 +                }
++                currentClass = currentClass.superclass
 +            }
 +
 +            val sessionId = exoPlayer?.audioSessionId ?: 0
-+            val targetSessionId = if (sessionId > 0) sessionId else 0
++            if (sessionId <= 0) return
 +
-+            if (nativeEqualizer == null || nativeEqualizerSessionId != targetSessionId) {
++            if (nativeEqualizer == null || nativeEqualizerSessionId != sessionId) {
 +                try {
 +                    nativeEqualizer?.release()
-+                    nativeEqualizer = Equalizer(0, targetSessionId)
-+                    nativeEqualizerSessionId = targetSessionId
++                    nativeEqualizer = Equalizer(0, sessionId)
++                    nativeEqualizerSessionId = sessionId
 +                    nativeEqualizer?.enabled = true
 +                } catch (e: Throwable) {
 +                    Timber.e(e, "Error initializing Equalizer")
 +                }
 +            }
 +
-+            if (nativeBassBoost == null || nativeBassBoostSessionId != targetSessionId) {
++            if (nativeBassBoost == null || nativeBassBoostSessionId != sessionId) {
 +                try {
 +                    nativeBassBoost?.release()
-+                    nativeBassBoost = BassBoost(0, targetSessionId)
-+                    nativeBassBoostSessionId = targetSessionId
++                    nativeBassBoost = BassBoost(0, sessionId)
++                    nativeBassBoostSessionId = sessionId
 +                } catch (e: Throwable) {
 +                    Timber.e(e, "Error initializing BassBoost")
 +                }
@@ -158,7 +169,7 @@ index afa6b0f..d40a744 100644
      /**
       * Use [appKilledPlaybackBehavior] instead.
       */
-@@ -606,6 +675,14 @@ class MusicService : HeadlessJsTaskService() {
+@@ -606,6 +717,14 @@ class MusicService : HeadlessJsTaskService() {
              event.stateChange.collect {
                  emit(MusicEvents.PLAYBACK_STATE, getPlayerStateBundle(it))
  
@@ -173,7 +184,7 @@ index afa6b0f..d40a744 100644
                  if (it == AudioPlayerState.ENDED && player.nextItem == null) {
                      emitQueueEndedEvent()
                  }
-@@ -803,6 +880,11 @@ class MusicService : HeadlessJsTaskService() {
+@@ -803,6 +922,11 @@ class MusicService : HeadlessJsTaskService() {
              player.destroy()
          }
  
