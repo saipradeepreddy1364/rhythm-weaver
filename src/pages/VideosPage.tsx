@@ -1061,7 +1061,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
         "top hindi romantic video songs 4k",
         "telugu party dance video songs",
         "hindi party dance video songs",
-        "telugu mass folk video songs",
+        "top telugu blockbuster video songs 4k",
         "hindi unplugged lo-fi video songs"
       ];
       const subQueries = isDefault
@@ -1078,6 +1078,9 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
       for (const list of resultsArray) {
         for (const item of list) {
           if (!seenIds.has(item.id)) {
+            // Restrict folk songs during auto-fetch
+            const isFolk = /\b(folk|janapada|janapadha|teenmaar)\b/i.test(`${item.title} ${item.artist}`);
+            if (isDefault && isFolk) continue;
             seenIds.add(item.id);
             combined.push(item);
           }
@@ -1114,7 +1117,11 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
         })
       );
 
-      const validItems = resolvedFallback.filter((v): v is VideoItem => Boolean(v) && !seenIds.has(v!.id));
+      const validItems = resolvedFallback.filter((v): v is VideoItem => {
+        if (!v || seenIds.has(v.id)) return false;
+        if (isDefault && /\b(folk|janapada|janapadha|teenmaar)\b/i.test(`${v.title} ${v.artist}`)) return false;
+        return true;
+      });
       if (validItems.length > 0) {
         setVideos(validItems);
       }
@@ -1147,9 +1154,16 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
       const extraResults = await searchYouTubeVideos(targetQuery);
 
       if (extraResults.length > 0) {
+        const isDefaultPagination = !query.trim();
         setVideos((prev) => {
           const seen = new Set(prev.map((v) => v.id));
-          const newItems = extraResults.filter((item) => !seen.has(item.id));
+          const newItems = extraResults.filter((item) => {
+            if (seen.has(item.id)) return false;
+            if (isDefaultPagination && /\b(folk|janapada|janapadha|teenmaar)\b/i.test(`${item.title} ${item.artist}`)) {
+              return false;
+            }
+            return true;
+          });
           return [...prev, ...newItems];
         });
       }
