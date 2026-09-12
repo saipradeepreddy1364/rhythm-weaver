@@ -634,7 +634,14 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
     () =>
       PanResponder.create({
         onStartShouldSetPanResponder: () => isLandscape && !isMinimized && !isSystemPipActive,
-        onStartShouldSetPanResponderCapture: () => false,
+        onStartShouldSetPanResponderCapture: (evt) => {
+          if (!isLandscape || isMinimized || isSystemPipActive) return false;
+          if (showLandscapeControls) {
+            const y = evt.nativeEvent.pageY;
+            if (y < 70 || y > (windowHeight - 70)) return false;
+          }
+          return true;
+        },
         onMoveShouldSetPanResponder: (evt, gestureState) =>
           isLandscape &&
           !isMinimized &&
@@ -1349,6 +1356,14 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
         applyZoomDirect(true);
       } else if (data && data.event === "PINCH_ZOOM_OUT") {
         applyZoomDirect(false);
+      } else if (data && data.event === "GESTURE_BRIGHTNESS" && typeof data.value === "number") {
+        setBrightness(data.value);
+        brightnessRef.current = data.value;
+      } else if (data && data.event === "GESTURE_VOLUME" && typeof data.value === "number") {
+        setVolume(data.value);
+        volumeRef.current = data.value;
+      } else if (data && data.event === "TOGGLE_LANDSCAPE_CONTROLS") {
+        handlePlayerTap();
       } else if (data && data.event === "VIDEO_BLOCKED") {
         setIsVideoBlocked(true);
         setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length);
@@ -1509,11 +1524,95 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                 height: auto !important;
                 padding: 4px 10px !important;
               }
+              #touch-gesture-layer {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: calc(100% - 50px);
+                z-index: 9999;
+                touch-action: none;
+              }
+              body.is-minimized #touch-gesture-layer { display: none !important; }
+              .web-hud {
+                position: absolute;
+                top: 50%;
+                transform: translateY(-50%);
+                width: 54px;
+                background: rgba(0,0,0,0.85);
+                border: 1px solid rgba(255,255,255,0.18);
+                border-radius: 28px;
+                padding: 14px 8px;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                z-index: 10001;
+                opacity: 0;
+                pointer-events: none;
+                transition: opacity 0.2s ease;
+              }
+              #web-hud-brightness { left: 24px; }
+              #web-hud-volume { right: 24px; }
+              .web-hud-icon { width: 24px; height: 24px; margin-bottom: 8px; }
+              .web-hud-bar-track {
+                width: 6px;
+                height: 90px;
+                background: rgba(255,255,255,0.25);
+                border-radius: 3px;
+                position: relative;
+                overflow: hidden;
+                display: flex;
+                flex-direction: column;
+                justify-content: flex-end;
+              }
+              .web-hud-bar-fill {
+                width: 100%;
+                height: 100%;
+                border-radius: 3px;
+                transition: height 0.05s ease;
+              }
+              .web-hud-text {
+                color: #fff;
+                font-size: 11px;
+                font-weight: bold;
+                font-family: sans-serif;
+                margin-top: 8px;
+              }
+              .web-zoom-toast {
+                position: absolute;
+                top: 24px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: rgba(0,0,0,0.85);
+                border: 1px solid rgba(255,255,255,0.2);
+                color: #fff;
+                font-family: sans-serif;
+                font-size: 13px;
+                font-weight: 600;
+                padding: 8px 18px;
+                border-radius: 20px;
+                z-index: 10002;
+                opacity: 0;
+                pointer-events: none;
+                transition: opacity 0.25s ease;
+              }
             </style>
           </head>
           <body class="${isMinimized ? 'is-minimized' : ''}">
             <div class="player-wrapper">
               <div id="player"></div>
+              <div id="touch-gesture-layer"></div>
+              <div id="web-hud-brightness" class="web-hud">
+                <svg class="web-hud-icon" viewBox="0 0 24 24"><path fill="#FFD700" d="M12,18C11.11,18 10.26,17.8 9.5,17.45C11.56,16.5 13,14.42 13,12C13,9.58 11.56,7.5 9.5,6.55C10.26,6.2 11.11,6 12,6A6,6 0 0,1 18,12A6,6 0 0,1 12,18M20,8.69V4H15.31L12,0.69L8.69,4H4V8.69L0.69,12L4,15.31V20H8.69L12,23.31L15.31,20H20V15.31L23.31,12L20,8.69Z"/></svg>
+                <div class="web-hud-bar-track"><div id="web-hud-brightness-fill" class="web-hud-bar-fill" style="background:#FFD700; height:100%;"></div></div>
+                <span id="web-hud-brightness-text" class="web-hud-text">100%</span>
+              </div>
+              <div id="web-hud-volume" class="web-hud">
+                <svg class="web-hud-icon" viewBox="0 0 24 24"><path fill="#1DB954" d="M14,3.23V5.29C16.89,6.15 19,8.83 19,12C19,15.17 16.89,17.84 14,19.7V20.77C18,19.86 21,16.28 21,12C21,7.72 18,4.14 14,3.23M16.5,12C16.5,10.23 15.5,8.71 14,7.97V16C15.5,15.29 16.5,13.76 16.5,12M3,9V15H7L12,20V4L7,9H3Z"/></svg>
+                <div class="web-hud-bar-track"><div id="web-hud-volume-fill" class="web-hud-bar-fill" style="background:#1DB954; height:100%;"></div></div>
+                <span id="web-hud-volume-text" class="web-hud-text">100%</span>
+              </div>
+              <div id="web-zoom-toast" class="web-zoom-toast"><span id="web-zoom-toast-text">Zoomed to fill</span></div>
             </div>
             <script>
               ${
@@ -1846,40 +1945,168 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                 }
               }, { passive: false });
 
-              var webPinchStartDist = 0;
-              window.addEventListener('touchstart', function(e) {
-                if (e.touches && e.touches.length === 2) {
-                  var dx = e.touches[0].pageX - e.touches[1].pageX;
-                  var dy = e.touches[0].pageY - e.touches[1].pageY;
-                  webPinchStartDist = Math.sqrt(dx * dx + dy * dy);
-                }
-              }, { passive: true });
+              var webBrightness = 100;
+              var webVolume = 100;
+              var isWebZoomed = false;
+              var hudTimer = null;
+              var zoomTimer = null;
 
-              window.addEventListener('touchmove', function(e) {
-                if (e.touches && e.touches.length === 2 && webPinchStartDist > 0) {
-                  var dx = e.touches[0].pageX - e.touches[1].pageX;
-                  var dy = e.touches[0].pageY - e.touches[1].pageY;
-                  var currentDist = Math.sqrt(dx * dx + dy * dy);
-                  var ratio = currentDist / webPinchStartDist;
-                  if (ratio > 1.15) {
-                    webPinchStartDist = currentDist;
-                    if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-                      window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'PINCH_ZOOM_IN' }));
+              function showWebHud(type, val) {
+                var hud = document.getElementById(type === 'brightness' ? 'web-hud-brightness' : 'web-hud-volume');
+                var fill = document.getElementById(type === 'brightness' ? 'web-hud-brightness-fill' : 'web-hud-volume-fill');
+                var text = document.getElementById(type === 'brightness' ? 'web-hud-brightness-text' : 'web-hud-volume-text');
+                if (!hud || !fill || !text) return;
+                fill.style.height = val + '%';
+                text.textContent = val + '%';
+                hud.style.opacity = '1';
+                if (hudTimer) clearTimeout(hudTimer);
+                hudTimer = setTimeout(function() {
+                  hud.style.opacity = '0';
+                }, 1200);
+              }
+
+              function showWebZoomToast(text) {
+                var toast = document.getElementById('web-zoom-toast');
+                var toastText = document.getElementById('web-zoom-toast-text');
+                if (!toast || !toastText) return;
+                toastText.textContent = text;
+                toast.style.opacity = '1';
+                if (zoomTimer) clearTimeout(zoomTimer);
+                zoomTimer = setTimeout(function() {
+                  toast.style.opacity = '0';
+                }, 1400);
+              }
+
+              function setWebZoom(zoomed) {
+                if (isWebZoomed === zoomed) return;
+                isWebZoomed = zoomed;
+                showWebZoomToast(zoomed ? 'Zoomed to fill' : 'Original');
+                var p = document.getElementById('player');
+                if (p) {
+                  p.style.transform = zoomed ? 'translate(-50%, -50%) scale(1.35)' : 'translate(-50%, -50%) scale(1.0)';
+                }
+                var vids = document.querySelectorAll('video');
+                for (var k = 0; k < vids.length; k++) {
+                  vids[k].style.objectFit = zoomed ? 'cover' : 'contain';
+                }
+                if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                  window.ReactNativeWebView.postMessage(JSON.stringify({ event: zoomed ? 'PINCH_ZOOM_IN' : 'PINCH_ZOOM_OUT' }));
+                }
+              }
+
+              var touchStartY = 0;
+              var touchStartX = 0;
+              var touchStartTime = 0;
+              var activeSwipe = null;
+              var initialVal = 0;
+              var pinchStartDist = 0;
+              var lastTapTime = 0;
+
+              var gestureLayer = document.getElementById('touch-gesture-layer');
+              if (gestureLayer) {
+                gestureLayer.addEventListener('touchstart', function(e) {
+                  if (e.touches.length >= 2) {
+                    activeSwipe = null;
+                    var dx = e.touches[0].pageX - e.touches[1].pageX;
+                    var dy = e.touches[0].pageY - e.touches[1].pageY;
+                    pinchStartDist = Math.sqrt(dx * dx + dy * dy);
+                    return;
+                  }
+                  if (e.touches.length === 1) {
+                    pinchStartDist = 0;
+                    touchStartX = e.touches[0].pageX;
+                    touchStartY = e.touches[0].pageY;
+                    touchStartTime = Date.now();
+                    var w = window.innerWidth;
+                    activeSwipe = (touchStartX < w / 2) ? 'brightness' : 'volume';
+                    initialVal = (activeSwipe === 'brightness') ? webBrightness : webVolume;
+                  }
+                }, { passive: true });
+
+                gestureLayer.addEventListener('touchmove', function(e) {
+                  if (e.touches.length >= 2 && pinchStartDist > 0) {
+                    var dx = e.touches[0].pageX - e.touches[1].pageX;
+                    var dy = e.touches[0].pageY - e.touches[1].pageY;
+                    var dist = Math.sqrt(dx * dx + dy * dy);
+                    var ratio = dist / pinchStartDist;
+                    if (ratio > 1.08) {
+                      setWebZoom(true);
+                      pinchStartDist = dist;
+                    } else if (ratio < 0.92) {
+                      setWebZoom(false);
+                      pinchStartDist = dist;
                     }
-                  } else if (ratio < 0.85) {
-                    webPinchStartDist = currentDist;
-                    if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-                      window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'PINCH_ZOOM_OUT' }));
+                    return;
+                  }
+                  if (e.touches.length === 1 && activeSwipe) {
+                    var deltaY = touchStartY - e.touches[0].pageY;
+                    if (Math.abs(deltaY) > 5) {
+                      var h = window.innerHeight;
+                      var change = Math.round((deltaY / (h * 0.45)) * 100);
+                      var newVal = Math.max(0, Math.min(100, initialVal + change));
+                      if (activeSwipe === 'brightness') {
+                        webBrightness = newVal;
+                        document.body.style.filter = 'brightness(' + (0.3 + 0.7 * (newVal / 100)) + ')';
+                        showWebHud('brightness', newVal);
+                        if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                          window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'GESTURE_BRIGHTNESS', value: newVal }));
+                        }
+                      } else if (activeSwipe === 'volume') {
+                        webVolume = newVal;
+                        try {
+                          if (player && typeof player.setVolume === 'function') {
+                            player.setVolume(newVal);
+                            if (newVal > 0 && typeof player.unMute === 'function') player.unMute();
+                          }
+                          var vids = document.querySelectorAll('video');
+                          for (var i = 0; i < vids.length; i++) {
+                            vids[i].volume = newVal / 100;
+                          }
+                        } catch(err) {}
+                        showWebHud('volume', newVal);
+                        if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                          window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'GESTURE_VOLUME', value: newVal }));
+                        }
+                      }
                     }
                   }
-                }
-              }, { passive: true });
+                }, { passive: true });
 
-              window.addEventListener('touchend', function(e) {
-                if (!e.touches || e.touches.length < 2) {
-                  webPinchStartDist = 0;
-                }
-              }, { passive: true });
+                gestureLayer.addEventListener('touchend', function(e) {
+                  if (e.touches.length === 0) {
+                    var elapsed = Date.now() - touchStartTime;
+                    if (elapsed < 300 && Math.abs(e.changedTouches[0].pageY - touchStartY) < 10) {
+                      var now = Date.now();
+                      if (now - lastTapTime < 300) {
+                        var w = window.innerWidth;
+                        if (touchStartX < w / 2) {
+                          if (player && typeof player.getCurrentTime === 'function' && typeof player.seekTo === 'function') {
+                            player.seekTo(Math.max(0, player.getCurrentTime() - 10), true);
+                            showWebZoomToast('« 10 seconds');
+                          }
+                        } else {
+                          if (player && typeof player.getCurrentTime === 'function' && typeof player.seekTo === 'function') {
+                            player.seekTo(player.getCurrentTime() + 10, true);
+                            showWebZoomToast('10 seconds »');
+                          }
+                        }
+                        lastTapTime = 0;
+                      } else {
+                        lastTapTime = now;
+                        setTimeout(function() {
+                          if (Date.now() - lastTapTime >= 280 && lastTapTime !== 0) {
+                            if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                              window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'TOGGLE_LANDSCAPE_CONTROLS' }));
+                            }
+                          }
+                        }, 300);
+                      }
+                    }
+                    activeSwipe = null;
+                    pinchStartDist = 0;
+                  }
+                }, { passive: true });
+              }
             </script>
           </body>
         </html>
