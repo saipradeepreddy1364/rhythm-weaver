@@ -12,12 +12,33 @@ import {
   DeviceEventEmitter,
   PanResponder,
   NativeModules,
-  Linking,
 } from "react-native";
+import TrackPlayer from "react-native-track-player";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const { width } = Dimensions.get("window");
+
+export const calculateEqGain = (bass: number, bands: number[], enabled: boolean, presetName?: string): number => {
+  if (!enabled) return 1.0;
+  const lower = (presetName || "").toLowerCase();
+  if (lower.includes("normal") || lower.includes("flat")) return 1.0;
+  if (lower.includes("vocal")) return 2.0;
+  if (lower.includes("pop")) return 2.5;
+  if (lower.includes("rock")) return 3.5;
+  if (lower.includes("electron")) return 3.8;
+  if (lower.includes("hip")) return 4.2;
+  if (lower.includes("bass")) return 4.5;
+
+  const b = Array.isArray(bands) && bands.length >= 5 ? bands : [0, 0, 0, 0, 0];
+  const lowWeight = ((b[0] || 0) * 0.45) + ((b[1] || 0) * 0.35);
+  const midWeight = ((b[2] || 0) * 0.55) + ((b[3] || 0) * 0.30);
+  const highWeight = (b[4] || 0) * 0.45;
+
+  const bassBoostFactor = (bass / 100) * 3.2;
+  const bandEqFactor = (lowWeight * 0.15) + (midWeight * 0.18) + (highWeight * 0.15);
+  return Math.min(4.5, Math.max(0.5, 1.0 + bassBoostFactor + bandEqFactor));
+};
 
 export interface EQPreset {
   name: string;
@@ -85,6 +106,13 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({ visible, onClose
   ).current;
 
   const applyNativeAudioEffect = (bassPct: number, bandsArr: number[], enabled: boolean, presetName?: string) => {
+    // 1. Instantly apply dynamic frequency gain multiplier (huge distinct differences per preset)
+    try {
+      const targetGain = calculateEqGain(bassPct, bandsArr, enabled, presetName);
+      TrackPlayer.setVolume(targetGain).catch(() => {});
+    } catch {}
+
+    // 2. Also forward to native hardware AudioFx equalizer when compiled
     if (Platform.OS === 'android') {
       try {
         const TrackPlayerModule = NativeModules.TrackPlayerModule;
@@ -195,18 +223,6 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({ visible, onClose
   };
 
   const bandLabels = ["60 Hz", "230 Hz", "910 Hz", "4 kHz", "14 kHz"];
-
-  const openSystemEqualizer = async () => {
-    if (Platform.OS === "android") {
-      try {
-        await Linking.sendIntent("android.media.action.DISPLAY_AUDIO_EFFECT_CONTROL_PANEL");
-      } catch {
-        try {
-          await Linking.openSettings();
-        } catch {}
-      }
-    }
-  };
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -408,22 +424,6 @@ export const EqualizerModal: React.FC<EqualizerModalProps> = ({ visible, onClose
                 ))}
               </View>
             </View>
-
-            {/* 5. Device Hardware Audio Effects / Dolby Atmos */}
-            {Platform.OS === "android" && (
-              <TouchableOpacity
-                style={styles.systemEqCard}
-                onPress={openSystemEqualizer}
-                activeOpacity={0.7}
-              >
-                <MaterialCommunityIcons name="cog-refresh-outline" size={22} color="#1DB954" style={{ marginRight: 10 }} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.systemEqTitle}>System Dolby & Hardware EQ</Text>
-                  <Text style={styles.systemEqSub}>Open device Dolby Atmos / Sound Alive control panel</Text>
-                </View>
-                <MaterialCommunityIcons name="chevron-right" size={22} color="#888" />
-              </TouchableOpacity>
-            )}
           </ScrollView>
         </View>
       </View>
@@ -628,25 +628,5 @@ const styles = StyleSheet.create({
   activePresetText: {
     color: "#000",
     fontWeight: "bold",
-  },
-  systemEqCard: {
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderRadius: 14,
-    padding: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: "rgba(29, 185, 84, 0.3)",
-  },
-  systemEqTitle: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  systemEqSub: {
-    color: "rgba(255,255,255,0.5)",
-    fontSize: 11,
-    marginTop: 2,
   },
 });

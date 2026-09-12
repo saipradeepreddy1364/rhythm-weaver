@@ -25,6 +25,7 @@ import { api, extractResults } from "../services/api";
 import { localStorage } from "../lib/storage";
 import { normalizeSongTitle } from "./LibraryContext";
 import * as FileSystem from "expo-file-system";
+import { calculateEqGain } from "../components/EqualizerModal";
 
 // ─── Playback History & Offline Helpers ──────────────────────────────────────
 const RECENT_LIMIT_MS = 3 * 60 * 60 * 1000; // 3 hours
@@ -730,28 +731,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         if (raw) settings = JSON.parse(raw);
       }
       const { bass = 85, enabled = true, bands = [8, 6, 2, 0, 0], preset = "" } = settings || {};
-
       const lowerPreset = (preset || "").toLowerCase();
-      let targetVolume = 0.85;
 
-      if (!enabled || lowerPreset.includes("normal") || lowerPreset.includes("flat")) {
-        targetVolume = 0.70;
-      } else if (lowerPreset.includes("vocal")) {
-        targetVolume = 0.60;
-      } else if (lowerPreset.includes("pop")) {
-        targetVolume = 0.80;
-      } else if (lowerPreset.includes("electron")) {
-        targetVolume = 0.92;
-      } else if (lowerPreset.includes("rock")) {
-        targetVolume = 0.96;
-      } else if (lowerPreset.includes("bass") || lowerPreset.includes("hip")) {
-        targetVolume = 1.00;
-      } else {
-        const avgBass = ((bands[0] || 0) + (bands[1] || 0)) / 2;
-        targetVolume = Math.min(1.0, Math.max(0.60, 0.70 + (avgBass / 30)));
-      }
-
-      await TrackPlayer.setVolume(targetVolume);
+      const finalVolume = calculateEqGain(bass, bands, enabled, preset);
+      await TrackPlayer.setVolume(finalVolume);
 
       if (Platform.OS === 'android') {
         const TrackPlayerModule = NativeModules.TrackPlayerModule;
