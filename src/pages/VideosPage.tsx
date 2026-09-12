@@ -919,6 +919,10 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
 
   // Auto-minimize active video when switching tabs away from Videos ONLY if video is actively playing
   const prevTabRef = useRef(activeTab);
+  const videosRef = useRef(videos);
+  videosRef.current = videos;
+  const loadingRef = useRef(loading);
+  loadingRef.current = loading;
 
   useEffect(() => {
     const prevTab = prevTabRef.current;
@@ -927,16 +931,13 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
     if (activeTab && activeTab !== "Videos" && prevTab === "Videos") {
       if (activeVideo && isPipPlaying && !isMinimized) {
         setIsMinimized(true);
-      } else if (!activeVideo) {
-        setQuery("");
-        setSuggestions([]);
-        setShowSuggestions(false);
       }
+      setShowSuggestions(false);
     } else if (activeTab === "Videos" && prevTab && prevTab !== "Videos") {
-      // Returned to Videos tab: refresh feed if no video is playing
-      if (!activeVideo) {
-        setQuery("");
-        fetchTrendingVideos("trending telugu hindi video songs 2026", true);
+      // Returned to Videos tab: preserve existing feed state without auto-refreshing or reshuffling
+      setShowSuggestions(false);
+      if (videosRef.current.length === 0 && !loadingRef.current) {
+        fetchTrendingVideos("trending telugu hindi video songs 2026");
       }
     } else if (activeTab && activeTab !== "Videos" && (!isPipPlaying || !activeVideo) && isMinimized) {
       setIsMinimized(false);
