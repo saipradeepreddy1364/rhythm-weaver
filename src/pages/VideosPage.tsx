@@ -566,6 +566,8 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
   const isPinchingRef = useRef(false);
 
   const applyZoomDirect = useCallback((zoom: boolean) => {
+    // Zoom-to-fill is strictly allowed ONLY in landscape mode
+    if (!isLandscape && zoom) return;
     if (isZoomToFillRef.current === zoom) return;
     isZoomToFillRef.current = zoom;
     setIsZoomToFill(zoom);
@@ -587,7 +589,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
             style.id = styleId;
             (document.head || document.documentElement).appendChild(style);
           }
-          if (${zoom ? 'true' : 'false'}) {
+          if (${zoom && isLandscape ? 'true' : 'false'}) {
             style.textContent = 'video, .html5-main-video { object-fit: cover !important; width: 100% !important; height: 100% !important; }';
             document.body.classList.add('is-zoomed');
           } else {
@@ -601,7 +603,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
     try {
       webViewRef.current?.injectJavaScript(js);
     } catch (e) {}
-  }, [zoomToastAnim]);
+  }, [isLandscape, zoomToastAnim]);
 
   const handlePlayerTap = useCallback(() => {
     // Single tap toggles landscape controls overlay (only in landscape)
@@ -619,7 +621,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
     }
   }, [isLandscape]);
 
-  // Reset zoom & brightness when leaving landscape mode
+  // Reset zoom & brightness when leaving landscape mode, and sync orientation class to WebView
   useEffect(() => {
     if (!isLandscape) {
       if (isZoomToFillRef.current) {
@@ -628,6 +630,25 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
       setBrightness(100);
       brightnessRef.current = 100;
     }
+    try {
+      webViewRef.current?.injectJavaScript(`
+        (function() {
+          if (document && document.body) {
+            if (${isLandscape}) {
+              document.body.classList.add('is-landscape');
+              document.body.classList.remove('is-portrait');
+            } else {
+              document.body.classList.remove('is-landscape');
+              document.body.classList.add('is-portrait');
+              if (typeof setWebZoom === 'function') {
+                setWebZoom(false);
+              }
+            }
+          }
+        })();
+        true;
+      `);
+    } catch {}
   }, [isLandscape, applyZoomDirect]);
 
   const landscapePanResponder = useMemo(
@@ -711,9 +732,11 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
           const dragDelta = isTrueLandscape ? -gestureState.dy : -gestureState.dx;
 
           if (Math.abs(dragDelta) > 4) {
-            isLandscapeDraggingRef.current = true;
-            if (activeGestureRef.current && activeGesture !== activeGestureRef.current) {
-              setActiveGesture(activeGestureRef.current);
+            if (!isLandscapeDraggingRef.current) {
+              isLandscapeDraggingRef.current = true;
+              if (activeGestureRef.current) {
+                setActiveGesture(activeGestureRef.current);
+              }
             }
             if (hudFadeTimeoutRef.current) clearTimeout(hudFadeTimeoutRef.current);
             Animated.timing(hudFadeAnim, { toValue: 1, duration: 60, useNativeDriver: true }).start();
@@ -792,7 +815,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
           });
         },
       }),
-    [windowWidth, windowHeight, isLandscape, isManualLandscape, isMinimized, isSystemPipActive, activeGesture, applyZoomDirect, handlePlayerTap]
+    [windowWidth, windowHeight, isLandscape, isManualLandscape, isMinimized, isSystemPipActive, applyZoomDirect, handlePlayerTap]
   );
 
   const [pipWidth, setPipWidth] = useState(210);
@@ -1348,20 +1371,26 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
         if (!isRecentUserToggle) setIsPipPlaying(false);
       } else if (data && data.event === "VIDEO_ENDED") {
         playNextVideo();
-      } else if (data && (data.event === "TOGGLE_LANDSCAPE" || data.event === "FULLSCREEN_ENTER")) {
-        setIsManualLandscape((prev) => !prev);
+      } else if (data && data.event === "FULLSCREEN_ENTER") {
+        setIsManualLandscape(true);
       } else if (data && data.event === "FULLSCREEN_EXIT") {
         setIsManualLandscape(false);
+      } else if (data && data.event === "TOGGLE_LANDSCAPE") {
+        setIsManualLandscape((prev) => !prev);
       } else if (data && data.event === "PINCH_ZOOM_IN") {
-        applyZoomDirect(true);
+        if (isLandscape) applyZoomDirect(true);
       } else if (data && data.event === "PINCH_ZOOM_OUT") {
-        applyZoomDirect(false);
+        if (isLandscape) applyZoomDirect(false);
       } else if (data && data.event === "GESTURE_BRIGHTNESS" && typeof data.value === "number") {
-        setBrightness(data.value);
-        brightnessRef.current = data.value;
+        if (isLandscape) {
+          setBrightness(data.value);
+          brightnessRef.current = data.value;
+        }
       } else if (data && data.event === "GESTURE_VOLUME" && typeof data.value === "number") {
-        setVolume(data.value);
-        volumeRef.current = data.value;
+        if (isLandscape) {
+          setVolume(data.value);
+          volumeRef.current = data.value;
+        }
       } else if (data && data.event === "TOGGLE_LANDSCAPE_CONTROLS") {
         handlePlayerTap();
       } else if (data && data.event === "VIDEO_BLOCKED") {
@@ -1369,7 +1398,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
         setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length);
       }
     } catch {}
-  }, [playNextVideo, applyZoomDirect]);
+  }, [playNextVideo, applyZoomDirect, isLandscape, handlePlayerTap]);
 
   const handleWebViewError = useCallback(() => {
     setIsVideoBlocked(true);
@@ -1395,11 +1424,23 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                 left: 50% !important;
                 width: 100% !important;
                 height: 100% !important;
-                min-width: 177.78vh !important;
-                min-height: 56.25vw !important;
                 transform: translate(-50%, -50%) !important;
                 -webkit-transform: translate(-50%, -50%) !important;
                 border: none !important;
+                transition: transform 0.2s ease-out;
+              }
+              body.is-landscape.is-zoomed #player,
+              body.is-landscape.is-zoomed iframe {
+                transform: translate(-50%, -50%) scale(1.35) !important;
+                -webkit-transform: translate(-50%, -50%) scale(1.35) !important;
+              }
+              body.is-landscape.is-zoomed video,
+              body.is-landscape.is-zoomed .html5-main-video {
+                object-fit: cover !important;
+              }
+              body:not(.is-zoomed) video,
+              body:not(.is-zoomed) .html5-main-video {
+                object-fit: contain !important;
               }
               /* 100% Zero-Ad Youtube CSS Rules */
               .ytp-ad-module, .ytp-ad-overlay-container, .ytp-ad-message-container,
@@ -1524,7 +1565,25 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                 height: auto !important;
                 padding: 4px 10px !important;
               }
-              #touch-gesture-layer {
+              /* In portrait mode and minimized mode: COMPLETELY disable gesture overlay and HUDs */
+              #touch-gesture-layer,
+              body.is-portrait #touch-gesture-layer,
+              body.is-minimized #touch-gesture-layer {
+                display: none !important;
+                pointer-events: none !important;
+              }
+              body.is-portrait .web-hud,
+              body.is-portrait .web-zoom-toast,
+              body.is-minimized .web-hud,
+              body.is-minimized .web-zoom-toast {
+                display: none !important;
+                opacity: 0 !important;
+                pointer-events: none !important;
+              }
+              /* Strictly active ONLY in landscape mode */
+              body.is-landscape:not(.is-minimized) #touch-gesture-layer {
+                display: block !important;
+                pointer-events: auto !important;
                 position: absolute;
                 top: 0;
                 left: 0;
@@ -1533,7 +1592,6 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                 z-index: 9999;
                 touch-action: none;
               }
-              body.is-minimized #touch-gesture-layer { display: none !important; }
               .web-hud {
                 position: absolute;
                 top: 50%;
@@ -1598,7 +1656,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
               }
             </style>
           </head>
-          <body class="${isMinimized ? 'is-minimized' : ''}">
+          <body class="${isMinimized ? 'is-minimized' : ''} ${isLandscape ? 'is-landscape' : 'is-portrait'}">
             <div class="player-wrapper">
               <div id="player"></div>
               <div id="touch-gesture-layer"></div>
@@ -1719,6 +1777,30 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                 } catch (err) {}
               };
 
+              var lastFsToggleTime = 0;
+              function handleFullscreenButtonTrigger(e) {
+                try {
+                  var fsBtn = e.target && e.target.closest ? e.target.closest('.ytp-fullscreen-button, [aria-label*="Full screen"], [aria-label*="fullscreen"], [title*="Full screen"], [title*="fullscreen"]') : null;
+                  if (fsBtn) {
+                    var now = Date.now();
+                    if (now - lastFsToggleTime < 400) return;
+                    lastFsToggleTime = now;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    var isCurrentlyFs = document.body.classList.contains('is-landscape');
+                    if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                      window.ReactNativeWebView.postMessage(JSON.stringify({
+                        event: isCurrentlyFs ? 'FULLSCREEN_EXIT' : 'FULLSCREEN_ENTER'
+                      }));
+                    }
+                  }
+                } catch(err) {}
+              }
+
+              document.addEventListener('click', handleFullscreenButtonTrigger, true);
+              document.addEventListener('touchend', handleFullscreenButtonTrigger, true);
+
+              var wasFs = false;
               function notifyFullscreenState() {
                 try {
                   var isFs = !!(
@@ -1728,10 +1810,13 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                     document.msFullscreenElement ||
                     document.querySelector('.ytp-fullscreen')
                   );
-                  if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-                    window.ReactNativeWebView.postMessage(JSON.stringify({
-                      event: isFs ? 'FULLSCREEN_ENTER' : 'FULLSCREEN_EXIT'
-                    }));
+                  if (isFs !== wasFs) {
+                    wasFs = isFs;
+                    if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                      window.ReactNativeWebView.postMessage(JSON.stringify({
+                        event: isFs ? 'FULLSCREEN_ENTER' : 'FULLSCREEN_EXIT'
+                      }));
+                    }
                   }
                 } catch(e) {}
               }
@@ -1740,15 +1825,6 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
               document.addEventListener('webkitfullscreenchange', notifyFullscreenState);
               document.addEventListener('mozfullscreenchange', notifyFullscreenState);
               document.addEventListener('MSFullscreenChange', notifyFullscreenState);
-
-              document.addEventListener('click', function(e) {
-                try {
-                  var fsBtn = e.target && e.target.closest ? e.target.closest('.ytp-fullscreen-button') : null;
-                  if (fsBtn) {
-                    setTimeout(notifyFullscreenState, 250);
-                  }
-                } catch(e) {}
-              }, true);
 
               function attachVideoListeners() {
                 try {
@@ -1978,6 +2054,17 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
               }
 
               function setWebZoom(zoomed) {
+                // Strictly guard: Zoom to fill is only allowed in landscape mode!
+                if (!document.body.classList.contains('is-landscape')) {
+                  if (isWebZoomed) {
+                    isWebZoomed = false;
+                    var p = document.getElementById('player');
+                    if (p) p.style.transform = 'translate(-50%, -50%) scale(1.0)';
+                    var vids = document.querySelectorAll('video');
+                    for (var k = 0; k < vids.length; k++) vids[k].style.objectFit = 'contain';
+                  }
+                  return;
+                }
                 if (isWebZoomed === zoomed) return;
                 isWebZoomed = zoomed;
                 showWebZoomToast(zoomed ? 'Zoomed to fill' : 'Original');
@@ -2005,6 +2092,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
               var gestureLayer = document.getElementById('touch-gesture-layer');
               if (gestureLayer) {
                 gestureLayer.addEventListener('touchstart', function(e) {
+                  if (!document.body.classList.contains('is-landscape')) return;
                   if (e.touches.length >= 2) {
                     activeSwipe = null;
                     var dx = e.touches[0].pageX - e.touches[1].pageX;
@@ -2024,6 +2112,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                 }, { passive: true });
 
                 gestureLayer.addEventListener('touchmove', function(e) {
+                  if (!document.body.classList.contains('is-landscape')) return;
                   if (e.touches.length >= 2 && pinchStartDist > 0) {
                     var dx = e.touches[0].pageX - e.touches[1].pageX;
                     var dy = e.touches[0].pageY - e.touches[1].pageY;
@@ -2073,6 +2162,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                 }, { passive: true });
 
                 gestureLayer.addEventListener('touchend', function(e) {
+                  if (!document.body.classList.contains('is-landscape')) return;
                   if (e.touches.length === 0) {
                     var elapsed = Date.now() - touchStartTime;
                     if (elapsed < 300 && Math.abs(e.changedTouches[0].pageY - touchStartY) < 10) {
@@ -2425,12 +2515,14 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                               '  display: none !important; visibility: hidden !important; opacity: 0 !important; ' +
                               '  pointer-events: none !important; transform: scale(0) !important; -webkit-transform: scale(0) !important; ' +
                               '} ' +
-                              'video, .html5-main-video, .html5-video-container, #player, iframe, ' +
-                              ':fullscreen video, :-webkit-full-screen video, .ytp-fullscreen video { ' +
+                              'video, .html5-main-video, .html5-video-container { ' +
                               '  position: absolute !important; top: 0 !important; left: 0 !important; margin: 0 !important; padding: 0 !important; ' +
                               '  width: 100% !important; height: 100% !important; max-width: 100% !important; max-height: 100% !important; ' +
-                              '  object-fit: cover !important; object-position: center center !important; transform: none !important; -webkit-transform: none !important; ' +
+                              '  object-position: center center !important; ' +
                               '} ' +
+                              'body:not(.is-zoomed) video, body:not(.is-zoomed) .html5-main-video { object-fit: contain !important; } ' +
+                              'body.is-landscape.is-zoomed video, body.is-landscape.is-zoomed .html5-main-video { object-fit: cover !important; } ' +
+                              'body.is-landscape.is-zoomed #player, body.is-landscape.is-zoomed iframe { transform: translate(-50%, -50%) scale(1.35) !important; -webkit-transform: translate(-50%, -50%) scale(1.35) !important; } ' +
                               'body:not(.is-minimized) .ytp-settings-button, body:not(.is-minimized) .ytp-subtitles-button, ' +
                               'body:not(.is-minimized) .ytp-fullscreen-button, body:not(.is-minimized) .ytp-chrome-bottom, ' +
                               'body:not(.is-minimized) .ytp-right-controls, body:not(.is-minimized) .ytp-progress-bar-container, ' +
