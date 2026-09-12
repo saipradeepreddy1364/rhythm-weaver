@@ -49,17 +49,20 @@ index afa6b0f..d40a744 100644
  import java.util.concurrent.TimeUnit
  import kotlin.system.exitProcess
 +import android.media.audiofx.Equalizer
++import android.media.audiofx.BassBoost
 +import android.media.audiofx.AudioEffect
  import timber.log.Timber
  
  @MainThread
-@@ -47,6 +49,73 @@ class MusicService : HeadlessJsTaskService() {
+@@ -47,6 +49,94 @@ class MusicService : HeadlessJsTaskService() {
      private val scope = MainScope()
      private var progressUpdateJob: Job? = null
  
-+    // Real-time Android Equalizer instance
++    // Real-time Android Equalizer and BassBoost instances
 +    private var nativeEqualizer: Equalizer? = null
-+    private var nativeEqualizerSessionId: Int = 0
++    private var nativeEqualizerSessionId: Int = -1
++    private var nativeBassBoost: BassBoost? = null
++    private var nativeBassBoostSessionId: Int = -1
 +    private var lastBass: Int = 5
 +    private var lastTreble: Int = 5
 +    private var lastVocal: Int = 5
@@ -87,36 +90,64 @@ index afa6b0f..d40a744 100644
 +            }
 +
 +            val sessionId = exoPlayer?.audioSessionId ?: 0
-+            if (sessionId <= 0) return
++            val targetSessionId = if (sessionId > 0) sessionId else 0
 +
-+            if (nativeEqualizer == null || nativeEqualizerSessionId != sessionId) {
-+                nativeEqualizer?.release()
-+                nativeEqualizer = Equalizer(0, sessionId)
-+                nativeEqualizerSessionId = sessionId
-+                nativeEqualizer?.enabled = true
++            if (nativeEqualizer == null || nativeEqualizerSessionId != targetSessionId) {
++                try {
++                    nativeEqualizer?.release()
++                    nativeEqualizer = Equalizer(1000, targetSessionId)
++                    nativeEqualizerSessionId = targetSessionId
++                    nativeEqualizer?.enabled = true
++                } catch (e: Throwable) {
++                    Timber.e(e, "Error initializing Equalizer")
++                }
 +            }
 +
-+            val eq = nativeEqualizer ?: return
-+            val numBands = eq.numberOfBands.toInt()
-+            if (numBands == 0) return
++            if (nativeBassBoost == null || nativeBassBoostSessionId != targetSessionId) {
++                try {
++                    nativeBassBoost?.release()
++                    nativeBassBoost = BassBoost(1000, targetSessionId)
++                    nativeBassBoostSessionId = targetSessionId
++                } catch (e: Throwable) {
++                    Timber.e(e, "Error initializing BassBoost")
++                }
++            }
 +
-+            val minRange = eq.bandLevelRange[0] // e.g. -1500 (-15dB)
-+            val maxRange = eq.bandLevelRange[1] // e.g. 1500 (+15dB)
-+            val step = (maxRange - minRange) / 10
++            val eq = nativeEqualizer
++            if (eq != null) {
++                val numBands = eq.numberOfBands.toInt()
++                if (numBands > 0) {
++                    val minRange = eq.bandLevelRange[0] // e.g. -1500 (-15dB)
++                    val maxRange = eq.bandLevelRange[1] // e.g. 1500 (+15dB)
++                    val step = (maxRange - minRange) / 10
 +
-+            // Bass: Bands 0 and 1
-+            val bassVal = (minRange + bass * step).toShort()
-+            if (numBands > 0) eq.setBandLevel(0, bassVal)
-+            if (numBands > 1) eq.setBandLevel(1, bassVal)
++                    // Bass: Bands 0 and 1
++                    val bassVal = (minRange + bass * step).coerceIn(minRange.toInt(), maxRange.toInt()).toShort()
++                    if (numBands > 0) eq.setBandLevel(0, bassVal)
++                    if (numBands > 1) eq.setBandLevel(1, bassVal)
 +
-+            // Vocals (Mid-range): Band 2
-+            val vocalVal = (minRange + vocal * step).toShort()
-+            if (numBands > 2) eq.setBandLevel(2, vocalVal)
++                    // Vocals (Mid-range): Band 2
++                    val vocalVal = (minRange + vocal * step).coerceIn(minRange.toInt(), maxRange.toInt()).toShort()
++                    if (numBands > 2) eq.setBandLevel(2, vocalVal)
 +
-+            // Treble: Bands 3 and 4
-+            val trebleVal = (minRange + treble * step).toShort()
-+            if (numBands > 3) eq.setBandLevel(3, trebleVal)
-+            if (numBands > 4) eq.setBandLevel(4, trebleVal)
++                    // Treble: Bands 3 and 4
++                    val trebleVal = (minRange + treble * step).coerceIn(minRange.toInt(), maxRange.toInt()).toShort()
++                    if (numBands > 3) eq.setBandLevel(3, trebleVal)
++                    if (numBands > 4) eq.setBandLevel(4, trebleVal)
++                }
++            }
++
++            try {
++                if (bass > 5) {
++                    nativeBassBoost?.enabled = true
++                    val strength = ((bass - 5) * 200).coerceIn(0, 1000).toShort()
++                    nativeBassBoost?.setStrength(strength)
++                } else {
++                    nativeBassBoost?.enabled = false
++                }
++            } catch (e: Throwable) {
++                Timber.e(e, "Error applying BassBoost strength")
++            }
 +
 +        } catch (e: Throwable) {
 +            Timber.e(e, "Failed to apply native equalizer parameters")

@@ -588,10 +588,10 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
             (document.head || document.documentElement).appendChild(style);
           }
           if (${zoom ? 'true' : 'false'}) {
-            style.textContent = '#player, iframe, .html5-main-video { transform: translate(-50%, -50%) scale(1.35) !important; -webkit-transform: translate(-50%, -50%) scale(1.35) !important; } .player-wrapper { overflow: hidden !important; } video { object-fit: cover !important; }';
+            style.textContent = 'video, .html5-main-video { object-fit: cover !important; width: 100% !important; height: 100% !important; }';
             document.body.classList.add('is-zoomed');
           } else {
-            style.textContent = '#player, iframe, .html5-main-video { transform: translate(-50%, -50%) scale(1.0) !important; -webkit-transform: translate(-50%, -50%) scale(1.0) !important; } .player-wrapper { overflow: hidden !important; } video { object-fit: contain !important; }';
+            style.textContent = 'video, .html5-main-video { object-fit: contain !important; width: 100% !important; height: 100% !important; }';
             document.body.classList.remove('is-zoomed');
           }
         } catch(e) {}
@@ -681,10 +681,10 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
             const currentDist = Math.sqrt(dx * dx + dy * dy);
             if (landscapePinchDistRef.current && landscapePinchDistRef.current > 0) {
               const ratio = currentDist / landscapePinchDistRef.current;
-              if (ratio > 1.15) {
+              if (ratio > 1.08) {
                 applyZoomDirect(true);
                 landscapePinchDistRef.current = currentDist;
-              } else if (ratio < 0.85) {
+              } else if (ratio < 0.92) {
                 applyZoomDirect(false);
                 landscapePinchDistRef.current = currentDist;
               }
@@ -1646,9 +1646,6 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                 try {
                   var fsBtn = e.target && e.target.closest ? e.target.closest('.ytp-fullscreen-button') : null;
                   if (fsBtn) {
-                    if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-                      window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'TOGGLE_LANDSCAPE' }));
-                    }
                     setTimeout(notifyFullscreenState, 250);
                   }
                 } catch(e) {}
@@ -2175,7 +2172,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                   allowsPictureInPicture={true}
                   allowsInlineMediaPlayback={true}
                   mediaPlaybackRequiresUserAction={false}
-                  allowsFullscreenVideo={false}
+                  allowsFullscreenVideo={true}
                   javaScriptEnabled={true}
                   domStorageEnabled={true}
                   androidLayerType="hardware"
@@ -2462,15 +2459,6 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
               </>
             )}
 
-            {/* Portrait YouTube Fullscreen Button Overlay Target */}
-            {!isLandscape && !isMinimized && !isSystemPipActive && (
-              <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={() => setIsManualLandscape(true)}
-                style={styles.youtubeFullscreenTouchTarget}
-              />
-            )}
-
             {/* Hotstar Brightness Dimming Overlay (Only in landscape mode) */}
             {isLandscape && brightness < 100 && (
               <View
@@ -2492,8 +2480,9 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
               <View
                 style={[
                   StyleSheet.absoluteFill,
-                  { zIndex: 100, elevation: 100 },
+                  { zIndex: 100, elevation: 100, backgroundColor: "rgba(0,0,0,0.01)" },
                 ]}
+                collapsable={false}
                 {...landscapePanResponder.panHandlers}
                 pointerEvents="auto"
               >
@@ -3174,14 +3163,7 @@ const styles = StyleSheet.create({
     zIndex: 9999,
     overflow: "hidden",
   },
-  youtubeFullscreenTouchTarget: {
-    position: "absolute",
-    bottom: 0,
-    right: 0,
-    width: 68,
-    height: 54,
-    zIndex: 50,
-  },
+
   suggestionRow: {
     flexDirection: "row",
     alignItems: "center",
