@@ -2366,11 +2366,6 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                 >
                   <View style={styles.thumbnailContainer}>
                     <Image source={{ uri: item.thumbnail }} style={styles.thumbnail} />
-                    <View style={styles.playOverlay}>
-                      <View style={styles.playCircle}>
-                        <MaterialCommunityIcons name="play" size={28} color="#ffffff" style={{ marginLeft: 3 }} />
-                      </View>
-                    </View>
                   </View>
 
                   <View style={styles.videoMeta}>
