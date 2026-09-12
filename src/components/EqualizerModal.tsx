@@ -22,22 +22,22 @@ const { width } = Dimensions.get("window");
 export const calculateEqGain = (bass: number, bands: number[], enabled: boolean, presetName?: string): number => {
   if (!enabled) return 1.0;
   const lower = (presetName || "").toLowerCase();
-  if (lower.includes("normal") || lower.includes("flat")) return 1.0;
-  if (lower.includes("vocal")) return 2.0;
-  if (lower.includes("pop")) return 2.5;
-  if (lower.includes("rock")) return 3.5;
-  if (lower.includes("electron")) return 3.8;
-  if (lower.includes("hip")) return 4.2;
-  if (lower.includes("bass")) return 4.5;
+  if (lower.includes("normal") || lower.includes("flat")) return 0.55;
+  if (lower.includes("vocal")) return 0.68;
+  if (lower.includes("pop")) return 0.78;
+  if (lower.includes("rock")) return 0.88;
+  if (lower.includes("electron")) return 0.94;
+  if (lower.includes("hip")) return 0.98;
+  if (lower.includes("bass")) return 1.00;
 
   const b = Array.isArray(bands) && bands.length >= 5 ? bands : [0, 0, 0, 0, 0];
   const lowWeight = ((b[0] || 0) * 0.45) + ((b[1] || 0) * 0.35);
   const midWeight = ((b[2] || 0) * 0.55) + ((b[3] || 0) * 0.30);
   const highWeight = (b[4] || 0) * 0.45;
 
-  const bassBoostFactor = (bass / 100) * 3.2;
-  const bandEqFactor = (lowWeight * 0.15) + (midWeight * 0.18) + (highWeight * 0.15);
-  return Math.min(4.5, Math.max(0.5, 1.0 + bassBoostFactor + bandEqFactor));
+  const bassBoostFactor = (bass / 100) * 0.35;
+  const bandEqFactor = (lowWeight * 0.008) + (midWeight * 0.008) + (highWeight * 0.008);
+  return Math.min(1.0, Math.max(0.40, 0.55 + bassBoostFactor + bandEqFactor));
 };
 
 export interface EQPreset {

@@ -657,6 +657,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [queue, setQueue] = useState<Song[]>([]);
   const [queueIndex, setQueueIndex] = useState(0);
   const [volume, setVolumeState] = useState(1.0);
+  const volumeRef = useRef(volume);
+  volumeRef.current = volume;
   const [showPlayer, setShowPlayer] = useState(false);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [shuffle, setShuffle] = useState(false);
@@ -733,8 +735,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       const { bass = 85, enabled = true, bands = [8, 6, 2, 0, 0], preset = "" } = settings || {};
       const lowerPreset = (preset || "").toLowerCase();
 
-      const finalVolume = calculateEqGain(bass, bands, enabled, preset);
-      await TrackPlayer.setVolume(finalVolume);
+      const finalGain = calculateEqGain(bass, bands, enabled, preset);
+      const targetVolume = Math.min(1.0, Math.max(0.0, finalGain * (volumeRef.current ?? 1.0)));
+      await TrackPlayer.setVolume(targetVolume);
 
       if (Platform.OS === 'android') {
         const TrackPlayerModule = NativeModules.TrackPlayerModule;
@@ -1414,6 +1417,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         
         await TrackPlayer.add(tracks);
         await TrackPlayer.play();
+        applyAudioEQ();
       } catch (err) {
         console.warn("[PlayerContext] TrackPlayer play failed:", err);
       } finally {
@@ -1448,6 +1452,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         console.log(`[PlayerContext] Skipping to song natively at index ${nativeIdx}`);
         await TrackPlayer.skip(nativeIdx);
         await TrackPlayer.play();
+        applyAudioEQ();
       } else {
         console.log(`[PlayerContext] Song not in native queue. Rebuilding queue starting from target index ${targetIdx}`);
         await playSong(targetSong, q);
@@ -1791,8 +1796,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const setVolume = useCallback((value: number) => {
     setVolumeState(value);
-    TrackPlayer.setVolume(value).catch(() => {});
-  }, []);
+    volumeRef.current = value;
+    applyAudioEQ();
+  }, [applyAudioEQ]);
 
   const toggleFavorite = useCallback((songId: string) => {
     setFavorites((prev) =>

@@ -95,7 +95,7 @@ index afa6b0f..d40a744 100644
 +            if (nativeEqualizer == null || nativeEqualizerSessionId != targetSessionId) {
 +                try {
 +                    nativeEqualizer?.release()
-+                    nativeEqualizer = Equalizer(1000, targetSessionId)
++                    nativeEqualizer = Equalizer(0, targetSessionId)
 +                    nativeEqualizerSessionId = targetSessionId
 +                    nativeEqualizer?.enabled = true
 +                } catch (e: Throwable) {
@@ -106,7 +106,7 @@ index afa6b0f..d40a744 100644
 +            if (nativeBassBoost == null || nativeBassBoostSessionId != targetSessionId) {
 +                try {
 +                    nativeBassBoost?.release()
-+                    nativeBassBoost = BassBoost(1000, targetSessionId)
++                    nativeBassBoost = BassBoost(0, targetSessionId)
 +                    nativeBassBoostSessionId = targetSessionId
 +                } catch (e: Throwable) {
 +                    Timber.e(e, "Error initializing BassBoost")
