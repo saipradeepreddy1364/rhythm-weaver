@@ -1,5 +1,5 @@
 diff --git a/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/module/MusicModule.kt b/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/module/MusicModule.kt
-index b2409a0..0675a51 100644
+index b2409a0..71a4d41 100644
 --- a/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/module/MusicModule.kt
 +++ b/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/module/MusicModule.kt
 @@ -545,7 +545,7 @@ class MusicModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
@@ -24,7 +24,7 @@ index b2409a0..0675a51 100644
          )
      }
  
-@@ -626,4 +626,15 @@ class MusicModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
+@@ -626,4 +626,42 @@ class MusicModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
          if (verifyServiceBoundOrReject(callback)) return@launch
          callback.resolve(Arguments.fromBundle(musicService.getPlayerStateBundle(musicService.state)))
      }
@@ -39,76 +39,143 @@ index b2409a0..0675a51 100644
 +            callback.reject("equalizer_error", e.message, e)
 +        }
 +    }
++
++    @ReactMethod
++    fun setEqualizerSettings(
++        preset: String,
++        bass: Int,
++        treble: Int,
++        vocal: Int,
++        bandsArray: ReadableArray?,
++        surround: Boolean,
++        enabled: Boolean,
++        callback: Promise
++    ) = scope.launch {
++        if (verifyServiceBoundOrReject(callback)) return@launch
++        try {
++            val bandsList = mutableListOf<Int>()
++            if (bandsArray != null) {
++                for (i in 0 until bandsArray.size()) {
++                    bandsList.add(bandsArray.getInt(i))
++                }
++            }
++            musicService.applyEqualizerSettings(preset, bass, treble, vocal, bandsList, surround, enabled)
++            callback.resolve(null)
++        } catch (e: Exception) {
++            callback.reject("equalizer_error", e.message, e)
++        }
++    }
  }
++
 diff --git a/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt b/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
-index afa6b0f..7a438ec 100644
+index afa6b0f..d2d3a28 100644
 --- a/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
 +++ b/node_modules/react-native-track-player/android/src/main/java/com/doublesymmetry/trackplayer/service/MusicService.kt
-@@ -38,6 +38,9 @@ import kotlinx.coroutines.*
+@@ -38,6 +38,11 @@ import kotlinx.coroutines.*
  import kotlinx.coroutines.flow.flow
  import java.util.concurrent.TimeUnit
  import kotlin.system.exitProcess
 +import android.media.audiofx.Equalizer
 +import android.media.audiofx.BassBoost
++import android.media.audiofx.Virtualizer
 +import android.media.audiofx.AudioEffect
++import android.content.Intent
  import timber.log.Timber
  
  @MainThread
-@@ -47,6 +50,114 @@ class MusicService : HeadlessJsTaskService() {
+@@ -47,6 +52,233 @@ class MusicService : HeadlessJsTaskService() {
      private val scope = MainScope()
      private var progressUpdateJob: Job? = null
  
-+    // Real-time Android Equalizer and BassBoost instances
++    // Real-time Android Equalizer, BassBoost and Virtualizer instances
 +    private var nativeEqualizer: Equalizer? = null
 +    private var nativeEqualizerSessionId: Int = -1
 +    private var nativeBassBoost: BassBoost? = null
 +    private var nativeBassBoostSessionId: Int = -1
++    private var nativeVirtualizer: Virtualizer? = null
++    private var nativeVirtualizerSessionId: Int = -1
++
++    private var lastPreset: String = "Normal"
 +    private var lastBass: Int = 5
 +    private var lastTreble: Int = 5
 +    private var lastVocal: Int = 5
++    private var lastBands: List<Int> = listOf(0, 0, 0, 0, 0)
++    private var lastSurround: Boolean = false
++    private var lastEnabled: Boolean = true
++    private var hasAttachedAudioListener: Boolean = false
 +
-+    fun applyEqualizer(bass: Int, treble: Int, vocal: Int) {
-+        lastBass = bass
-+        lastTreble = treble
-+        lastVocal = vocal
-+
-+        if (!::player.isInitialized) return
++    private fun getExoPlayerInstance(): com.google.android.exoplayer2.ExoPlayer? {
++        if (!::player.isInitialized) return null
 +        
-+        try {
-+            // Retrieve the protected exoPlayer instance via reflection (resilient to ProGuard)
-+            var exoPlayer: com.google.android.exoplayer2.ExoPlayer? = null
-+            var currentClass: Class<*>? = player.javaClass
-+            while (currentClass != null && exoPlayer == null) {
++        var currentClass: Class<*>? = player.javaClass
++        while (currentClass != null) {
++            // 1. Check no-argument methods returning ExoPlayer (e.g., getExoPlayer())
++            for (method in currentClass.declaredMethods) {
 +                try {
-+                    val field = currentClass.getDeclaredField("exoPlayer")
-+                    field.isAccessible = true
-+                    exoPlayer = field.get(player) as? com.google.android.exoplayer2.ExoPlayer
-+                } catch (e: Throwable) {}
-+
-+                if (exoPlayer == null) {
-+                    for (field in currentClass.declaredFields) {
-+                        try {
-+                            field.isAccessible = true
-+                            val obj = field.get(player)
-+                            if (obj is com.google.android.exoplayer2.ExoPlayer) {
-+                                exoPlayer = obj
-+                                break
-+                            }
-+                        } catch (e: Throwable) {}
++                    if (method.parameterCount == 0 && com.google.android.exoplayer2.ExoPlayer::class.java.isAssignableFrom(method.returnType)) {
++                        method.isAccessible = true
++                        val ep = method.invoke(player) as? com.google.android.exoplayer2.ExoPlayer
++                        if (ep != null) return ep
 +                    }
-+                }
-+                currentClass = currentClass.superclass
++                } catch (e: Throwable) {}
 +            }
 +
-+            val sessionId = exoPlayer?.audioSessionId ?: 0
-+            if (sessionId <= 0) return
++            // 2. Check declared fields (direct ExoPlayer or Kotlin Lazy delegate)
++            for (field in currentClass.declaredFields) {
++                try {
++                    field.isAccessible = true
++                    val obj = field.get(player)
++                    if (obj is com.google.android.exoplayer2.ExoPlayer) {
++                        return obj
++                    } else if (obj is Lazy<*>) {
++                        val value = obj.value
++                        if (value is com.google.android.exoplayer2.ExoPlayer) {
++                            return value
++                        }
++                    }
++                } catch (e: Throwable) {}
++            }
++            currentClass = currentClass.superclass
++        }
++        return null
++    }
 +
++    private fun ensureAudioListener(exoPlayer: com.google.android.exoplayer2.ExoPlayer) {
++        if (hasAttachedAudioListener) return
++        try {
++            exoPlayer.addAudioListener(object : com.google.android.exoplayer2.audio.AudioListener {
++                override fun onAudioSessionIdChanged(audioSessionId: Int) {
++                    if (audioSessionId > 0 && audioSessionId != nativeEqualizerSessionId) {
++                        applyEqualizerInternal(audioSessionId)
++                    }
++                }
++            })
++            hasAttachedAudioListener = true
++        } catch (e: Throwable) {
++            Timber.e(e, "Error adding audio listener to ExoPlayer")
++        }
++    }
++
++    private fun applyEqualizerInternal(sessionId: Int) {
++        if (sessionId <= 0) return
++
++        try {
++            // Notify OEM system audio effects engine (Samsung, Xiaomi, Oppo, OnePlus)
++            try {
++                val intent = Intent(AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION).apply {
++                    putExtra(AudioEffect.EXTRA_AUDIO_SESSION, sessionId)
++                    putExtra(AudioEffect.EXTRA_PACKAGE_NAME, packageName)
++                    putExtra(AudioEffect.EXTRA_CONTENT_TYPE, AudioEffect.CONTENT_TYPE_MUSIC)
++                }
++                sendBroadcast(intent)
++            } catch (e: Throwable) {}
++
++            // Re-instantiate if session changed (Priority 1000 ensures it overrides device defaults)
 +            if (nativeEqualizer == null || nativeEqualizerSessionId != sessionId) {
 +                try {
 +                    nativeEqualizer?.release()
-+                    nativeEqualizer = Equalizer(0, sessionId)
++                    nativeEqualizer = Equalizer(1000, sessionId)
 +                    nativeEqualizerSessionId = sessionId
-+                    nativeEqualizer?.enabled = true
 +                } catch (e: Throwable) {
 +                    Timber.e(e, "Error initializing Equalizer")
 +                }
@@ -117,47 +184,97 @@ index afa6b0f..7a438ec 100644
 +            if (nativeBassBoost == null || nativeBassBoostSessionId != sessionId) {
 +                try {
 +                    nativeBassBoost?.release()
-+                    nativeBassBoost = BassBoost(0, sessionId)
++                    nativeBassBoost = BassBoost(1000, sessionId)
 +                    nativeBassBoostSessionId = sessionId
 +                } catch (e: Throwable) {
 +                    Timber.e(e, "Error initializing BassBoost")
 +                }
 +            }
 +
++            if (nativeVirtualizer == null || nativeVirtualizerSessionId != sessionId) {
++                try {
++                    nativeVirtualizer?.release()
++                    nativeVirtualizer = Virtualizer(1000, sessionId)
++                    nativeVirtualizerSessionId = sessionId
++                } catch (e: Throwable) {
++                    Timber.e(e, "Error initializing Virtualizer")
++                }
++            }
++
++            val isNormal = lastPreset.equals("normal", ignoreCase = true) || 
++                           lastPreset.equals("normal (original)", ignoreCase = true) || 
++                           lastPreset.equals("flat", ignoreCase = true)
++
++            val shouldEnable = lastEnabled && !isNormal
++
 +            val eq = nativeEqualizer
 +            if (eq != null) {
++                eq.enabled = shouldEnable
 +                val numBands = eq.numberOfBands.toInt()
 +                if (numBands > 0) {
 +                    val minRange = eq.bandLevelRange[0] // e.g. -1500 (-15dB)
 +                    val maxRange = eq.bandLevelRange[1] // e.g. 1500 (+15dB)
 +                    val step = (maxRange - minRange) / 10
 +
-+                    // Bass: Bands 0 and 1
-+                    val bassVal = (minRange + bass * step).coerceIn(minRange.toInt(), maxRange.toInt()).toShort()
-+                    if (numBands > 0) eq.setBandLevel(0, bassVal)
-+                    if (numBands > 1) eq.setBandLevel(1, bassVal)
++                    if (lastBands.isNotEmpty() && lastBands.any { it != 0 }) {
++                        // Apply custom/preset decibel levels (-15 dB to +15 dB => millibels * 100)
++                        for (i in 0 until numBands) {
++                            if (i < lastBands.size) {
++                                val db = lastBands[i]
++                                val mb = (db * 100).coerceIn(minRange.toInt(), maxRange.toInt()).toShort()
++                                eq.setBandLevel(i.toShort(), mb)
++                            }
++                        }
++                    } else if (shouldEnable) {
++                        // Bass: Bands 0 and 1
++                        val bassVal = (minRange + lastBass * step).coerceIn(minRange.toInt(), maxRange.toInt()).toShort()
++                        if (numBands > 0) eq.setBandLevel(0, bassVal)
++                        if (numBands > 1) eq.setBandLevel(1, bassVal)
 +
-+                    // Vocals (Mid-range): Band 2
-+                    val vocalVal = (minRange + vocal * step).coerceIn(minRange.toInt(), maxRange.toInt()).toShort()
-+                    if (numBands > 2) eq.setBandLevel(2, vocalVal)
++                        // Vocals (Mid-range): Band 2
++                        val vocalVal = (minRange + lastVocal * step).coerceIn(minRange.toInt(), maxRange.toInt()).toShort()
++                        if (numBands > 2) eq.setBandLevel(2, vocalVal)
 +
-+                    // Treble: Bands 3 and 4
-+                    val trebleVal = (minRange + treble * step).coerceIn(minRange.toInt(), maxRange.toInt()).toShort()
-+                    if (numBands > 3) eq.setBandLevel(3, trebleVal)
-+                    if (numBands > 4) eq.setBandLevel(4, trebleVal)
++                        // Treble: Bands 3 and 4
++                        val trebleVal = (minRange + lastTreble * step).coerceIn(minRange.toInt(), maxRange.toInt()).toShort()
++                        if (numBands > 3) eq.setBandLevel(3, trebleVal)
++                        if (numBands > 4) eq.setBandLevel(4, trebleVal)
++                    } else {
++                        // Flat 0 dB
++                        for (i in 0 until numBands) {
++                            eq.setBandLevel(i.toShort(), 0.toShort())
++                        }
++                    }
 +                }
 +            }
 +
++            // Real-time BassBoost: 0 to 1000 strength
 +            try {
-+                if (bass > 5) {
++                if (shouldEnable && lastBass > 0) {
 +                    nativeBassBoost?.enabled = true
-+                    val strength = ((bass - 5) * 200).coerceIn(0, 1000).toShort()
-+                    nativeBassBoost?.setStrength(strength)
++                    val strength = ((lastBass / 100f) * 1000).toInt().coerceIn(0, 1000).toShort()
++                    if (nativeBassBoost?.strengthSupported == true) {
++                        nativeBassBoost?.setStrength(strength)
++                    }
 +                } else {
 +                    nativeBassBoost?.enabled = false
 +                }
 +            } catch (e: Throwable) {
-+                Timber.e(e, "Error applying BassBoost strength")
++                Timber.e(e, "Error configuring BassBoost")
++            }
++
++            // Virtualizer: 3D Spatial Surround Sound
++            try {
++                if (shouldEnable && lastSurround) {
++                    nativeVirtualizer?.enabled = true
++                    if (nativeVirtualizer?.strengthSupported == true) {
++                        nativeVirtualizer?.setStrength(1000.toShort())
++                    }
++                } else {
++                    nativeVirtualizer?.enabled = false
++                }
++            } catch (e: Throwable) {
++                Timber.e(e, "Error configuring Virtualizer")
 +            }
 +
 +        } catch (e: Throwable) {
@@ -165,11 +282,42 @@ index afa6b0f..7a438ec 100644
 +        }
 +    }
 +
++    fun applyEqualizerSettings(
++        preset: String,
++        bass: Int,
++        treble: Int,
++        vocal: Int,
++        bands: List<Int>,
++        surround: Boolean,
++        enabled: Boolean
++    ) {
++        lastPreset = preset
++        lastBass = bass
++        lastTreble = treble
++        lastVocal = vocal
++        lastBands = bands
++        lastSurround = surround
++        lastEnabled = enabled
++
++        val exo = getExoPlayerInstance()
++        if (exo != null) {
++            ensureAudioListener(exo)
++            val sessionId = exo.audioSessionId
++            if (sessionId > 0) {
++                applyEqualizerInternal(sessionId)
++            }
++        }
++    }
++
++    fun applyEqualizer(bass: Int, treble: Int, vocal: Int) {
++        applyEqualizerSettings(lastPreset, bass, treble, vocal, emptyList(), lastSurround, lastEnabled)
++    }
++
 +
      /**
       * Use [appKilledPlaybackBehavior] instead.
       */
-@@ -606,6 +717,14 @@ class MusicService : HeadlessJsTaskService() {
+@@ -606,6 +838,14 @@ class MusicService : HeadlessJsTaskService() {
              event.stateChange.collect {
                  emit(MusicEvents.PLAYBACK_STATE, getPlayerStateBundle(it))
  
@@ -184,13 +332,24 @@ index afa6b0f..7a438ec 100644
                  if (it == AudioPlayerState.ENDED && player.nextItem == null) {
                      emitQueueEndedEvent()
                  }
-@@ -803,6 +922,11 @@ class MusicService : HeadlessJsTaskService() {
+@@ -803,6 +1043,22 @@ class MusicService : HeadlessJsTaskService() {
              player.destroy()
          }
  
 +        try {
++            if (nativeEqualizerSessionId > 0) {
++                val intent = Intent(AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION).apply {
++                    putExtra(AudioEffect.EXTRA_AUDIO_SESSION, nativeEqualizerSessionId)
++                    putExtra(AudioEffect.EXTRA_PACKAGE_NAME, packageName)
++                }
++                sendBroadcast(intent)
++            }
 +            nativeEqualizer?.release()
 +            nativeEqualizer = null
++            nativeBassBoost?.release()
++            nativeBassBoost = null
++            nativeVirtualizer?.release()
++            nativeVirtualizer = null
 +        } catch (e: Exception) {}
 +
          progressUpdateJob?.cancel()
