@@ -25,7 +25,7 @@ import { api, extractResults } from "../services/api";
 import { localStorage } from "../lib/storage";
 import { normalizeSongTitle } from "./LibraryContext";
 import * as FileSystem from "expo-file-system";
-import { calculateEqGain } from "../components/EqualizerModal";
+import { calculateEqGain, EQ_PRESETS } from "../components/EqualizerModal";
 
 // ─── Playback History & Offline Helpers ──────────────────────────────────────
 const RECENT_LIMIT_MS = 3 * 60 * 60 * 1000; // 3 hours
@@ -732,7 +732,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         const raw = await AsyncStorage.getItem("rw_eq_settings");
         if (raw) settings = JSON.parse(raw);
       }
-      const { bass = 85, enabled = true, bands = [8, 6, 2, 0, 0], preset = "" } = settings || {};
+      const { bass = 85, enabled = true, bands = [8, 6, 2, 0, 0], preset = "", surround = true } = settings || {};
       const lowerPreset = (preset || "").toLowerCase();
 
       const finalGain = calculateEqGain(bass, bands, enabled, preset);
@@ -741,33 +741,36 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
       if (Platform.OS === 'android') {
         const TrackPlayerModule = NativeModules.TrackPlayerModule;
-        if (TrackPlayerModule && typeof TrackPlayerModule.setEqualizerBands === 'function') {
-          if (!enabled || preset === "Normal (Original)" || preset === "Flat") {
-            TrackPlayerModule.setEqualizerBands(5, 5, 5).catch(() => {});
-            return;
-          }
+        if (TrackPlayerModule) {
+          const matchedPreset = EQ_PRESETS.find(
+            (p) => p.name.toLowerCase() === lowerPreset || lowerPreset.includes(p.name.toLowerCase())
+          );
 
           let bassVal = 5;
           let trebleVal = 5;
           let vocalVal = 5;
 
-          if (lowerPreset.includes("bass")) {
-            bassVal = 10; trebleVal = 3; vocalVal = 5;
-          } else if (lowerPreset.includes("pop")) {
-            bassVal = 7; trebleVal = 8; vocalVal = 9;
-          } else if (lowerPreset.includes("electron")) {
-            bassVal = 10; trebleVal = 10; vocalVal = 4;
+          if (matchedPreset && typeof matchedPreset.nativeBass === 'number') {
+            bassVal = matchedPreset.nativeBass;
+            trebleVal = matchedPreset.nativeTreble ?? 5;
+            vocalVal = matchedPreset.nativeVocal ?? 5;
+          } else if (lowerPreset.includes("bass")) {
+            bassVal = 10; trebleVal = 2; vocalVal = 3;
           } else if (lowerPreset.includes("vocal")) {
-            bassVal = 3; trebleVal = 7; vocalVal = 10;
+            bassVal = 1; trebleVal = 8; vocalVal = 10;
           } else if (lowerPreset.includes("rock")) {
-            bassVal = 8; trebleVal = 9; vocalVal = 5;
+            bassVal = 9; trebleVal = 10; vocalVal = 2;
+          } else if (lowerPreset.includes("pop")) {
+            bassVal = 5; trebleVal = 9; vocalVal = 9;
+          } else if (lowerPreset.includes("electron")) {
+            bassVal = 10; trebleVal = 10; vocalVal = 3;
           } else if (lowerPreset.includes("hip")) {
-            bassVal = 10; trebleVal = 7; vocalVal = 6;
+            bassVal = 10; trebleVal = 5; vocalVal = 7;
           } else {
             const b = Array.isArray(bands) && bands.length >= 5 ? bands : [0, 0, 0, 0, 0];
             const avgBass = ((b[0] || 0) + (b[1] || 0)) / 2;
             const bassOffset = ((bass - 50) / 50) * 3;
-            bassVal = Math.min(10, Math.max(0, Math.round(5 + (avgBass / 10) * 3.5 + bassOffset)));
+            bassVal = Math.min(10, Math.max(0, Math.round(5 + (avgBass / 10) * 5 + bassOffset)));
 
             const vocalDb = b[2] || 0;
             vocalVal = Math.min(10, Math.max(0, Math.round(5 + (vocalDb / 10) * 5)));
@@ -776,7 +779,21 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             trebleVal = Math.min(10, Math.max(0, Math.round(5 + (avgTreble / 10) * 5)));
           }
 
-          TrackPlayerModule.setEqualizerBands(bassVal, trebleVal, vocalVal).catch(() => {});
+          const isSurround = typeof surround === 'boolean' ? surround : (matchedPreset?.surround ?? true);
+
+          if (typeof TrackPlayerModule.setEqualizerSettings === 'function') {
+            TrackPlayerModule.setEqualizerSettings(
+              preset || "Normal",
+              bassVal,
+              trebleVal,
+              vocalVal,
+              bands,
+              isSurround,
+              enabled
+            ).catch(() => {});
+          } else if (typeof TrackPlayerModule.setEqualizerBands === 'function') {
+            TrackPlayerModule.setEqualizerBands(bassVal, trebleVal, vocalVal).catch(() => {});
+          }
         }
       }
     } catch (err) {

@@ -1295,11 +1295,15 @@ function HomePageComponent({ onRequireAuth, setParentScrollEnabled }: HomePagePr
   const [eqPreset, setEqPreset] = useState<"normal" | "bass" | "treble" | "vocal" | "electronic" | "custom">(() => sessionEqPreset ?? "normal");
   const [sliderWidths, setSliderWidths] = useState<Record<string, number>>({});
 
-  const applyNativeEqualizer = (bass: number, treble: number, vocal: number) => {
+  const applyNativeEqualizer = (bass: number, treble: number, vocal: number, bands: number[] = [], surround: boolean = false, preset: string = "Normal") => {
     if (Platform.OS === 'android') {
       const TrackPlayerModule = NativeModules.TrackPlayerModule;
-      if (TrackPlayerModule && typeof TrackPlayerModule.setEqualizerBands === 'function') {
-        TrackPlayerModule.setEqualizerBands(bass, treble, vocal).catch(() => {});
+      if (TrackPlayerModule) {
+        if (typeof TrackPlayerModule.setEqualizerSettings === 'function') {
+          TrackPlayerModule.setEqualizerSettings(preset, bass, treble, vocal, bands, surround, true).catch(() => {});
+        } else if (typeof TrackPlayerModule.setEqualizerBands === 'function') {
+          TrackPlayerModule.setEqualizerBands(bass, treble, vocal).catch(() => {});
+        }
       }
     }
   };
@@ -1309,13 +1313,18 @@ function HomePageComponent({ onRequireAuth, setParentScrollEnabled }: HomePagePr
       AsyncStorage.getItem("rw_eq_settings").then((saved) => {
         let preset: "normal" | "bass" | "treble" | "vocal" | "electronic" | "custom" = "normal";
         let b = 5, t = 5, v = 5;
+        let bands = [0, 0, 0, 0, 0];
+        let surround = false;
         if (saved) {
           try {
             const parsed = JSON.parse(saved);
             preset = parsed.preset ?? "normal";
-            b = parsed.bass ?? 5;
+            const rawBass = typeof parsed.bass === 'number' ? parsed.bass : 5;
+            b = rawBass > 10 ? Math.min(10, Math.round(rawBass / 10)) : rawBass;
             t = parsed.treble ?? 5;
             v = parsed.vocal ?? 5;
+            if (Array.isArray(parsed.bands)) bands = parsed.bands;
+            if (typeof parsed.surround === 'boolean') surround = parsed.surround;
           } catch {}
         }
         setEqPreset(preset);
@@ -1328,7 +1337,7 @@ function HomePageComponent({ onRequireAuth, setParentScrollEnabled }: HomePagePr
         setEqBass(b);
         setEqTreble(t);
         setEqVocal(v);
-        applyNativeEqualizer(b, t, v);
+        applyNativeEqualizer(b, t, v, bands, surround, preset);
       });
     } else {
       // If we navigate back, apply the active session values
@@ -1345,12 +1354,20 @@ function HomePageComponent({ onRequireAuth, setParentScrollEnabled }: HomePagePr
     sessionEqPreset = "custom";
     setEqPreset("custom");
 
-    applyNativeEqualizer(bass, treble, vocal);
+    const customBands = [
+      Math.round((bass - 5) * 3),
+      Math.round((bass - 5) * 2),
+      Math.round((vocal - 5) * 3),
+      Math.round((treble - 5) * 2),
+      Math.round((treble - 5) * 3),
+    ];
+
+    applyNativeEqualizer(bass, treble, vocal, customBands, false, "Custom");
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(() => {
       AsyncStorage.setItem(
         "rw_eq_settings",
-        JSON.stringify({ preset: "custom", bass, treble, vocal })
+        JSON.stringify({ preset: "custom", bass: bass * 10, treble, vocal, bands: customBands, surround: false, enabled: true })
       ).catch(() => {});
     }, 400);
   };
@@ -1360,27 +1377,33 @@ function HomePageComponent({ onRequireAuth, setParentScrollEnabled }: HomePagePr
     let b = 5, t = 5, v = 5;
     let bands = [0, 0, 0, 0, 0];
     let bassPct = 0;
+    let surround = false;
 
     if (preset === "normal") {
       b = 5; t = 5; v = 5;
       bands = [0, 0, 0, 0, 0];
       bassPct = 0;
+      surround = false;
     } else if (preset === "bass") {
-      b = 10; t = 3; v = 5;
-      bands = [12, 10, 2, -2, -4];
+      b = 10; t = 2; v = 3;
+      bands = [15, 12, -3, 0, 2];
       bassPct = 100;
+      surround = true;
     } else if (preset === "treble") {
-      b = 6; t = 10; v = 6;
-      bands = [2, 4, 2, 8, 12];
-      bassPct = 50;
+      b = 3; t = 10; v = 6;
+      bands = [-6, -3, 2, 11, 14];
+      bassPct = 30;
+      surround = false;
     } else if (preset === "vocal") {
-      b = 3; t = 7; v = 10;
-      bands = [-6, -4, 12, 8, 4];
-      bassPct = 15;
+      b = 1; t = 8; v = 10;
+      bands = [-10, -6, 15, 11, 4];
+      bassPct = 10;
+      surround = false;
     } else if (preset === "electronic") {
-      b = 10; t = 10; v = 4;
-      bands = [10, 8, -2, 8, 12];
+      b = 10; t = 10; v = 3;
+      bands = [15, 11, -4, 9, 15];
       bassPct = 95;
+      surround = true;
     }
 
     sessionEqPreset = preset;
@@ -1391,9 +1414,9 @@ function HomePageComponent({ onRequireAuth, setParentScrollEnabled }: HomePagePr
     setEqBass(b);
     setEqTreble(t);
     setEqVocal(v);
-    applyNativeEqualizer(b, t, v);
+    applyNativeEqualizer(b, t, v, bands, surround, preset);
     
-    const payload = { preset, bass: bassPct, bands, enabled: true };
+    const payload = { preset, bass: bassPct, bands, surround, enabled: true };
     AsyncStorage.setItem(
       "rw_eq_settings",
       JSON.stringify(payload)

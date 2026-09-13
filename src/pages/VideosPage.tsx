@@ -388,26 +388,31 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
           const enabled = parsed.enabled ?? true;
           const preset = (parsed.preset || "").toLowerCase();
 
-          let targetVol = 70;
+          let bassGain = 0;
+          let midGain = 0;
+          let trebleGain = 0;
+          let targetVol = 95;
+
           if (enabled) {
-            if (preset.includes("bass") || preset.includes("hip-hop")) {
-              targetVol = 100;
-            } else if (preset.includes("rock")) {
-              targetVol = 96;
-            } else if (preset.includes("electronic")) {
-              targetVol = 92;
-            } else if (preset.includes("pop")) {
-              targetVol = 80;
+            if (preset.includes("bass")) {
+              bassGain = 18; midGain = -8; trebleGain = -14; targetVol = 100;
             } else if (preset.includes("vocal")) {
-              targetVol = 60;
+              bassGain = -16; midGain = 16; trebleGain = 6; targetVol = 95;
+            } else if (preset.includes("rock")) {
+              bassGain = 14; midGain = -12; trebleGain = 16; targetVol = 98;
+            } else if (preset.includes("pop")) {
+              bassGain = -4; midGain = 10; trebleGain = 16; targetVol = 96;
+            } else if (preset.includes("electronic")) {
+              bassGain = 16; midGain = -6; trebleGain = 14; targetVol = 100;
+            } else if (preset.includes("hip")) {
+              bassGain = 18; midGain = 6; trebleGain = -4; targetVol = 100;
             } else {
-              targetVol = 70;
+              bassGain = Math.min(18, Math.max(-16, ((bassPct - 50) / 50) * 10 + (bandsArr[0] || 0) * 1.5));
+              midGain = Math.min(16, Math.max(-16, (bandsArr[2] || 0) * 1.5));
+              trebleGain = Math.min(16, Math.max(-16, (bandsArr[4] || 0) * 1.5));
+              targetVol = 95;
             }
           }
-
-          const bassGain = Math.min(14, Math.max(-10, ((bassPct - 50) / 50) * 8 + (bandsArr[0] || 0)));
-          const midGain = Math.min(12, Math.max(-10, (bandsArr[2] || 0)));
-          const trebleGain = Math.min(12, Math.max(-10, (bandsArr[4] || 0)));
 
           const js = `
             (function() {
@@ -2011,8 +2016,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                   var vids = document.querySelectorAll('video');
                   for (var v = 0; v < vids.length; v++) {
                     if (vids[v]) {
-                      var mult = enabled ? Math.min(1.0, Math.max(0.2, 0.8 + (bassGain / 20.0) + (midGain / 25.0))) : 1.0;
-                      vids[v].volume = mult;
+                      vids[v].volume = 1.0;
                     }
                   }
                 } catch(e) {}
