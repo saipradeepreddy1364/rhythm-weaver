@@ -377,57 +377,25 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
   }, [activeVideo, isPipPlaying, isSystemPip]);
 
   // Listen for EQ settings changes and apply WebAudio EQ gains to WebView video player
+  // Keep WebView audio 100% original without EQ alterations
   useEffect(() => {
     const applyEqToWebView = async () => {
       try {
-        const raw = await AsyncStorage.getItem("rw_eq_settings");
-        if (raw && webViewRef.current) {
-          const parsed = JSON.parse(raw);
-          const bassPct = parsed.bass ?? 85;
-          const bandsArr = parsed.bands ?? [8, 6, 2, 0, 0];
-          const enabled = parsed.enabled ?? true;
-          const preset = (parsed.preset || "").toLowerCase();
-
-          let bassGain = 0;
-          let midGain = 0;
-          let trebleGain = 0;
-          let targetVol = 95;
-
-          if (enabled) {
-            if (preset.includes("bass")) {
-              bassGain = 18; midGain = -8; trebleGain = -14; targetVol = 100;
-            } else if (preset.includes("vocal")) {
-              bassGain = -16; midGain = 16; trebleGain = 6; targetVol = 95;
-            } else if (preset.includes("rock")) {
-              bassGain = 14; midGain = -12; trebleGain = 16; targetVol = 98;
-            } else if (preset.includes("pop")) {
-              bassGain = -4; midGain = 10; trebleGain = 16; targetVol = 96;
-            } else if (preset.includes("electronic")) {
-              bassGain = 16; midGain = -6; trebleGain = 14; targetVol = 100;
-            } else if (preset.includes("hip")) {
-              bassGain = 18; midGain = 6; trebleGain = -4; targetVol = 100;
-            } else {
-              bassGain = Math.min(18, Math.max(-16, ((bassPct - 50) / 50) * 10 + (bandsArr[0] || 0) * 1.5));
-              midGain = Math.min(16, Math.max(-16, (bandsArr[2] || 0) * 1.5));
-              trebleGain = Math.min(16, Math.max(-16, (bandsArr[4] || 0) * 1.5));
-              targetVol = 95;
-            }
-          }
-
+        if (webViewRef.current) {
           const js = `
             (function() {
               try {
                 if (typeof player !== 'undefined' && player && typeof player.setVolume === 'function') {
-                  player.setVolume(${targetVol});
+                  player.setVolume(100);
                 }
                 var iframes = document.querySelectorAll('iframe');
                 for (var i = 0; i < iframes.length; i++) {
                   try {
-                    iframes[i].contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'setVolume', args: [${targetVol}] }), '*');
+                    iframes[i].contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'setVolume', args: [100] }), '*');
                   } catch(e) {}
                 }
                 if (typeof window.setWebViewEq === 'function') {
-                  window.setWebViewEq(${bassGain}, ${midGain}, ${trebleGain}, ${enabled ? 'true' : 'false'});
+                  window.setWebViewEq(0, 0, 0, false);
                 }
               } catch(e) {}
             })();

@@ -19,30 +19,9 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const { width } = Dimensions.get("window");
 
-export const calculateEqGain = (bass: number, bands: number[], enabled: boolean, presetName?: string): number => {
-  if (!enabled) return 1.0;
-  const lower = (presetName || "").toLowerCase();
-
-  // Distinct ~60% dynamic scaling between presets:
-  // Normal (0.62) -> Vocal (0.78) -> Pop (0.85) -> Rock (0.92) -> Electronic (0.97) -> Bass Booster/Hip-Hop (1.00)
-  // Relative difference: 1.00 / 0.62 = 1.61 (up to 60% dynamic presence difference!)
-  if (lower.includes("normal") || lower.includes("flat")) return 0.62;
-  if (lower.includes("vocal")) return 0.78;
-  if (lower.includes("pop")) return 0.85;
-  if (lower.includes("rock")) return 0.92;
-  if (lower.includes("electron")) return 0.97;
-  if (lower.includes("hip")) return 1.00;
-  if (lower.includes("bass")) return 1.00;
-
-  const b = Array.isArray(bands) && bands.length >= 5 ? bands : [0, 0, 0, 0, 0];
-  const lowWeight = ((b[0] || 0) * 0.45) + ((b[1] || 0) * 0.35);
-  const midWeight = ((b[2] || 0) * 0.55) + ((b[3] || 0) * 0.30);
-  const highWeight = (b[4] || 0) * 0.45;
-
-  // Custom adjustments scale from 0.62 up to 1.00 (up to 60% dynamic range)
-  const bassBoostFactor = (bass / 100) * 0.25;
-  const bandEqFactor = (lowWeight * 0.008) + (midWeight * 0.006) + (highWeight * 0.006);
-  return Math.min(1.0, Math.max(0.60, 0.62 + bassBoostFactor + bandEqFactor));
+export const calculateEqGain = (_bass?: number, _bands?: number[], _enabled?: boolean, _presetName?: string): number => {
+  // Equalizer stopped - return 1.0 pure master volume without frequency/gain alterations
+  return 1.0;
 };
 
 export interface EQPreset {

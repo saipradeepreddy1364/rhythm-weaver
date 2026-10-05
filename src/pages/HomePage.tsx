@@ -874,10 +874,6 @@ function AlbumModal({
             </Text>
           </View>
 
-          <TouchableOpacity delayPressIn={0} onPress={() => DeviceEventEmitter.emit("OPEN_EQUALIZER_MODAL")} style={[modalStyles.backBtn, { marginRight: 8 }]} activeOpacity={0.7}>
-            <MaterialCommunityIcons name="equalizer" size={20} color="#1DB954" />
-          </TouchableOpacity>
-
           <TouchableOpacity delayPressIn={0} onPress={handleLikePress} style={[modalStyles.backBtn, { marginRight: 12 }]} activeOpacity={0.7}>
             {isLiked ? (
               <View style={{
@@ -1273,12 +1269,6 @@ function QuickPick({ song, queue }: { song: Song; queue: Song[] }) {
   );
 }
 
-// Session storage for Equalizer states to survive tab-navigation unmount/remount
-let sessionEqPreset: "normal" | "bass" | "treble" | "vocal" | "electronic" | "custom" | null = null;
-let sessionEqBass: number | null = null;
-let sessionEqTreble: number | null = null;
-let sessionEqVocal: number | null = null;
-
 // ─── Main Component ───────────────────────────────────────────────────────────
 function HomePageComponent({ onRequireAuth, setParentScrollEnabled }: HomePageProps) {
   const { user, logout }     = useAuth();
@@ -1286,143 +1276,7 @@ function HomePageComponent({ onRequireAuth, setParentScrollEnabled }: HomePagePr
 
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showUserMenu, setShowUserMenu]   = useState(false);
-  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const navigation: any                   = useNavigation();
-  // Settings & Equalizer states in HomePage
-  const [eqBass, setEqBass] = useState(() => sessionEqBass ?? 5);
-  const [eqTreble, setEqTreble] = useState(() => sessionEqTreble ?? 5);
-  const [eqVocal, setEqVocal] = useState(() => sessionEqVocal ?? 5);
-  const [eqPreset, setEqPreset] = useState<"normal" | "bass" | "treble" | "vocal" | "electronic" | "custom">(() => sessionEqPreset ?? "normal");
-  const [sliderWidths, setSliderWidths] = useState<Record<string, number>>({});
-
-  const applyNativeEqualizer = (bass: number, treble: number, vocal: number, bands: number[] = [], surround: boolean = false, preset: string = "Normal") => {
-    if (Platform.OS === 'android') {
-      const TrackPlayerModule = NativeModules.TrackPlayerModule;
-      if (TrackPlayerModule) {
-        if (typeof TrackPlayerModule.setEqualizerSettings === 'function') {
-          TrackPlayerModule.setEqualizerSettings(preset, bass, treble, vocal, bands, surround, true).catch(() => {});
-        } else if (typeof TrackPlayerModule.setEqualizerBands === 'function') {
-          TrackPlayerModule.setEqualizerBands(bass, treble, vocal).catch(() => {});
-        }
-      }
-    }
-  };
-
-  useEffect(() => {
-    if (sessionEqPreset === null) {
-      AsyncStorage.getItem("rw_eq_settings").then((saved) => {
-        let preset: "normal" | "bass" | "treble" | "vocal" | "electronic" | "custom" = "normal";
-        let b = 5, t = 5, v = 5;
-        let bands = [0, 0, 0, 0, 0];
-        let surround = false;
-        if (saved) {
-          try {
-            const parsed = JSON.parse(saved);
-            preset = parsed.preset ?? "normal";
-            const rawBass = typeof parsed.bass === 'number' ? parsed.bass : 5;
-            b = rawBass > 10 ? Math.min(10, Math.round(rawBass / 10)) : rawBass;
-            t = parsed.treble ?? 5;
-            v = parsed.vocal ?? 5;
-            if (Array.isArray(parsed.bands)) bands = parsed.bands;
-            if (typeof parsed.surround === 'boolean') surround = parsed.surround;
-          } catch {}
-        }
-        setEqPreset(preset);
-
-        sessionEqPreset = preset;
-        sessionEqBass = b;
-        sessionEqTreble = t;
-        sessionEqVocal = v;
-
-        setEqBass(b);
-        setEqTreble(t);
-        setEqVocal(v);
-        applyNativeEqualizer(b, t, v, bands, surround, preset);
-      });
-    } else {
-      // If we navigate back, apply the active session values
-      applyNativeEqualizer(sessionEqBass ?? 5, sessionEqTreble ?? 5, sessionEqVocal ?? 5);
-    }
-  }, []);
-
-  const saveTimeoutRef = useRef<any>(null);
-
-  const applyEqSettingsTemporary = (bass: number, treble: number, vocal: number) => {
-    sessionEqBass = bass;
-    sessionEqTreble = treble;
-    sessionEqVocal = vocal;
-    sessionEqPreset = "custom";
-    setEqPreset("custom");
-
-    const customBands = [
-      Math.round((bass - 5) * 3),
-      Math.round((bass - 5) * 2),
-      Math.round((vocal - 5) * 3),
-      Math.round((treble - 5) * 2),
-      Math.round((treble - 5) * 3),
-    ];
-
-    applyNativeEqualizer(bass, treble, vocal, customBands, false, "Custom");
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = setTimeout(() => {
-      AsyncStorage.setItem(
-        "rw_eq_settings",
-        JSON.stringify({ preset: "custom", bass: bass * 10, treble, vocal, bands: customBands, surround: false, enabled: true })
-      ).catch(() => {});
-    }, 400);
-  };
-
-  const handlePresetSelect = (preset: "normal" | "bass" | "treble" | "vocal" | "electronic") => {
-    setEqPreset(preset);
-    let b = 5, t = 5, v = 5;
-    let bands = [0, 0, 0, 0, 0];
-    let bassPct = 0;
-    let surround = false;
-
-    if (preset === "normal") {
-      b = 5; t = 5; v = 5;
-      bands = [0, 0, 0, 0, 0];
-      bassPct = 0;
-      surround = false;
-    } else if (preset === "bass") {
-      b = 10; t = 2; v = 3;
-      bands = [15, 12, -3, 0, 2];
-      bassPct = 100;
-      surround = true;
-    } else if (preset === "treble") {
-      b = 3; t = 10; v = 6;
-      bands = [-6, -3, 2, 11, 14];
-      bassPct = 30;
-      surround = false;
-    } else if (preset === "vocal") {
-      b = 1; t = 8; v = 10;
-      bands = [-10, -6, 15, 11, 4];
-      bassPct = 10;
-      surround = false;
-    } else if (preset === "electronic") {
-      b = 10; t = 10; v = 3;
-      bands = [15, 11, -4, 9, 15];
-      bassPct = 95;
-      surround = true;
-    }
-
-    sessionEqPreset = preset;
-    sessionEqBass = b;
-    sessionEqTreble = t;
-    sessionEqVocal = v;
-
-    setEqBass(b);
-    setEqTreble(t);
-    setEqVocal(v);
-    applyNativeEqualizer(b, t, v, bands, surround, preset);
-    
-    const payload = { preset, bass: bassPct, bands, surround, enabled: true };
-    AsyncStorage.setItem(
-      "rw_eq_settings",
-      JSON.stringify(payload)
-    ).catch(() => {});
-    DeviceEventEmitter.emit("EQ_SETTINGS_CHANGED", payload);
-  };
 
   const [sections,     setSections]     = useState<SectionData[]>(() => homePagePrefetcher.sections);
   const [filmAlbums,   setFilmAlbums]   = useState<AlbumData[]>  (() => homePagePrefetcher.filmAlbums);
@@ -1586,15 +1440,7 @@ function HomePageComponent({ onRequireAuth, setParentScrollEnabled }: HomePagePr
             <Text style={styles.headerLogoText}>Medley</Text>
           </View>
 
-          <View style={styles.headerRight}>
-            <TouchableOpacity delayPressIn={0}
-              onPress={() => DeviceEventEmitter.emit("OPEN_EQUALIZER_MODAL")}
-              style={styles.settingsBtn}
-              activeOpacity={0.7}
-            >
-              <MaterialCommunityIcons name="equalizer" size={22} color="#1DB954" />
-            </TouchableOpacity>
-          </View>
+          <View style={styles.headerRight} />
         </View>
 
         {/* Quick Picks */}
@@ -1696,111 +1542,7 @@ function HomePageComponent({ onRequireAuth, setParentScrollEnabled }: HomePagePr
       {/* Authentication Dialog */}
       <AuthModal open={showAuthModal} onClose={() => setShowAuthModal(false)} />
 
-      {/* Settings / Equalizer Modal */}
-      <Modal
-        visible={showSettingsModal}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setShowSettingsModal(false)}
-      >
-        <View style={modalStyles.overlay}>
-          <View style={modalStyles.content}>
-            <View style={modalStyles.header}>
-              <Text style={modalStyles.title}>Settings</Text>
-              <TouchableOpacity delayPressIn={0}
-                onPress={() => setShowSettingsModal(false)}
-                style={modalStyles.closeBtn}
-                activeOpacity={0.7}
-              >
-                <MaterialCommunityIcons name="close" size={22} color="#fff" />
-              </TouchableOpacity>
-            </View>
 
-            <ScrollView style={{ width: "100%" }}>
-              <View style={modalStyles.eqContainer}>
-                <Text style={modalStyles.sectionTitle}>Audio Equalizer</Text>
-                
-                <Text style={modalStyles.eqLabel}>Select Preset</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={modalStyles.presetsRow}>
-                  {([
-                    { id: "normal", label: "Normal" },
-                    { id: "bass", label: "Bass Booster" },
-                    { id: "treble", label: "Treble Booster" },
-                    { id: "vocal", label: "Vocal Focus" },
-                    { id: "electronic", label: "Electronic" },
-                  ] as const).map((p) => {
-                    const isSel = eqPreset === p.id;
-                    return (
-                      <TouchableOpacity
-                        key={p.id}
-                        onPress={() => handlePresetSelect(p.id)}
-                        style={[modalStyles.presetCard, isSel && modalStyles.presetCardActive]}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={[modalStyles.presetCardText, isSel && modalStyles.presetCardTextActive]}>
-                          {p.label}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-
-                <Text style={modalStyles.eqLabel}>Custom Adjustments</Text>
-                {[
-                  { label: "Bass", value: eqBass, setter: setEqBass, type: "bass" },
-                  { label: "Treble", value: eqTreble, setter: setEqTreble, type: "treble" },
-                  { label: "Vocals", value: eqVocal, setter: setEqVocal, type: "vocals" },
-                ].map((slider) => (
-                  <View key={slider.label} style={modalStyles.sliderRow}>
-                    <Text style={modalStyles.sliderName}>{slider.label}</Text>
-                    <View 
-                      style={modalStyles.sliderTrackContainer}
-                      onLayout={(e) => {
-                        const w = e.nativeEvent.layout.width;
-                        setSliderWidths(prev => ({ ...prev, [slider.label]: w }));
-                      }}
-                      onStartShouldSetResponder={() => true}
-                      onMoveShouldSetResponder={() => true}
-                      onResponderGrant={(e) => {
-                        const { locationX } = e.nativeEvent;
-                        const trackW = sliderWidths[slider.label] || 200;
-                        const ratio = Math.max(0, Math.min(1, locationX / trackW));
-                        const newVal = Math.round(ratio * 10);
-                        slider.setter(newVal);
-                        setEqPreset("normal");
-                        
-                        const nextBass = slider.type === "bass" ? newVal : eqBass;
-                        const nextTreble = slider.type === "treble" ? newVal : eqTreble;
-                        const nextVocal = slider.type === "vocals" ? newVal : eqVocal;
-                        applyEqSettingsTemporary(nextBass, nextTreble, nextVocal);
-                      }}
-                      onResponderMove={(e) => {
-                        const { locationX } = e.nativeEvent;
-                        const trackW = sliderWidths[slider.label] || 200;
-                        const ratio = Math.max(0, Math.min(1, locationX / trackW));
-                        const newVal = Math.round(ratio * 10);
-                        slider.setter(newVal);
-                        setEqPreset("normal");
-                        
-                        const nextBass = slider.type === "bass" ? newVal : eqBass;
-                        const nextTreble = slider.type === "treble" ? newVal : eqTreble;
-                        const nextVocal = slider.type === "vocals" ? newVal : eqVocal;
-                        applyEqSettingsTemporary(nextBass, nextTreble, nextVocal);
-                      }}
-                    >
-                      <View style={modalStyles.sliderTrack}>
-                        <View pointerEvents="none" style={[modalStyles.sliderFill, { width: `${(slider.value / 10) * 100}%` }]} />
-                        <View pointerEvents="none" style={[modalStyles.sliderThumb, { left: `${(slider.value / 10) * 100}%`, marginLeft: -8 }]} />
-                      </View>
-                    </View>
-                    <Text style={modalStyles.sliderVal}>+{slider.value - 5} dB</Text>
-                  </View>
-                ))}
-              </View>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }

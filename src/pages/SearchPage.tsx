@@ -1133,9 +1133,6 @@ function SearchPageComponent({ onRequireAuth }: SearchPageProps) {
       <View style={styles.header}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
           <Text style={styles.headerTitle}>Search</Text>
-          <TouchableOpacity delayPressIn={0} onPress={() => DeviceEventEmitter.emit("OPEN_EQUALIZER_MODAL")} activeOpacity={0.7} style={{ padding: 4 }}>
-            <MaterialCommunityIcons name="equalizer" size={22} color="#1DB954" />
-          </TouchableOpacity>
         </View>
 
         {/* Search TextInput Input bar */}

@@ -382,15 +382,6 @@ function LibraryPageComponent({ onRequireAuth, initialTab }: LibraryPageProps) {
         <View style={{ flexDirection: "row", alignItems: "center" }}>
           <TouchableOpacity
             delayPressIn={0}
-            onPress={() => DeviceEventEmitter.emit("OPEN_EQUALIZER_MODAL")}
-            style={{ marginRight: 12, padding: 6 }}
-            activeOpacity={0.7}
-          >
-            <MaterialCommunityIcons name="equalizer" size={22} color="#1DB954" />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            delayPressIn={0}
             onPress={() => (global as any).triggerOTAUpdateModal?.()}
             style={{ padding: 6 }}
             activeOpacity={0.7}
