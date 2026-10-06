@@ -277,12 +277,17 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
 }
 
 function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemPip: isSystemPipProp }: { onRequireAuth: () => void; activeTab?: string; floatingOnly?: boolean; isSystemPip?: boolean }) {
-  const { likedVideos, toggleLikeVideo, isVideoLiked } = useLibrary();
+  const { likedVideos, toggleLikeVideo, isVideoLiked, recentlyPlayed, playlists } = useLibrary();
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const isSelectingSuggestionRef = useRef(false);
+  const isInteractingWithSuggestionsRef = useRef(false);
+  const suggestionsScrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [videos, setVideos] = useState<VideoItem[]>([]);
+  const [recommendedVideos, setRecommendedVideos] = useState<VideoItem[]>([]);
+  const [recommendedLoading, setRecommendedLoading] = useState(false);
+  const lastRecVideoSeedRef = useRef<string>("");
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -308,7 +313,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data) && Array.isArray(data[1])) {
-            setSuggestions(data[1].slice(0, 8));
+            setSuggestions(data[1].slice(0, 15));
             setShowSuggestions(data[1].length > 0);
           }
         }
@@ -318,6 +323,119 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
     return () => clearTimeout(timer);
   }, [query]);
   const [activeVideo, setActiveVideo] = useState<VideoItem | null>(null);
+
+  // Recommendations based on recently played songs and recent playlists
+  useEffect(() => {
+    const seedCandidates: Song[] = [];
+    if (recentlyPlayed && recentlyPlayed.length > 0) {
+      seedCandidates.push(...recentlyPlayed.slice(0, 5));
+    }
+    if (seedCandidates.length < 5 && playlists && playlists.length > 0) {
+      for (const pl of playlists) {
+        if (Array.isArray(pl.songs) && pl.songs.length > 0) {
+          for (const s of pl.songs) {
+            if (!seedCandidates.some((c) => c.id === s.id)) {
+              seedCandidates.push(s);
+            }
+            if (seedCandidates.length >= 5) break;
+          }
+        }
+        if (seedCandidates.length >= 5) break;
+      }
+    }
+
+    if (seedCandidates.length === 0) {
+      setRecommendedVideos([]);
+      return;
+    }
+
+    const seedKey = seedCandidates.map((s) => s.id || s.title).join("|");
+    if (seedKey === lastRecVideoSeedRef.current) return;
+    lastRecVideoSeedRef.current = seedKey;
+
+    let isMounted = true;
+    const fetchRecommended = async () => {
+      setRecommendedLoading(true);
+      try {
+        const queries: string[] = [];
+        const seenQuery = new Set<string>();
+
+        for (const seed of seedCandidates) {
+          if (!seed.id || seed.id.startsWith("yt-")) {
+            const q = `${seed.title} ${seed.movie || seed.artist || ""} video song`.trim();
+            if (!seenQuery.has(q.toLowerCase())) {
+              seenQuery.add(q.toLowerCase());
+              queries.push(q);
+            }
+            continue;
+          }
+
+          try {
+            const res = await api.getSongSuggestions(seed.id);
+            const raw = res?.data || res?.results || [];
+            if (Array.isArray(raw) && raw.length > 0) {
+              for (const item of raw.slice(0, 3)) {
+                const s = mapApiSong(item);
+                if (s && s.title) {
+                  const lang = (s.language || "").toLowerCase();
+                  if (lang && !lang.includes("telugu") && !lang.includes("hindi")) {
+                    continue;
+                  }
+                  const q = `${s.title} ${s.movie || s.artist || ""} video song`.trim();
+                  if (!seenQuery.has(q.toLowerCase())) {
+                    seenQuery.add(q.toLowerCase());
+                    queries.push(q);
+                  }
+                }
+              }
+            }
+          } catch {}
+
+          const seedQ = `${seed.title} ${seed.movie || seed.artist || ""} video song`.trim();
+          if (!seenQuery.has(seedQ.toLowerCase())) {
+            seenQuery.add(seedQ.toLowerCase());
+            queries.push(seedQ);
+          }
+
+          if (queries.length >= 8) break;
+        }
+
+        if (queries.length === 0) return;
+
+        const searchPromises = queries.slice(0, 6).map((q) => searchYouTubeVideos(q));
+        const results = await Promise.allSettled(searchPromises);
+
+        const recItems: VideoItem[] = [];
+        const seenVIds = new Set<string>();
+
+        for (const r of results) {
+          if (r.status === "fulfilled" && Array.isArray(r.value)) {
+            for (const item of r.value.slice(0, 3)) {
+              if (item.videoId && !seenVIds.has(item.videoId)) {
+                const isFolk = /\b(folk|janapada|janapadha|teenmaar)\b/i.test(`${item.title} ${item.artist}`);
+                if (isFolk) continue;
+                seenVIds.add(item.videoId);
+                recItems.push(item);
+              }
+            }
+          }
+        }
+
+        if (isMounted && recItems.length > 0) {
+          setRecommendedVideos(recItems.slice(0, 15));
+        }
+      } catch (err) {
+        console.warn("[VideosPage] Failed to fetch recommended videos:", err);
+      } finally {
+        if (isMounted) setRecommendedLoading(false);
+      }
+    };
+
+    fetchRecommended();
+    return () => {
+      isMounted = false;
+    };
+  }, [recentlyPlayed, playlists]);
   const [isMinimized, setIsMinimized] = useState(false);
   const [selectedInstanceIndex, setSelectedInstanceIndex] = useState(0);
   const [isVideoBlocked, setIsVideoBlocked] = useState(false);
@@ -2231,15 +2349,16 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                 }
               }}
               onBlur={() => {
-                // Delay to allow suggestion tap to register before closing
+                // Delay to allow suggestion tap or scroll without closing
                 setTimeout(() => {
-                  if (!isSelectingSuggestionRef.current) {
+                  if (!isSelectingSuggestionRef.current && !isInteractingWithSuggestionsRef.current) {
                     setShowSuggestions(false);
                   }
-                }, 150);
+                }, 350);
               }}
               onSubmitEditing={() => {
                 isSelectingSuggestionRef.current = true;
+                isInteractingWithSuggestionsRef.current = false;
                 setShowSuggestions(false);
                 setSuggestions([]);
                 Keyboard.dismiss();
@@ -2255,6 +2374,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                 delayPressIn={0}
                 onPress={() => {
                   isSelectingSuggestionRef.current = false;
+                  isInteractingWithSuggestionsRef.current = false;
                   setQuery("");
                   setSuggestions([]);
                   setShowSuggestions(false);
@@ -2268,16 +2388,72 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
             )}
           </View>
 
+          {/* Backdrop behind suggestions box to dismiss when tapping outside */}
+          {showSuggestions && suggestions.length > 0 && (
+            <TouchableOpacity
+              style={styles.suggestionsBackdrop}
+              activeOpacity={1}
+              onPress={() => {
+                isInteractingWithSuggestionsRef.current = false;
+                setShowSuggestions(false);
+                Keyboard.dismiss();
+              }}
+            />
+          )}
 
           {/* Live Autocomplete Suggestions Dropdown Box */}
           {showSuggestions && suggestions.length > 0 && (
-            <View style={styles.suggestionsBox}>
+            <View
+              style={styles.suggestionsBox}
+              onStartShouldSetResponder={() => true}
+              onMoveShouldSetResponder={() => true}
+              onResponderTerminationRequest={() => false}
+              onTouchStart={() => {
+                isInteractingWithSuggestionsRef.current = true;
+                if (suggestionsScrollTimeoutRef.current) {
+                  clearTimeout(suggestionsScrollTimeoutRef.current);
+                }
+              }}
+              onTouchEnd={() => {
+                if (suggestionsScrollTimeoutRef.current) clearTimeout(suggestionsScrollTimeoutRef.current);
+                suggestionsScrollTimeoutRef.current = setTimeout(() => {
+                  isInteractingWithSuggestionsRef.current = false;
+                }, 1000);
+              }}
+              onTouchCancel={() => {
+                if (suggestionsScrollTimeoutRef.current) clearTimeout(suggestionsScrollTimeoutRef.current);
+                suggestionsScrollTimeoutRef.current = setTimeout(() => {
+                  isInteractingWithSuggestionsRef.current = false;
+                }, 1000);
+              }}
+            >
               <ScrollView
                 keyboardShouldPersistTaps="always"
                 nestedScrollEnabled={true}
                 showsVerticalScrollIndicator={true}
                 scrollEnabled={true}
-                style={{ maxHeight: 240 }}
+                style={{ maxHeight: 250 }}
+                contentContainerStyle={{ flexGrow: 1 }}
+                onScrollBeginDrag={() => {
+                  isInteractingWithSuggestionsRef.current = true;
+                  if (suggestionsScrollTimeoutRef.current) clearTimeout(suggestionsScrollTimeoutRef.current);
+                }}
+                onScrollEndDrag={() => {
+                  if (suggestionsScrollTimeoutRef.current) clearTimeout(suggestionsScrollTimeoutRef.current);
+                  suggestionsScrollTimeoutRef.current = setTimeout(() => {
+                    isInteractingWithSuggestionsRef.current = false;
+                  }, 1000);
+                }}
+                onMomentumScrollBegin={() => {
+                  isInteractingWithSuggestionsRef.current = true;
+                  if (suggestionsScrollTimeoutRef.current) clearTimeout(suggestionsScrollTimeoutRef.current);
+                }}
+                onMomentumScrollEnd={() => {
+                  if (suggestionsScrollTimeoutRef.current) clearTimeout(suggestionsScrollTimeoutRef.current);
+                  suggestionsScrollTimeoutRef.current = setTimeout(() => {
+                    isInteractingWithSuggestionsRef.current = false;
+                  }, 1000);
+                }}
               >
                 {suggestions.map((item, idx) => (
                   <TouchableOpacity
@@ -2286,6 +2462,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                     style={styles.suggestionRow}
                     onPress={() => {
                       isSelectingSuggestionRef.current = true;
+                      isInteractingWithSuggestionsRef.current = false;
                       setQuery(item);
                       setShowSuggestions(false);
                       setSuggestions([]);
@@ -2310,8 +2487,10 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
           keyboardShouldPersistTaps="always"
           keyboardDismissMode="on-drag"
           onScrollBeginDrag={() => {
-            Keyboard.dismiss();
-            setShowSuggestions(false);
+            if (!isInteractingWithSuggestionsRef.current) {
+              Keyboard.dismiss();
+              setShowSuggestions(false);
+            }
           }}
           contentContainerStyle={[
             styles.feedContent,
@@ -2342,6 +2521,74 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
             </View>
           ) : (
             <>
+              {!query.trim() && (recommendedVideos.length > 0 || recommendedLoading) && (
+                <View style={styles.recSection}>
+                  <View style={styles.recShelfHeader}>
+                    <View style={{ flexDirection: "row", alignItems: "center" }}>
+                      <MaterialCommunityIcons name="star-four-points" size={20} color="#1DB954" style={{ marginRight: 8 }} />
+                      <View>
+                        <Text style={styles.recShelfTitle}>Recommended For You</Text>
+                        <Text style={styles.recShelfSubtitle}>Based on your recent playlist & songs</Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  {recommendedLoading && recommendedVideos.length === 0 ? (
+                    <View style={styles.recLoaderContainer}>
+                      <ActivityIndicator size="small" color="#1DB954" />
+                      <Text style={styles.recLoaderText}>Finding video recommendations...</Text>
+                    </View>
+                  ) : (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      nestedScrollEnabled={true}
+                      contentContainerStyle={styles.recShelfScrollContent}
+                    >
+                      {recommendedVideos.map((recItem) => (
+                        <TouchableOpacity
+                          delayPressIn={0}
+                          key={`rec_${recItem.id}`}
+                          style={styles.recVideoCard}
+                          onPress={() => {
+                            setVideos((prev) => {
+                              if (prev.some((v) => v.id === recItem.id || (v.videoId && v.videoId === recItem.videoId))) {
+                                return prev;
+                              }
+                              return [recItem, ...prev];
+                            });
+                            handleVideoCardPress(recItem);
+                          }}
+                          activeOpacity={0.85}
+                        >
+                          <View style={styles.recThumbnailContainer}>
+                            <Image source={{ uri: recItem.thumbnail }} style={styles.recThumbnail} />
+                            <View style={styles.recPlayBadge}>
+                              <MaterialCommunityIcons name="play" size={16} color="#000" />
+                            </View>
+                          </View>
+                          <View style={styles.recMeta}>
+                            <Text style={styles.recTitle} numberOfLines={2}>
+                              {recItem.title}
+                            </Text>
+                            <Text style={styles.recArtist} numberOfLines={1}>
+                              {recItem.artist}
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  )}
+                </View>
+              )}
+
+              {!query.trim() && (
+                <View style={styles.trendingHeaderRow}>
+                  <MaterialCommunityIcons name="fire" size={20} color="#FF6B35" style={{ marginRight: 8 }} />
+                  <Text style={styles.trendingHeaderTitle}>Trending Videos</Text>
+                </View>
+              )}
+
               {videos.map((item) => (
                 <TouchableOpacity
                   delayPressIn={0}
@@ -3089,6 +3336,102 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 80,
     gap: 16,
+  },
+  recSection: {
+    marginBottom: 20,
+    marginHorizontal: -16,
+    paddingBottom: 4,
+  },
+  recShelfHeader: {
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  recShelfTitle: {
+    color: "#ffffff",
+    fontSize: 18,
+    fontWeight: "bold",
+    letterSpacing: 0.3,
+  },
+  recShelfSubtitle: {
+    color: "rgba(255, 255, 255, 0.55)",
+    fontSize: 12,
+    marginTop: 2,
+  },
+  recLoaderContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 18,
+    gap: 10,
+  },
+  recLoaderText: {
+    color: "rgba(255, 255, 255, 0.5)",
+    fontSize: 12,
+  },
+  recShelfScrollContent: {
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  recVideoCard: {
+    width: 220,
+    backgroundColor: "#161616",
+    borderRadius: 12,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.08)",
+  },
+  recThumbnailContainer: {
+    width: "100%",
+    height: 124,
+    backgroundColor: "#000",
+    position: "relative",
+  },
+  recThumbnail: {
+    width: "100%",
+    height: "100%",
+    resizeMode: "cover",
+  },
+  recPlayBadge: {
+    position: "absolute",
+    bottom: 8,
+    right: 8,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: "#1DB954",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  recMeta: {
+    padding: 10,
+  },
+  recTitle: {
+    color: "#ffffff",
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 18,
+  },
+  recArtist: {
+    color: "rgba(255, 255, 255, 0.5)",
+    fontSize: 11,
+    marginTop: 4,
+  },
+  trendingHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+    marginTop: 4,
+  },
+  trendingHeaderTitle: {
+    color: "#ffffff",
+    fontSize: 18,
+    fontWeight: "bold",
+    letterSpacing: 0.3,
   },
   videoCard: {
     backgroundColor: "#181818",
