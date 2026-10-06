@@ -1469,46 +1469,98 @@ function HomePageComponent({ onRequireAuth, setParentScrollEnabled }: HomePagePr
       setBasedOnPastLoading(true);
       try {
         const collected: Song[] = [];
-        const seenIds = new Set<string>(recentlyPlayed.map((s) => s.id));
+        // Strictly exclude ALL recently played songs by both ID and normalized title
+        const seenSongIds = new Set<string>();
+        const seenSongKeys = new Set<string>();
+        for (const p of recentlyPlayed) {
+          if (p.id) seenSongIds.add(p.id);
+          const norm = normalizeSongTitle(p.title, p.movie || p.album);
+          if (norm) seenSongKeys.add(norm);
+        }
+
+        // Build diverse recommendation queries from seeds (artists, films, language)
+        const queries: string[] = [];
+        const seenQueries = new Set<string>();
 
         for (const seed of seeds) {
-          try {
-            if (seed.id && !seed.id.startsWith("yt-")) {
-              const res = await api.getSongSuggestions(seed.id);
-              const raw = res?.data || res?.results || [];
-              if (Array.isArray(raw) && raw.length > 0) {
-                for (const item of raw) {
-                  const s = mapApiSong(item);
-                  if (s && s.id && s.audioUrl && !seenIds.has(s.id) && !isDevotionalSong(s)) {
-                    const lang = (s.language || "").toLowerCase();
-                    if (lang && !lang.includes("telugu") && !lang.includes("hindi")) {
-                      continue;
-                    }
-                    seenIds.add(s.id);
-                    collected.push(cleanSong(s));
-                  }
-                }
-              }
+          const lang = (seed.language || "").toLowerCase().trim();
+          const isHindi = lang.includes("hindi") || /hindi/i.test(`${seed.movie} ${seed.album}`);
+          const targetLang = isHindi ? "hindi" : "telugu";
+
+          // 1. Artist hits query
+          const rawArtist = seed.artist || "";
+          const cleanArtist = rawArtist.split(",")[0]?.split("&")[0]?.split("ft.")[0]?.trim();
+          if (cleanArtist && cleanArtist.length > 2 && cleanArtist.toLowerCase() !== "unknown artist" && cleanArtist.toLowerCase() !== "youtube") {
+            const q = `${cleanArtist} ${targetLang} hits`;
+            if (!seenQueries.has(q.toLowerCase())) {
+              seenQueries.add(q.toLowerCase());
+              queries.push(q);
+            }
+          }
+
+          // 2. Movie/Album songs query
+          const cleanMovie = (seed.movie || seed.album || "").trim();
+          if (cleanMovie && cleanMovie.length > 2 && !/^(single|album|ep|hits|original)$/i.test(cleanMovie)) {
+            const q = `${cleanMovie} ${targetLang} songs`;
+            if (!seenQueries.has(q.toLowerCase())) {
+              seenQueries.add(q.toLowerCase());
+              queries.push(q);
+            }
+          }
+        }
+
+        // 3. Add language trending queries matching recent languages
+        const hasTelugu = seeds.some(s => !(s.language || "").toLowerCase().includes("hindi"));
+        const hasHindi = seeds.some(s => (s.language || "").toLowerCase().includes("hindi"));
+        if (hasTelugu) queries.push("trending telugu superhit songs 2026", "top telugu melody hits 2026");
+        if (hasHindi) queries.push("trending hindi blockbuster songs 2026", "top hindi romantic hits 2026");
+        if (!hasTelugu && !hasHindi) {
+          queries.push("trending telugu superhit songs 2026", "trending hindi blockbuster songs 2026");
+        }
+
+        // 4. Fetch recommendation queries
+        const targetQueries = queries.slice(0, 5);
+        const searchPromises = targetQueries.map(q => api.searchSongs(q, 1, 15).catch(() => null));
+        const searchResults = await Promise.all(searchPromises);
+
+        for (const res of searchResults) {
+          if (!res) continue;
+          const items = extractResults(res);
+          for (const item of items) {
+            const s = mapApiSong(item);
+            if (!s || !s.id || !s.audioUrl || isDevotionalSong(s)) continue;
+
+            // Restrict language to Telugu and Hindi
+            const sLang = (s.language || "").toLowerCase();
+            if (sLang && !sLang.includes("telugu") && !sLang.includes("hindi")) continue;
+
+            const norm = normalizeSongTitle(s.title, s.movie || s.album);
+            // CRUCIAL: Exclude the song played and any recently played song!
+            if (seenSongIds.has(s.id) || (norm && seenSongKeys.has(norm))) {
+              continue;
             }
 
-            // Fallback if suggestions were empty
-            if (collected.length < 10 && seed.title) {
-              const searchRes = await api.searchSongs(`${seed.title}`, 1, 15);
-              const items = extractResults(searchRes);
-              for (const item of items) {
-                const s = mapApiSong(item);
-                if (s && s.id && s.audioUrl && !seenIds.has(s.id) && !isDevotionalSong(s)) {
-                  const lang = (s.language || "").toLowerCase();
-                  if (lang && !lang.includes("telugu") && !lang.includes("hindi")) {
-                    continue;
-                  }
-                  seenIds.add(s.id);
-                  collected.push(cleanSong(s));
-                }
-              }
-            }
-          } catch {}
-          if (collected.length >= 20) break;
+            seenSongIds.add(s.id);
+            if (norm) seenSongKeys.add(norm);
+            collected.push(cleanSong(s));
+
+            if (collected.length >= 25) break;
+          }
+          if (collected.length >= 25) break;
+        }
+
+        // 5. Fallback if collected has fewer than 10 songs: backfill from sections
+        if (collected.length < 10) {
+          const fallbackPool = sections.flatMap(sec => sec.songs);
+          for (const s of fallbackPool) {
+            if (!s || !s.id || !s.audioUrl || isDevotionalSong(s)) continue;
+            const norm = normalizeSongTitle(s.title, s.movie || s.album);
+            if (seenSongIds.has(s.id) || (norm && seenSongKeys.has(norm))) continue;
+            seenSongIds.add(s.id);
+            if (norm) seenSongKeys.add(norm);
+            collected.push(cleanSong(s));
+            if (collected.length >= 20) break;
+          }
         }
 
         if (isMounted && collected.length > 0) {
