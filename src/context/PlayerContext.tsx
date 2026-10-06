@@ -68,6 +68,17 @@ function logPlayback(song: Song) {
       inMemoryHistory = filtered;
       AsyncStorage.setItem("rw_playback_history", JSON.stringify(filtered)).catch(() => {});
     }
+
+    // Persist full Song to rw_recently_played
+    AsyncStorage.getItem("rw_recently_played").then((raw) => {
+      let list: Song[] = [];
+      if (raw) {
+        try { list = JSON.parse(raw); } catch {}
+      }
+      const withoutCurrent = list.filter((s) => s.id !== song.id);
+      const updated = [song, ...withoutCurrent].slice(0, 50);
+      AsyncStorage.setItem("rw_recently_played", JSON.stringify(updated)).catch(() => {});
+    }).catch(() => {});
   } catch (err) {
     console.warn("Failed to log playback history:", err);
   }
@@ -1278,6 +1289,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
       setCurrentSong(songToLog);
       logPlayback(songToLog);
+      DeviceEventEmitter.emit("RECORD_RECENTLY_PLAYED", songToLog);
 
       // Sync with back/forward history stack
       if (songToLog && songToLog.id) {
@@ -1371,6 +1383,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setQueue(q);
       setQueueIndex(safeIdx);
       setCurrentSong(song);
+      logPlayback(song);
+      DeviceEventEmitter.emit("RECORD_RECENTLY_PLAYED", song);
 
       isSettingUpQueueRef.current = true;
       try {

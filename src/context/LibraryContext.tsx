@@ -562,8 +562,20 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       const raw = await localStorage.getItemAsync("rw_recently_played") || await AsyncStorage.getItem("rw_recently_played");
       if (raw) {
         const val = JSON.parse(raw);
-        if (Array.isArray(val)) {
+        if (Array.isArray(val) && val.length > 0) {
           setRecentlyPlayed(val);
+          return;
+        }
+      }
+
+      // Fallback: recover past songs from rw_history_stack if rw_recently_played was empty
+      const stackRaw = await AsyncStorage.getItem("rw_history_stack");
+      if (stackRaw) {
+        const stackVal = JSON.parse(stackRaw);
+        if (Array.isArray(stackVal) && stackVal.length > 0) {
+          const reversed = [...stackVal].reverse().slice(0, 50);
+          setRecentlyPlayed(reversed);
+          await localStorage.setItemAsync("rw_recently_played", JSON.stringify(reversed)).catch(() => {});
           return;
         }
       }
@@ -587,12 +599,11 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     setStoredPlaylists([]);
   }, []);
 
-  // Load non-liked data on mount
+  // Load non-liked data on mount & listen for recently played updates
   useEffect(() => {
     loadRecentlyPlayed();
     loadPlaylists();
   }, [loadRecentlyPlayed, loadPlaylists]);
-
 
   // ── Derived playlists ─────────────────────────────────────────────────────────
 
@@ -616,6 +627,15 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       saveLibraryToFileBackup({ recentlyPlayed: newRecent }).catch(() => {});
     } catch { /* ignore */ }
   }, []);
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener("RECORD_RECENTLY_PLAYED", (song: Song) => {
+      if (song && song.id) {
+        addToRecentlyPlayed(song);
+      }
+    });
+    return () => sub.remove();
+  }, [addToRecentlyPlayed]);
 
   // ── Like / Unlike ─────────────────────────────────────────────────────────────
 

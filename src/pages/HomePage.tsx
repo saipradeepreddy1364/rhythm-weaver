@@ -207,14 +207,6 @@ const FILM_DISCOVERY_QUERIES_POOL = [
   `telugu action movie songs ${CURRENT_YEAR}`,
   `telugu romantic movie ${CURRENT_YEAR}`,
   `tollywood drama songs ${CURRENT_YEAR}`,
-  `new tamil film songs ${CURRENT_YEAR}`,
-  `kollywood new movie songs ${CURRENT_YEAR}`,
-  `tamil movie release ${CURRENT_YEAR}`,
-  `tamil blockbuster ${CURRENT_YEAR}`,
-  `new kannada film songs ${CURRENT_YEAR}`,
-  `sandalwood new movie songs ${CURRENT_YEAR}`,
-  `new malayalam film songs ${CURRENT_YEAR}`,
-  `mollywood new movie songs ${CURRENT_YEAR}`,
 ];
 
 const ARTIST_DISCOVERY_QUERIES = [
@@ -375,20 +367,22 @@ function startBackgroundPreload() {
 
 startBackgroundPreload();
 
-// ─── Section definitions ──────────────────────────────────────────────────────
+// ─── Language filter helper (Strictly Telugu & Hindi) ────────────────────────
+export function isAllowedLanguageSection(title: string): boolean {
+  const t = title.toLowerCase();
+  const disallowed = [
+    "bengali", "bangla", "tamil", "punjabi", "kannada", 
+    "malayalam", "marathi", "bhojpuri", "gujarati", "odia", 
+    "oriya", "assamese", "haryanvi", "urdu", "international"
+  ];
+  if (disallowed.some((k) => t.includes(k))) return false;
+  return t.includes("telugu") || t.includes("hindi");
+}
+
+// ─── Section definitions (Strictly Telugu & Hindi) ───────────────────────────
 const SECTION_DEFS = [
-  { title: `Hindi Hits ${CURRENT_YEAR}`,  pool: HINDI_YEAR_QUERIES,  seed: 11 },
-  { title: `Telugu Hits ${CURRENT_YEAR}`, pool: TELUGU_YEAR_QUERIES, seed: 12 },
-  { title: "Trending Hindi",               pool: HINDI_QUERIES,       seed: 1  },
-  { title: "Trending Telugu",              pool: TELUGU_QUERIES,      seed: 2  },
-  { title: "Trending Tamil",               pool: TAMIL_QUERIES,       seed: 3  },
-  { title: "Latest Bollywood",             pool: BOLLYWOOD_QUERIES,   seed: 4  },
-  { title: "Top Punjabi",                  pool: PUNJABI_QUERIES,     seed: 5  },
-  { title: "Romantic Vibes",               pool: ROMANTIC_QUERIES,    seed: 6  },
-  { title: "Party Hits",                   pool: PARTY_QUERIES,       seed: 7  },
-  { title: "Old is Gold",                  pool: RETRO_QUERIES,       seed: 8  },
-  { title: "Trending Kannada",             pool: KANNADA_QUERIES,     seed: 9  },
-  { title: "Trending Malayalam",           pool: MALAYALAM_QUERIES,   seed: 10 },
+  { title: "Trending Telugu", pool: TELUGU_QUERIES, seed: 2 },
+  { title: "Trending Hindi",  pool: HINDI_QUERIES,  seed: 1 },
 ];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1229,6 +1223,107 @@ function CollapsibleSection({
   );
 }
 
+// ─── SongCardRow (Horizontal Scroll for Recently Played & Recommended) ────────
+function SongCardRow({
+  title,
+  subtitle,
+  songs,
+  loading,
+  setParentScrollEnabled,
+}: {
+  title: string;
+  subtitle?: string;
+  songs: Song[];
+  loading?: boolean;
+  setParentScrollEnabled?: (enabled: boolean) => void;
+}) {
+  const { playSong, currentSong } = usePlayer();
+
+  if (!loading && songs.length === 0) return null;
+
+  return (
+    <View style={styles.albumRowContainer}>
+      <View style={{ marginBottom: 4 }}>
+        <Text style={styles.sectionHeader}>{title}</Text>
+        {subtitle ? (
+          <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, marginTop: -4, marginBottom: 8, paddingHorizontal: 16 }}>
+            {subtitle}
+          </Text>
+        ) : null}
+      </View>
+
+      {loading ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.horizontalScrollPadding}
+          onScrollBeginDrag={() => setParentScrollEnabled?.(false)}
+          onScrollEndDrag={() => setParentScrollEnabled?.(true)}
+          onMomentumScrollBegin={() => setParentScrollEnabled?.(false)}
+          onMomentumScrollEnd={() => setParentScrollEnabled?.(true)}
+          nestedScrollEnabled={true}
+        >
+          {Array.from({ length: 6 }).map((_, i) => (
+            <View key={i} style={styles.albumLoaderItem}>
+              <View style={styles.albumArtSkeleton} />
+              <View style={styles.albumTextSkeleton} />
+            </View>
+          ))}
+        </ScrollView>
+      ) : songs.length > 0 ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.horizontalScrollPadding}
+          onScrollBeginDrag={() => setParentScrollEnabled?.(false)}
+          onScrollEndDrag={() => setParentScrollEnabled?.(true)}
+          onMomentumScrollBegin={() => setParentScrollEnabled?.(false)}
+          onMomentumScrollEnd={() => setParentScrollEnabled?.(true)}
+          nestedScrollEnabled={true}
+        >
+          {songs.map((song) => {
+            const isPlayingThis = currentSong?.id === song.id;
+            return (
+              <View key={song.id} style={styles.albumItem}>
+                <TouchableOpacity
+                  delayPressIn={0}
+                  onPress={() => playSong(song, songs)}
+                  style={styles.albumArtBtn}
+                  activeOpacity={0.8}
+                >
+                  {song.albumArt ? (
+                    <Image source={{ uri: song.albumArt }} style={styles.albumCoverImage} />
+                  ) : (
+                    <View style={[styles.albumCoverImage, styles.albumCoverPlaceholder]}>
+                      <MaterialCommunityIcons name="music" size={32} color="rgba(255,255,255,0.2)" />
+                    </View>
+                  )}
+
+                  <View style={[styles.playOverlayBtn, isPlayingThis && { backgroundColor: "#fff" }]}>
+                    <MaterialCommunityIcons
+                      name={isPlayingThis ? "volume-high" : "play"}
+                      size={16}
+                      color="#000"
+                      style={{ marginLeft: isPlayingThis ? 0 : 1 }}
+                    />
+                  </View>
+                </TouchableOpacity>
+
+                <Text style={styles.albumTitleText} numberOfLines={1}>
+                  {song.title}
+                </Text>
+                <Text style={styles.albumSubtitleText} numberOfLines={1}>
+                  {song.artist || song.movie || "Unknown Artist"}
+                </Text>
+              </View>
+            );
+          })}
+        </ScrollView>
+      ) : null}
+    </View>
+  );
+}
+
 // ─── SimpleSection ────────────────────────────────────────────────────────────
 function SimpleSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -1353,6 +1448,63 @@ function HomePageComponent({ onRequireAuth, setParentScrollEnabled }: HomePagePr
   const [randomSeed] = useState(() => Math.floor(Math.random() * 100000));
   const [quickPickSongs, setQuickPickSongs] = useState<Song[]>([]);
 
+  // Recommendations based on recently played past songs
+  const [basedOnPastSongs, setBasedOnPastSongs] = useState<Song[]>([]);
+  const [basedOnPastLoading, setBasedOnPastLoading] = useState(false);
+  const lastRecSeedIdsRef = useRef<string>("");
+
+  useEffect(() => {
+    if (!recentlyPlayed || recentlyPlayed.length === 0) {
+      setBasedOnPastSongs([]);
+      return;
+    }
+
+    const seeds = recentlyPlayed.slice(0, 4);
+    const seedIds = seeds.map((s) => s.id).join(",");
+    if (seedIds === lastRecSeedIdsRef.current) return;
+    lastRecSeedIdsRef.current = seedIds;
+
+    let isMounted = true;
+    const loadPastRecommendations = async () => {
+      setBasedOnPastLoading(true);
+      try {
+        const collected: Song[] = [];
+        const seenIds = new Set<string>(recentlyPlayed.map((s) => s.id));
+
+        for (const seed of seeds) {
+          if (!seed.id || seed.id.startsWith("yt-")) continue;
+          try {
+            const res = await api.getSongSuggestions(seed.id);
+            const raw = res?.data || res?.results || [];
+            if (Array.isArray(raw)) {
+              for (const item of raw) {
+                const s = mapApiSong(item);
+                if (s && s.id && s.audioUrl && !seenIds.has(s.id)) {
+                  seenIds.add(s.id);
+                  collected.push(cleanSong(s));
+                }
+              }
+            }
+          } catch {}
+          if (collected.length >= 20) break;
+        }
+
+        if (isMounted && collected.length > 0) {
+          setBasedOnPastSongs(collected.slice(0, 20));
+        }
+      } catch (e) {
+        console.warn("[HomePage] Failed to fetch recommendations based on past songs:", e);
+      } finally {
+        if (isMounted) setBasedOnPastLoading(false);
+      }
+    };
+
+    loadPastRecommendations();
+    return () => {
+      isMounted = false;
+    };
+  }, [recentlyPlayed]);
+
   useEffect(() => {
     if (quickPickSongs.length >= 12) {
       // Self-healing: if we only have one language represented (e.g. due to incremental loading),
@@ -1468,6 +1620,23 @@ function HomePageComponent({ onRequireAuth, setParentScrollEnabled }: HomePagePr
           )}
         </View>
 
+        {/* Recently Played */}
+        <SongCardRow
+          title="Recently Played"
+          subtitle="Jump back in"
+          songs={recentlyPlayed}
+          setParentScrollEnabled={setParentScrollEnabled}
+        />
+
+        {/* Recommended Based on Past Songs */}
+        <SongCardRow
+          title="Recommended For You"
+          subtitle="Inspired by what you recently played"
+          songs={basedOnPastSongs}
+          loading={basedOnPastLoading && basedOnPastSongs.length === 0}
+          setParentScrollEnabled={setParentScrollEnabled}
+        />
+
         {/* New Releases */}
         <AlbumRow
           title={`New Releases ${CURRENT_YEAR}`}
@@ -1488,22 +1657,8 @@ function HomePageComponent({ onRequireAuth, setParentScrollEnabled }: HomePagePr
           setParentScrollEnabled={setParentScrollEnabled}
         />
 
-        {/* Recently Played */}
-        {recentlyPlayed.length > 0 ? (
-          <SimpleSection title="Recently Played">
-            {recentlyPlayed.slice(0, 10).map((song) => (
-              <SongRow
-                key={song.id}
-                song={song}
-                queue={recentlyPlayed}
-                onRequireAuth={handleRequireAuth}
-              />
-            ))}
-          </SimpleSection>
-        ) : null}
-
-        {/* Dynamic sections */}
-        {sections.length === 0 ? (
+        {/* Dynamic sections: Trending Telugu & Trending Hindi alone */}
+        {sections.filter(s => isAllowedLanguageSection(s.title)).length === 0 ? (
           <View style={styles.simpleSection}>
             <View style={styles.skeletonSectionHeader} />
             {Array.from({ length: 5 }).map((_, i) => (
@@ -1517,14 +1672,16 @@ function HomePageComponent({ onRequireAuth, setParentScrollEnabled }: HomePagePr
             ))}
           </View>
         ) : (
-          sections.map(({ title, songs }) => (
-            <CollapsibleSection
-              key={title}
-              title={title}
-              songs={songs}
-              onRequireAuth={handleRequireAuth}
-            />
-          ))
+          sections
+            .filter(s => isAllowedLanguageSection(s.title))
+            .map(({ title, songs }) => (
+              <CollapsibleSection
+                key={title}
+                title={title}
+                songs={songs}
+                onRequireAuth={handleRequireAuth}
+              />
+            ))
         )}
       </ScrollView>
 
@@ -1585,9 +1742,12 @@ class HomePagePrefetcher {
     const albCached = cacheGetWithAge<{ film: AlbumData[]; artist: AlbumData[] }>(this.albKey);
 
     if (secCached) {
-      this._sections = secCached.data;
-      this._ready    = true;
-      this._notify();
+      const allowed = (secCached.data || []).filter(s => isAllowedLanguageSection(s.title));
+      this._sections = allowed;
+      if (allowed.length > 0) {
+        this._ready    = true;
+        this._notify();
+      }
     }
     if (albCached) {
       this._filmAlbums   = albCached.data.film   ?? [];
@@ -1628,10 +1788,21 @@ class HomePagePrefetcher {
       if (res && res.success && res.data) {
         const { sections, filmAlbums, artistAlbums } = res.data;
 
-        const mappedSections: SectionData[] = (sections || []).map((sec: any) => ({
-          title: sec.title,
-          songs: (sec.songs || []).map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl)
-        }));
+        const mappedSections: SectionData[] = (sections || [])
+          .filter((sec: any) => isAllowedLanguageSection(sec.title || ""))
+          .map((sec: any) => ({
+            title: sec.title,
+            songs: (sec.songs || [])
+              .map(mapApiSong)
+              .map(cleanSong)
+              .filter((s: Song) => {
+                if (!s.audioUrl) return false;
+                const lang = (s.language || "").toLowerCase().trim();
+                if (lang && lang !== "telugu" && lang !== "hindi") return false;
+                return true;
+              })
+          }))
+          .filter((sec: SectionData) => sec.songs.length > 0);
 
         const mappedFilmAlbums: AlbumData[] = (filmAlbums || []).map((alb: any) => ({
           title: alb.title,
@@ -1651,14 +1822,18 @@ class HomePagePrefetcher {
           fullyLoaded: alb.fullyLoaded ?? true
         }));
 
-        this._sections = mappedSections;
-        this._filmAlbums = mappedFilmAlbums;
-        this._artistAlbums = mappedArtistAlbums;
-        this._ready = true;
+        if (mappedSections.length > 0) {
+          this._sections = mappedSections;
+          this._filmAlbums = mappedFilmAlbums;
+          this._artistAlbums = mappedArtistAlbums;
+          this._ready = true;
 
-        cacheSet(this.secKey, mappedSections);
-        cacheSet(this.albKey, { film: mappedFilmAlbums, artist: mappedArtistAlbums });
-        this._notify();
+          cacheSet(this.secKey, mappedSections);
+          cacheSet(this.albKey, { film: mappedFilmAlbums, artist: mappedArtistAlbums });
+          this._notify();
+        } else {
+          await this._fetchSectionsFallback();
+        }
       } else {
         // Backend didn't respond in time or returned empty data — fetch sections directly
         console.warn("HomePagePrefetcher | Backend returned no data — fetching sections directly from JioSaavn...");
@@ -1679,18 +1854,14 @@ class HomePagePrefetcher {
    * after each group so the UI updates progressively.
    */
   private async _fetchSectionsFallback(): Promise<void> {
-    const priorityDefs = SECTION_DEFS.slice(0, 3);
-    const restDefs     = SECTION_DEFS.slice(3);
-
     const fetchOne = async (def: { title: string; pool: string[]; seed: number }): Promise<SectionData> => {
       const query = pickQuery(def.pool, def.seed);
       const songs = await fetchSection(query, 50);
       return { title: def.title, songs };
     };
 
-    // Fetch first 3 sections in parallel
-    const priorityResults = await Promise.allSettled(priorityDefs.map(fetchOne));
-    for (const result of priorityResults) {
+    const results = await Promise.allSettled(SECTION_DEFS.map(fetchOne));
+    for (const result of results) {
       if (result.status === "fulfilled" && result.value.songs.length > 0) {
         this._sections = [...this._sections.filter(s => s.title !== result.value.title), result.value];
       }
@@ -1713,18 +1884,6 @@ class HomePagePrefetcher {
       this._artistAlbums = [...this._artistAlbums.filter(a => a.title !== artAlbum.title), artAlbum];
       this._notify();
     }).catch(err => console.warn("Fallback artist albums fetch failed:", err));
-
-    // Then fetch remaining sections one at a time
-    for (const def of restDefs) {
-      try {
-        const sec = await fetchOne(def);
-        if (sec.songs.length > 0) {
-          this._sections = [...this._sections.filter(s => s.title !== sec.title), sec];
-          this._notify();
-        }
-      } catch { /* continue */ }
-      await new Promise(r => setTimeout(r, 300));
-    }
 
     // Cache what we got
     if (this._sections.length > 0) {
