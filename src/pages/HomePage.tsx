@@ -1472,14 +1472,36 @@ function HomePageComponent({ onRequireAuth, setParentScrollEnabled }: HomePagePr
         const seenIds = new Set<string>(recentlyPlayed.map((s) => s.id));
 
         for (const seed of seeds) {
-          if (!seed.id || seed.id.startsWith("yt-")) continue;
           try {
-            const res = await api.getSongSuggestions(seed.id);
-            const raw = res?.data || res?.results || [];
-            if (Array.isArray(raw)) {
-              for (const item of raw) {
+            if (seed.id && !seed.id.startsWith("yt-")) {
+              const res = await api.getSongSuggestions(seed.id);
+              const raw = res?.data || res?.results || [];
+              if (Array.isArray(raw) && raw.length > 0) {
+                for (const item of raw) {
+                  const s = mapApiSong(item);
+                  if (s && s.id && s.audioUrl && !seenIds.has(s.id) && !isDevotionalSong(s)) {
+                    const lang = (s.language || "").toLowerCase();
+                    if (lang && !lang.includes("telugu") && !lang.includes("hindi")) {
+                      continue;
+                    }
+                    seenIds.add(s.id);
+                    collected.push(cleanSong(s));
+                  }
+                }
+              }
+            }
+
+            // Fallback if suggestions were empty
+            if (collected.length < 10 && seed.title) {
+              const searchRes = await api.searchSongs(`${seed.title}`, 1, 15);
+              const items = extractResults(searchRes);
+              for (const item of items) {
                 const s = mapApiSong(item);
-                if (s && s.id && s.audioUrl && !seenIds.has(s.id)) {
+                if (s && s.id && s.audioUrl && !seenIds.has(s.id) && !isDevotionalSong(s)) {
+                  const lang = (s.language || "").toLowerCase();
+                  if (lang && !lang.includes("telugu") && !lang.includes("hindi")) {
+                    continue;
+                  }
                   seenIds.add(s.id);
                   collected.push(cleanSong(s));
                 }
@@ -1620,18 +1642,10 @@ function HomePageComponent({ onRequireAuth, setParentScrollEnabled }: HomePagePr
           )}
         </View>
 
-        {/* Recently Played */}
-        <SongCardRow
-          title="Recently Played"
-          subtitle="Jump back in"
-          songs={recentlyPlayed}
-          setParentScrollEnabled={setParentScrollEnabled}
-        />
-
-        {/* Recommended Based on Past Songs */}
+        {/* Recommended For You (Based on Recent Play History) */}
         <SongCardRow
           title="Recommended For You"
-          subtitle="Inspired by what you recently played"
+          subtitle="Based on your recent play history"
           songs={basedOnPastSongs}
           loading={basedOnPastLoading && basedOnPastSongs.length === 0}
           setParentScrollEnabled={setParentScrollEnabled}
