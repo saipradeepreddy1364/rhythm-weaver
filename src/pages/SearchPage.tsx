@@ -999,6 +999,8 @@ function SearchPageComponent({ onRequireAuth }: SearchPageProps) {
   const [autoArtistQuery, setAutoArtistQuery] = useState<string | null>(null);
   const [autoArtistLang, setAutoArtistLang]   = useState<string | null>(null);
 
+  const [directAlbums, setDirectAlbums] = useState<Album[]>([]);
+
   // Load and dynamically resolve generic stock category cover art with correct album arts
   const [categoryCovers, setCategoryCovers] = useState<Record<string, string>>(() => {
     const initial: Record<string, string> = {};
@@ -1051,11 +1053,12 @@ function SearchPageComponent({ onRequireAuth }: SearchPageProps) {
     return () => clearTimeout(handler);
   }, [query]);
 
-  // Handle Search Queries
+  // Handle Search Queries (Searches BOTH songs and albums in parallel)
   useEffect(() => {
     const clean = debouncedQuery.trim();
     if (!clean) {
       setResults([]);
+      setDirectAlbums([]);
       setLoading(false);
       return;
     }
@@ -1079,17 +1082,76 @@ function SearchPageComponent({ onRequireAuth }: SearchPageProps) {
     }
 
     setLoading(true);
-    // Search using the full original query (including language word) for best results
-    api.searchSongs(clean, 1, 60)
-      .then((res) => {
-        const raw = extractResults(res);
-        const songs = raw.map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
+    setDirectAlbums([]);
+
+    const fetchSongPromise = api.searchSongs(clean, 1, 60);
+    const fetchAlbumPromise = api.searchAlbums(clean, 1, 20);
+
+    Promise.allSettled([fetchSongPromise, fetchAlbumPromise])
+      .then(async ([songRes, albumRes]) => {
+        let songs: Song[] = [];
+        if (songRes.status === "fulfilled") {
+          const rawSongs = extractResults(songRes.value);
+          songs = rawSongs.map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
+        }
+
+        let fetchedAlbums: Album[] = [];
+        if (albumRes.status === "fulfilled") {
+          const rawAlbums = extractResults(albumRes.value);
+          fetchedAlbums = rawAlbums.map((a: any) => {
+            const rawCover =
+              a.image?.[2]?.url ||
+              a.image?.[2]?.link ||
+              a.image?.[1]?.url ||
+              a.image?.[0]?.url ||
+              (typeof a.image === "string" ? a.image : "") ||
+              "";
+            const coverArt = rawCover.replace(/-\d+x\d+\.(jpg|jpeg|png)/i, "-500x500.$1");
+            const albumTitle = decodeHtml(a.name || a.title || "Album");
+            return {
+              id: String(a.id || ""),
+              title: albumTitle,
+              coverArt,
+              songs: [],
+              type: "movie",
+              query: `${albumTitle} songs`,
+            };
+          }).filter((a: Album) => a.title.length > 0);
+        }
+
+        // If direct movie albums were found (e.g. for "DC"), and song search returned very few or no matching songs,
+        // automatically load songs from the top matching album so Songs list also has the soundtrack tracks!
+        if (fetchedAlbums.length > 0 && songs.length < 10 && fetchedAlbums[0]?.id) {
+          try {
+            const topAlbumDetails = await api.getAlbumDetails(fetchedAlbums[0].id);
+            const topAlbumRaw = extractResults(topAlbumDetails);
+            const topAlbumSongs = topAlbumRaw.map(mapApiSong).map(cleanSong).filter((s: Song) => s.audioUrl);
+            if (topAlbumSongs.length > 0) {
+              fetchedAlbums[0].songs = topAlbumSongs;
+              const seenIds = new Set(songs.map((s) => s.id));
+              const merged = [...songs];
+              for (const s of topAlbumSongs) {
+                if (fetchedAlbums[0].coverArt && (!s.albumArt || s.albumArt.includes("default"))) {
+                  s.albumArt = fetchedAlbums[0].coverArt;
+                }
+                if (!seenIds.has(s.id)) {
+                  seenIds.add(s.id);
+                  merged.push(s);
+                }
+              }
+              songs = merged;
+            }
+          } catch {}
+        }
+
         setResults(songs);
+        setDirectAlbums(fetchedAlbums);
         setLoading(false);
       })
       .catch((err) => {
-        console.warn("[SearchPage] JioSaavn search failed:", err);
+        console.warn("[SearchPage] Search failed:", err);
         setResults([]);
+        setDirectAlbums([]);
         setLoading(false);
       });
   }, [debouncedQuery]);
@@ -1154,8 +1216,26 @@ function SearchPageComponent({ onRequireAuth }: SearchPageProps) {
     }
   };
 
+  const derivedAlbums = groupIntoAlbums(results);
+  const albumMap = new Map<string, Album>();
+  for (const a of directAlbums) {
+    const k = a.title.toLowerCase().trim();
+    albumMap.set(k, a);
+  }
+  for (const a of derivedAlbums) {
+    const k = a.title.toLowerCase().trim();
+    if (!albumMap.has(k)) {
+      albumMap.set(k, a);
+    } else {
+      const existing = albumMap.get(k)!;
+      if (existing.songs.length === 0 && a.songs.length > 0) {
+        existing.songs = a.songs;
+      }
+    }
+  }
+
   const songsResult = results;
-  const albumsResult = groupIntoAlbums(results);
+  const albumsResult = [...albumMap.values()];
   const artistsResult = groupIntoArtists(results);
   const jioSongs = results;
   const ytSongs: Song[] = [];
@@ -1239,7 +1319,7 @@ function SearchPageComponent({ onRequireAuth }: SearchPageProps) {
             <ActivityIndicator size="large" color="#1DB954" />
             <Text style={styles.loadingText}>Searching Medley…</Text>
           </View>
-        ) : results.length === 0 ? (
+        ) : (results.length === 0 && albumsResult.length === 0) ? (
           // Empty state
           <View style={styles.emptyContainer}>
             <MaterialCommunityIcons name="magnify-close" size={48} color="rgba(255,255,255,0.15)" />
@@ -1305,7 +1385,9 @@ function SearchPageComponent({ onRequireAuth }: SearchPageProps) {
                     )}
                     <View style={styles.albumMeta}>
                       <Text style={styles.albumTitleText} numberOfLines={1}>{album.title}</Text>
-                      <Text style={styles.albumSubtitleText}>{album.songs.length} songs</Text>
+                      <Text style={styles.albumSubtitleText}>
+                        {album.songs.length > 0 ? `${album.songs.length} songs` : "Movie Soundtrack · Album"}
+                      </Text>
                     </View>
                     <MaterialCommunityIcons name="chevron-right" size={18} color="rgba(255,255,255,0.4)" />
                   </TouchableOpacity>
