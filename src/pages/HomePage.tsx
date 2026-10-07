@@ -1694,10 +1694,9 @@ function HomePageComponent({ onRequireAuth, setParentScrollEnabled }: HomePagePr
           )}
         </View>
 
-        {/* Recommended For You (Based on Recent Play History) */}
+        {/* Recommended For You */}
         <SongCardRow
           title="Recommended For You"
-          subtitle="Based on your recent play history"
           songs={basedOnPastSongs}
           loading={basedOnPastLoading && basedOnPastSongs.length === 0}
           setParentScrollEnabled={setParentScrollEnabled}
