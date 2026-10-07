@@ -256,7 +256,7 @@ export async function fetchLyrics(song: Song): Promise<string | null> {
       const q = encodeURIComponent(`${cleanTitle} ${cleanArtist}`.trim());
       const res = await Promise.race([
         fetch(`https://lrclib.net/api/search?q=${q}`),
-        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3500))
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 2500))
       ]);
       if (res.ok) {
         const items = await res.json();
@@ -278,7 +278,7 @@ export async function fetchLyrics(song: Song): Promise<string | null> {
     try {
       const res = await Promise.race([
         fetch(`https://musicbackend-7a1o.onrender.com/api/songs/${encodeURIComponent(song.id)}/lyrics`),
-        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 4000))
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 2500))
       ]);
       if (res.ok) {
         const data = await res.json();
@@ -314,7 +314,7 @@ export async function fetchLyrics(song: Song): Promise<string | null> {
         hasResolved = true;
         resolve(null);
       }
-    }, 4500);
+    }, 2800);
   });
 
   // 4. Save to caches

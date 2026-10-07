@@ -514,12 +514,13 @@ function dedup(songs: Song[], seen: Set<string>): Song[] {
   return out;
 }
 
-async function fetchAllPages(query: string, maxPages = 60, seen?: Set<string>): Promise<Song[]> {
+async function fetchAllPages(query: string, maxPages = 20, seen?: Set<string>): Promise<Song[]> {
   const all: Song[] = [];
   const localSeen = seen || new Set<string>();
+  let consecutiveZeroAdded = 0;
   for (let page = 1; page <= maxPages; page++) {
     try {
-      if (page > 1) await sleep(200);
+      if (page > 1) await sleep(150);
       const res   = await api.searchSongs(query, page, 50);
       const items = extractResults(res);
       if (items.length === 0) break;
@@ -535,7 +536,13 @@ async function fetchAllPages(query: string, maxPages = 60, seen?: Set<string>): 
           added++;
         }
       }
-      if (items.length < 50 || added === 0) break;
+      if (added === 0) {
+        consecutiveZeroAdded++;
+        if (consecutiveZeroAdded >= 2) break;
+      } else {
+        consecutiveZeroAdded = 0;
+      }
+      if (items.length === 0) break;
     } catch {
       break;
     }
@@ -544,15 +551,22 @@ async function fetchAllPages(query: string, maxPages = 60, seen?: Set<string>): 
 }
 
 async function fetchAllArtistSongs(artistName: string): Promise<Song[]> {
+  const cleanName = artistName
+    .replace(/ Hits$/i, "")
+    .replace(/ Classics$/i, "")
+    .replace(/ Songs$/i, "")
+    .trim();
   const queries = [
-    `${artistName} songs`, `${artistName} hits`, `${artistName} movie songs`,
-    `${artistName} romantic songs`, `${artistName} album songs`,
+    `${cleanName}`,
+    `${cleanName} songs`,
+    `${cleanName} hits`,
+    `${cleanName} movie songs`,
   ];
   const seen = new Set<string>();
   const all: Song[] = [];
   for (const q of queries) {
     try {
-      const songs = await fetchAllPages(q, 8, seen);
+      const songs = await fetchAllPages(q, 4, seen);
       all.push(...songs);
     } catch { /* continue */ }
   }
@@ -694,7 +708,7 @@ async function loadArtistAlbums(
         songs:       fullSongs,
         type:        "artist",
         query:       `${name} songs`,
-        fullyLoaded: true,
+        fullyLoaded: fullSongs.length >= 60,
       });
     }
 
@@ -716,8 +730,8 @@ function AlbumModal({
   onClose:       () => void;
   onRequireAuth: () => void;
 }) {
-  const { playSong }                  = usePlayer();
-  const { isAlbumLiked, toggleLikeAlbum } = useLibrary();
+  const { playSong }                                        = usePlayer();
+  const { isAlbumLiked, toggleLikeAlbum, updateLikedAlbum } = useLibrary();
 
   const isLiked = isAlbumLiked(album);
 
@@ -738,10 +752,13 @@ function AlbumModal({
       return true;
     });
   });
-  const [loadingMore, setLoadingMore] = useState(!album.fullyLoaded);
+  const [loadingMore, setLoadingMore] = useState(
+    !album.fullyLoaded || (albumType === "artist" && album.songs.length < 60)
+  );
 
   useEffect(() => {
-    if (album.fullyLoaded) {
+    // If it's an artist album and has fewer than 60 songs, DO NOT bail out — fetch complete discography
+    if (album.fullyLoaded && (albumType !== "artist" && albumType !== "hero" || album.songs.length >= 60)) {
       const seen = new Set<string>();
       const dedupped = album.songs.filter(s => {
         const tKey = normalizeSongTitle(s.title, s.movie || s.album);
@@ -763,14 +780,7 @@ function AlbumModal({
         .replace(/ Classics$/i, "")
         .replace(/ Songs$/i, "")
         .trim();
-      const queries = [
-        `${name} songs`, `${name} all songs`, `${name} hit songs`,
-        `${name} best songs`, `${name} latest songs`, `${name} popular songs`,
-        `${name} film songs`, `${name} bollywood songs`, `${name} playback songs`,
-        `${name} new songs ${new Date().getFullYear()}`,
-        `${name} songs collection`, `${name} superhit songs`,
-        `${name} melody songs`, `${name} romantic songs`, `${name} sad songs`,
-      ];
+
       const seenIds = new Set<string>();
       const seenTitles = new Set<string>();
       const initialDedupped: Song[] = [];
@@ -785,32 +795,65 @@ function AlbumModal({
       let accumulated = [...initialDedupped];
 
       (async () => {
-        for (const query of queries) {
+        // High-speed parallel queries across multiple discography search terms & pages
+        const queryBatches: { query: string; pages: number[] }[] = [
+          { query: `${name}`, pages: [1, 2, 3, 4, 5] },
+          { query: `${name} songs`, pages: [1, 2, 3, 4] },
+          { query: `${name} hits`, pages: [1, 2, 3, 4] },
+          { query: `${name} movie songs`, pages: [1, 2, 3] },
+          { query: `${name} best songs`, pages: [1, 2, 3] },
+          { query: `${name} all songs`, pages: [1, 2] },
+        ];
+
+        for (const batch of queryBatches) {
           if (controller.signal.aborted) break;
           try {
-            for (let pg = 1; pg <= 20; pg++) {
-              if (controller.signal.aborted) break;
-              if (pg > 1) await new Promise(r => setTimeout(r, 200));
-              const res   = await api.searchSongs(query, pg, 50);
-              const items = extractResults(res);
-              if (items.length === 0) break;
-              const newSongs = items.map(mapApiSong).filter((s: Song) => {
-                if (!s.audioUrl || !s.id || isDevotionalSong(s)) return false;
-                const tKey = normalizeSongTitle(s.title, s.movie || s.album);
-                if (seenIds.has(s.id) || seenTitles.has(tKey)) return false;
-                return true;
-              });
-              for (const s of newSongs) {
+            const pageResults = await Promise.allSettled(
+              batch.pages.map((pg) => api.searchSongs(batch.query, pg, 50))
+            );
+            if (controller.signal.aborted) break;
+
+            let newlyAddedCount = 0;
+            for (const r of pageResults) {
+              if (r.status !== "fulfilled") continue;
+              const items = extractResults(r.value);
+              const mapped = items
+                .map(mapApiSong)
+                .map(cleanSong)
+                .filter((s: Song) => {
+                  if (!s.audioUrl || !s.id || isDevotionalSong(s)) return false;
+                  const tKey = normalizeSongTitle(s.title, s.movie || s.album);
+                  if (seenIds.has(s.id) || (tKey && seenTitles.has(tKey))) return false;
+                  return true;
+                });
+
+              for (const s of mapped) {
                 seenIds.add(s.id);
-                seenTitles.add(normalizeSongTitle(s.title, s.movie || s.album));
+                const tKey = normalizeSongTitle(s.title, s.movie || s.album);
+                if (tKey) seenTitles.add(tKey);
                 accumulated.push(s);
+                newlyAddedCount++;
               }
-              if (newSongs.length > 0 && !controller.signal.aborted) setSongs([...accumulated]);
-              if (items.length < 50) break;
             }
-          } catch { /* continue */ }
+
+            if (newlyAddedCount > 0 && !controller.signal.aborted) {
+              setSongs([...accumulated]);
+            }
+          } catch {
+            // continue next batch
+          }
         }
-        if (!controller.signal.aborted) setLoadingMore(false);
+
+        if (!controller.signal.aborted) {
+          setLoadingMore(false);
+          if (isAlbumLiked(album)) {
+            updateLikedAlbum({
+              ...album,
+              songs: accumulated,
+              fullyLoaded: true,
+            });
+          }
+        }
       })();
     } else {
       fetchAllMovieSongs(albumQuery, album.title)
@@ -820,7 +863,7 @@ function AlbumModal({
             if (dedupped.length > 0) setSongs(dedupped);
             setLoadingMore(false);
             if (isAlbumLiked(album)) {
-              toggleLikeAlbum({
+              updateLikedAlbum({
                 ...album,
                 songs: dedupped,
                 fullyLoaded: true

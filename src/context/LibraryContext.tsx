@@ -61,6 +61,7 @@ interface LibraryContextType {
   isDownloaded: (songId: string) => boolean;
   likedAlbums: AlbumData[];
   toggleLikeAlbum: (album: AlbumData) => Promise<void>;
+  updateLikedAlbum: (album: AlbumData) => Promise<void>;
   isAlbumLiked: (album: AlbumData) => boolean;
   likedVideos: any[];
   toggleLikeVideo: (video: any) => Promise<void>;
@@ -903,6 +904,37 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     []
   );
 
+  const updateLikedAlbum = useCallback(
+    async (album: AlbumData) => {
+      if (!album || !album.title) return;
+      try {
+        const currentAlbums = await _readLikedAlbums();
+        const targetTitle = album.title.toLowerCase().trim();
+        const isAlreadyLiked = currentAlbums.some(
+          (a) => a.title && a.title.toLowerCase().trim() === targetTitle
+        );
+        if (!isAlreadyLiked) return;
+        const cleanAlbumSongs = deduplicateSongs(album.songs || []);
+        const cleanAlbum: AlbumData = {
+          ...album,
+          songs: cleanAlbumSongs,
+        };
+        const nextLikedAlbums = currentAlbums.map((a) =>
+          a.title && a.title.toLowerCase().trim() === targetTitle ? cleanAlbum : a
+        );
+        likedAlbumsRef.current = nextLikedAlbums;
+        setLikedAlbums(nextLikedAlbums);
+        const jsonStr = JSON.stringify(nextLikedAlbums);
+        await localStorage.setItemAsync("rw_liked_albums", jsonStr);
+        saveLibraryToFileBackup({ likedAlbums: nextLikedAlbums }).catch(() => {});
+        DeviceEventEmitter.emit("LIKED_ALBUMS_UPDATED");
+      } catch (err) {
+        console.warn("Failed to update liked album:", err);
+      }
+    },
+    []
+  );
+
   return (
     <LibraryContext.Provider
       value={{
@@ -928,6 +960,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         isDownloaded,
         likedAlbums,
         toggleLikeAlbum,
+        updateLikedAlbum,
         isAlbumLiked,
         likedVideos,
         toggleLikeVideo,
