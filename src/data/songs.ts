@@ -36,6 +36,52 @@ export function decodeHtmlEntities(str: string): string {
     .replace(/&nbsp;/g, " ");
 }
 
+// ─── Canonical Movie Cover Art Registry ─────────────────────────────────────
+// Ensures blockbuster soundtracks always use their genuine official 500x500 poster
+// even if individual tracks were indexed in random DJ / compilation / party albums.
+export const movieCoverRegistry = new Map<string, string>([
+  ["pushpa", "https://c.saavncdn.com/366/Pushpa-2-The-Rule-Telugu-Telugu-2024-20241205211012-500x500.jpg"],
+  ["pushpa 2", "https://c.saavncdn.com/366/Pushpa-2-The-Rule-Telugu-Telugu-2024-20241205211012-500x500.jpg"],
+  ["pushpa 2 the rule", "https://c.saavncdn.com/366/Pushpa-2-The-Rule-Telugu-Telugu-2024-20241205211012-500x500.jpg"],
+  ["pushpa the rise", "https://c.saavncdn.com/blob/056/Pushpa-The-Rise-Telugu-2021-20211216115409-500x500.jpg"],
+  ["pushpa the rise part 1", "https://c.saavncdn.com/blob/056/Pushpa-The-Rise-Telugu-2021-20211216115409-500x500.jpg"],
+  ["pushpa the rise part 01", "https://c.saavncdn.com/blob/056/Pushpa-The-Rise-Telugu-2021-20211216115409-500x500.jpg"],
+  ["devara", "https://c.saavncdn.com/313/Devara-Part-1-Telugu-Telugu-2024-20240926171010-500x500.jpg"],
+  ["devara part 1", "https://c.saavncdn.com/313/Devara-Part-1-Telugu-Telugu-2024-20240926171010-500x500.jpg"],
+  ["kalki", "https://c.saavncdn.com/320/Kalki-2898-AD-Telugu-Telugu-2024-20240710171011-500x500.jpg"],
+  ["kalki 2898 ad", "https://c.saavncdn.com/320/Kalki-2898-AD-Telugu-Telugu-2024-20240710171011-500x500.jpg"],
+  ["rrr", "https://c.saavncdn.com/003/RRR-Telugu-2021-20211210131008-500x500.jpg"],
+  ["guntur kaaram", "https://c.saavncdn.com/445/Guntur-Kaaram-Telugu-2024-20240112181005-500x500.jpg"],
+  ["salaar", "https://c.saavncdn.com/710/Salaar-Cease-Fire-Telugu-Telugu-2023-20231213191005-500x500.jpg"],
+  ["animal", "https://c.saavncdn.com/000/Animal-Hindi-2023-20231124191004-500x500.jpg"],
+  ["jawan", "https://c.saavncdn.com/000/Jawan-Hindi-2023-20230907151004-500x500.jpg"],
+  ["stree 2", "https://c.saavncdn.com/490/Stree-2-Hindi-2024-20240824051003-500x500.jpg"],
+]);
+
+export function registerMovieCover(movieOrAlbumName: string, coverUrl: string) {
+  if (!movieOrAlbumName || !coverUrl) return;
+  const key = movieOrAlbumName.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
+  if (key.length > 2 && !movieCoverRegistry.has(key)) {
+    movieCoverRegistry.set(key, coverUrl);
+  }
+}
+
+function isCompilationOrGeneric(name: string): boolean {
+  if (!name) return false;
+  const l = name.toLowerCase();
+  const keywords = [
+    "top 10", "top 20", "top 50", "dhamaka", "dj mix", "party hits",
+    "dance hits", "remix", "chartbusters", "playlist", "collection",
+    "non stop", "mashup", "superhit collection", "romantic hits", "evergreen"
+  ];
+  return keywords.some((k) => l.includes(k));
+}
+
+function isPlaceholderImage(url: string): boolean {
+  if (!url) return true;
+  return url.includes("default-film") || url.includes("default-music") || url.includes("artist-default") || url.includes("album-default");
+}
+
 /**
  * Maps any API song object to our Song interface.
  * Handles both JioSaavn API v2 shapes and any backend wrapper variations.
@@ -61,8 +107,15 @@ export function mapApiSong(item: any): Song {
     item.artwork ||
     "";
 
-  if (typeof imageUrl === "string" && imageUrl.startsWith("http://")) {
-    imageUrl = imageUrl.replace("http://", "https://");
+  if (typeof imageUrl === "string") {
+    if (imageUrl.startsWith("http://")) {
+      imageUrl = imageUrl.replace("http://", "https://");
+    }
+    // Upgrade 50x50 or 150x150 thumbnails to crisp, high-resolution 500x500 posters
+    imageUrl = imageUrl.replace(/-\d+x\d+\.(jpg|jpeg|png)/i, "-500x500.$1");
+    if (isPlaceholderImage(imageUrl)) {
+      imageUrl = "";
+    }
   }
 
   // ── Audio URL ──────────────────────────────────────────────────────────────
@@ -126,12 +179,53 @@ export function mapApiSong(item: any): Song {
     artistId = item.artist_id;
   }
 
-  const movieName =
+  const rawTitle = decodeHtmlEntities(item.name || item.title || item.song || item.songName || "Unknown");
+
+  let movieName =
     item.movie ||
     item.film ||
     item.album?.name ||
     (typeof item.album === "string" ? item.album : "") ||
     "";
+
+  // Extract movie from title if present (e.g. Peelings (From "Pushpa 2 The Rule"))
+  const fromMovieMatch = rawTitle.match(/(?:from|soundtrack|film)\s*["'“]?([^"'”)\]]+)/i);
+  if (fromMovieMatch) {
+    const extractedMovie = fromMovieMatch[1].trim();
+    if (extractedMovie.length > 2 && (!movieName || isCompilationOrGeneric(movieName))) {
+      movieName = extractedMovie;
+    }
+  }
+
+  // Resolve authentic movie poster if this song belongs to a registered movie
+  const cleanMovieKey = (movieName || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
+  const cleanAlbumKey = (albumName || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
+
+  let registeredCover = "";
+  if (cleanMovieKey) {
+    for (const [k, url] of movieCoverRegistry.entries()) {
+      if (cleanMovieKey.includes(k) || k.includes(cleanMovieKey)) {
+        registeredCover = url;
+        break;
+      }
+    }
+  }
+  if (!registeredCover && cleanAlbumKey) {
+    for (const [k, url] of movieCoverRegistry.entries()) {
+      if (cleanAlbumKey.includes(k) || k.includes(cleanAlbumKey)) {
+        registeredCover = url;
+        break;
+      }
+    }
+  }
+
+  // If we have a registered canonical movie cover and current image is compilation, placeholder, or empty, use the authentic poster!
+  if (registeredCover && (!imageUrl || isCompilationOrGeneric(albumName) || isPlaceholderImage(imageUrl))) {
+    imageUrl = registeredCover;
+  } else if (imageUrl && !isCompilationOrGeneric(albumName) && !isPlaceholderImage(imageUrl) && cleanMovieKey.length > 2) {
+    // If current image is genuine and high-res, save it to registry for this movie
+    movieCoverRegistry.set(cleanMovieKey, imageUrl);
+  }
 
   // ── Duration ───────────────────────────────────────────────────────────────
   // JioSaavn returns duration as a string e.g. "245". parseInt handles string|number|undefined.
@@ -145,14 +239,13 @@ export function mapApiSong(item: any): Song {
 
   let finalSongId = rawId;
   if (!finalSongId) {
-    const rawTitle = item.name || item.title || item.song || item.songName || "Unknown";
     const rawArtist = artist || "Unknown";
     finalSongId = `gen_${rawTitle.toLowerCase().replace(/[^a-z0-9]/g, "")}_${rawArtist.toLowerCase().replace(/[^a-z0-9]/g, "")}`;
   }
 
   return {
     id: finalSongId,
-    title: item.name || item.title || item.song || item.songName || "Unknown",
+    title: rawTitle,
     artist,
     duration,
     albumArt: imageUrl,

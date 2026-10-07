@@ -106,6 +106,19 @@ export const api = {
   },
 
   // ── Albums ────────────────────────────────────────────────────────────────
+  // GET /search/albums?query={q}&page={p}&limit={l} -> Search albums
+  searchAlbums: async (query: string, page = 1, limit = 20) => {
+    try {
+      const res = await fetch(
+        `${BASE_URL}/search/albums?query=${encodeURIComponent(query)}&page=${page}&limit=${limit}`
+      );
+      if (!res.ok) throw new Error(`Search Albums HTTP ${res.status}`);
+      return res.json();
+    } catch {
+      return { success: false, data: { results: [] } };
+    }
+  },
+
   // GET /albums?id={id} -> Album details and tracklist
   getAlbumDetails: async (albumId: string) => {
     try {

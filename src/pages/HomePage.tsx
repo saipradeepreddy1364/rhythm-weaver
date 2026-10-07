@@ -2,7 +2,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Modal, Act
 import React, { useEffect, useState, useRef } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Song, mapApiSong } from "../data/songs";
+import { Song, mapApiSong, registerMovieCover } from "../data/songs";
 import { api, extractResults } from "../services/api";
 import { useAuth } from "../context/AuthContext";
 import { useLibrary, Playlist, normalizeSongTitle, deduplicateSongs } from "../context/LibraryContext";
@@ -573,13 +573,102 @@ async function fetchAllArtistSongs(artistName: string): Promise<Song[]> {
   return all;
 }
 
-async function fetchAllMovieSongs(query: string, albumTitle: string): Promise<Song[]> {
+async function fetchAllMovieSongs(
+  query: string,
+  albumTitle: string,
+  onProgress?: (songs: Song[]) => void
+): Promise<Song[]> {
   const cleanTitle = albumTitle.replace(/[^a-zA-Z0-9\s]/g, "").trim().toLowerCase();
-  const rawSongs = await fetchAllPages(query, 12);
-  return rawSongs.filter((song) => {
-    const sAlbum = (song.album || song.movie || "").replace(/[^a-zA-Z0-9\s]/g, "").trim().toLowerCase();
-    return sAlbum.includes(cleanTitle) || cleanTitle.includes(sAlbum);
-  });
+  const seenIds = new Set<string>();
+  const seenTitles = new Set<string>();
+  const collected: Song[] = [];
+
+  const addSong = (s: Song) => {
+    if (!s || !s.id || !s.audioUrl || isDevotionalSong(s)) return false;
+    const tKey = normalizeSongTitle(s.title, s.movie || s.album);
+    if (seenIds.has(s.id) || (tKey && seenTitles.has(tKey))) return false;
+    seenIds.add(s.id);
+    if (tKey) seenTitles.add(tKey);
+    collected.push(s);
+    return true;
+  };
+
+  // 1. Fetch official movie albums and their complete tracklists first
+  let canonicalCover = "";
+  try {
+    const aRes = await api.searchAlbums(albumTitle, 1, 10);
+    const albums = extractResults(aRes);
+    const relevantAlbums = albums.filter((a: any) => {
+      const aTitle = (a.name || a.title || "").toLowerCase();
+      return aTitle.includes(cleanTitle) || cleanTitle.includes(aTitle);
+    });
+
+    for (const a of relevantAlbums) {
+      const officialCover = a.image?.[2]?.url || a.image?.[0]?.url || "";
+      if (officialCover) {
+        if (!canonicalCover) canonicalCover = officialCover;
+        registerMovieCover(albumTitle, officialCover);
+        registerMovieCover(a.name || a.title, officialCover);
+      }
+      try {
+        const dRes = await api.getAlbumDetails(a.id);
+        const details = extractResults(dRes);
+        const songs = details.map(mapApiSong).map(cleanSong);
+        let addedAny = false;
+        for (const s of songs) {
+          if (canonicalCover && (!s.albumArt || s.albumArt.includes("default"))) {
+            s.albumArt = canonicalCover;
+          }
+          if (addSong(s)) addedAny = true;
+        }
+        if (addedAny && onProgress) {
+          onProgress([...collected]);
+        }
+      } catch {}
+    }
+  } catch {}
+
+  // 2. Multi-query exhaustive song search across all soundtrack releases & languages
+  const queries = [
+    `${albumTitle} songs`,
+    `${albumTitle} movie songs`,
+    `${albumTitle} original soundtrack`,
+    `${albumTitle} telugu`,
+    `${albumTitle} hindi`,
+    `${albumTitle} all songs`,
+  ];
+
+  for (const q of queries) {
+    try {
+      const pageSongs = await fetchAllPages(q, 6, seenIds);
+      let addedAny = false;
+      for (const s of pageSongs) {
+        const sAlbum = (s.album || "").toLowerCase();
+        const sMovie = (s.movie || "").toLowerCase();
+        const sTitle = (s.title || "").toLowerCase();
+        const isMatch =
+          sAlbum.includes(cleanTitle) ||
+          sMovie.includes(cleanTitle) ||
+          cleanTitle.includes(sAlbum) ||
+          cleanTitle.includes(sMovie) ||
+          sTitle.includes(cleanTitle) ||
+          sTitle.includes(`from "${cleanTitle}`) ||
+          sTitle.includes(`from &quot;${cleanTitle}`);
+
+        if (isMatch) {
+          if (canonicalCover && (!s.albumArt || s.albumArt.includes("default"))) {
+            s.albumArt = canonicalCover;
+          }
+          if (addSong(s)) addedAny = true;
+        }
+      }
+      if (addedAny && onProgress) {
+        onProgress([...collected]);
+      }
+    } catch {}
+  }
+
+  return collected;
 }
 
 async function fetchCurrentYearFilmAlbums(unmountedRef: React.RefObject<boolean>): Promise<AlbumData[]> {
@@ -602,12 +691,15 @@ async function fetchCurrentYearFilmAlbums(unmountedRef: React.RefObject<boolean>
   for (const r of results) {
     if (r.status !== "fulfilled") continue;
     for (const song of r.value) {
-      const title = song.album || song.movie || "";
+      // Prioritize the real movie title over generic compilation names
+      const title = song.movie || song.album || "";
       if (!title || title.length < 2) continue;
       const key = title.toLowerCase().trim();
       if (!albumMap.has(key)) albumMap.set(key, { songs: [], coverArt: "" });
       const entry = albumMap.get(key)!;
-      if (!entry.coverArt && song.albumArt) entry.coverArt = song.albumArt;
+      if ((!entry.coverArt || entry.coverArt.includes("default")) && song.albumArt && !song.albumArt.includes("default")) {
+        entry.coverArt = song.albumArt;
+      }
       if (song.id && !seen.has(song.id)) {
         seen.add(song.id);
         entry.songs.push(song);
@@ -797,12 +889,14 @@ function AlbumModal({
       (async () => {
         // High-speed parallel queries across multiple discography search terms & pages
         const queryBatches: { query: string; pages: number[] }[] = [
-          { query: `${name}`, pages: [1, 2, 3, 4, 5] },
-          { query: `${name} songs`, pages: [1, 2, 3, 4] },
-          { query: `${name} hits`, pages: [1, 2, 3, 4] },
-          { query: `${name} movie songs`, pages: [1, 2, 3] },
-          { query: `${name} best songs`, pages: [1, 2, 3] },
-          { query: `${name} all songs`, pages: [1, 2] },
+          { query: `${name}`, pages: [1, 2, 3, 4, 5, 6] },
+          { query: `${name} songs`, pages: [1, 2, 3, 4, 5, 6] },
+          { query: `${name} hits`, pages: [1, 2, 3, 4, 5] },
+          { query: `${name} movie songs`, pages: [1, 2, 3, 4] },
+          { query: `${name} best songs`, pages: [1, 2, 3, 4] },
+          { query: `${name} romantic songs`, pages: [1, 2, 3] },
+          { query: `${name} melody songs`, pages: [1, 2, 3] },
+          { query: `${name} all songs`, pages: [1, 2, 3] },
         ];
 
         for (const batch of queryBatches) {
@@ -856,7 +950,12 @@ function AlbumModal({
         }
       })();
     } else {
-      fetchAllMovieSongs(albumQuery, album.title)
+      fetchAllMovieSongs(albumQuery, album.title, (intermediate) => {
+        if (!controller.signal.aborted) {
+          const dedupped = deduplicateSongs(intermediate);
+          if (dedupped.length > 0) setSongs(dedupped);
+        }
+      })
         .then((fetched) => {
           if (!controller.signal.aborted) {
             const dedupped = deduplicateSongs(fetched);

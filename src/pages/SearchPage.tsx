@@ -583,12 +583,13 @@ function AlbumModal({
   );
 }
 
-async function fetchAllPages(query: string, maxPages = 60, seen?: Set<string>): Promise<Song[]> {
+async function fetchAllPages(query: string, maxPages = 20, seen?: Set<string>): Promise<Song[]> {
   const all: Song[] = [];
   const localSeen = seen || new Set<string>();
+  let consecutiveZeroAdded = 0;
   for (let page = 1; page <= maxPages; page++) {
     try {
-      if (page > 1) await sleep(200);
+      if (page > 1) await sleep(150);
       const res   = await api.searchSongs(query, page, 50);
       const items = extractResults(res);
       if (items.length === 0) break;
@@ -604,7 +605,13 @@ async function fetchAllPages(query: string, maxPages = 60, seen?: Set<string>): 
           added++;
         }
       }
-      if (items.length < 50 || added === 0) break;
+      if (added === 0) {
+        consecutiveZeroAdded++;
+        if (consecutiveZeroAdded >= 2) break;
+      } else {
+        consecutiveZeroAdded = 0;
+      }
+      if (items.length === 0) break;
     } catch {
       break;
     }
@@ -764,8 +771,22 @@ function ArtistModal({
 function groupIntoAlbums(songs: Song[]): Album[] {
   const map = new Map<string, Album>();
   for (const s of songs) {
-    const title = s.album || s.movie || "";
-    if (!title) continue;
+    // Prefer actual movie title over generic compilation names
+    let title = s.movie || s.album || "";
+    if (!title || title.length < 2) continue;
+    const lowerTitle = title.toLowerCase();
+    const isGeneric =
+      lowerTitle.includes("top 10") ||
+      lowerTitle.includes("top 20") ||
+      lowerTitle.includes("dhamaka") ||
+      lowerTitle.includes("party hits") ||
+      lowerTitle.includes("dance hits") ||
+      lowerTitle.includes("remix") ||
+      lowerTitle.includes("chartbusters");
+    if (isGeneric && s.movie && s.movie.length > 2) {
+      title = s.movie;
+    }
+
     const key = title.toLowerCase().trim();
     if (!map.has(key)) {
       map.set(key, {
@@ -779,7 +800,9 @@ function groupIntoAlbums(songs: Song[]): Album[] {
     }
     const album = map.get(key)!;
     if (!album.id && s.albumId) album.id = s.albumId;
-    if (!album.coverArt && s.albumArt) album.coverArt = s.albumArt;
+    if ((!album.coverArt || album.coverArt.includes("default")) && s.albumArt && !s.albumArt.includes("default")) {
+      album.coverArt = s.albumArt;
+    }
     const sTitleKey = s.title.toLowerCase().trim();
     if (!album.songs.some((existing) => existing.title.toLowerCase().trim() === sTitleKey)) {
       album.songs.push(s);
@@ -806,7 +829,9 @@ function groupIntoArtists(songs: Song[]): Artist[] {
     }
     const artist = map.get(key)!;
     if (!artist.id && s.artistId) artist.id = s.artistId;
-    if (!artist.coverArt && s.albumArt) artist.coverArt = s.albumArt;
+    if ((!artist.coverArt || artist.coverArt.includes("default")) && s.albumArt && !s.albumArt.includes("default")) {
+      artist.coverArt = s.albumArt;
+    }
     artist.songs.push(s);
   }
   return [...map.values()];
