@@ -172,6 +172,7 @@ async function fetchInvidiousStreams(videoId: string): Promise<VideoStream[]> {
 // Clean lyrics utility matching web app regex cleaning
 function cleanLyricsHtml(raw: string): string {
   return raw
+    .replace(/\[\d{2}:\d{2}\.\d{2,3}\]\s*/g, "") // strip LRC timestamps if any
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<[^>]+>/g, "")
     .replace(/&amp;/g, "&")
@@ -191,11 +192,15 @@ function extractLyricsText(data: any): string | null {
   const inner = data?.data ?? data;
   const candidates = [
     inner?.lyrics,
+    inner?.plainLyrics,
+    inner?.syncedLyrics,
     inner?.snippet,
     inner?.lyric,
     inner?.lyricsSnippet,
     inner?.lyrics_snippet,
     data?.lyrics,
+    data?.plainLyrics,
+    data?.syncedLyrics,
     data?.snippet,
     typeof inner === "string" ? inner : null,
     typeof data  === "string" ? data  : null,
@@ -214,16 +219,114 @@ function hasIndicCharacters(text: string): boolean {
   return /[\u0900-\u0DFF]/.test(text);
 }
 
-async function fetchLyrics(songId: string): Promise<string | null> {
-  try {
-    const res = await fetch(`https://musicbackend-7a1o.onrender.com/api/songs/${songId}/lyrics`);
-    if (res.status === 404) return null;
-    if (!res.ok) return null;
-    const data = await res.json();
-    return extractLyricsText(data);
-  } catch {
-    return null;
+export const fullPlayerLyricsCache = new Map<string, string | null>();
+
+export async function fetchLyrics(song: Song): Promise<string | null> {
+  if (!song || !song.id) return null;
+
+  // 1. Check in-memory session cache (0ms instant response)
+  if (fullPlayerLyricsCache.has(song.id)) {
+    return fullPlayerLyricsCache.get(song.id) || null;
   }
+
+  // 2. Check offline AsyncStorage cache (near-instant response)
+  try {
+    const cached = await AsyncStorage.getItem(`lyrics_cache_${song.id}`);
+    if (cached) {
+      fullPlayerLyricsCache.set(song.id, cached);
+      return cached;
+    }
+  } catch {}
+
+  // 3. Multi-source parallel fetch with fast timeouts
+  const cleanTitle = (song.title || "")
+    .replace(/\s*\([^)]*\)/g, "")
+    .replace(/\s*\[[^\]]*\]/g, "")
+    .replace(/[-_]/g, " ")
+    .trim();
+  const cleanArtist = (song.artist || "")
+    .split(",")[0]
+    ?.split("&")[0]
+    ?.split("ft.")[0]
+    ?.trim() || "";
+
+  // Provider A: LRCLIB (global fast CDN, sub-second latency)
+  const fetchFromLrclib = async (): Promise<string | null> => {
+    try {
+      const q = encodeURIComponent(`${cleanTitle} ${cleanArtist}`.trim());
+      const res = await Promise.race([
+        fetch(`https://lrclib.net/api/search?q=${q}`),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3500))
+      ]);
+      if (res.ok) {
+        const items = await res.json();
+        if (Array.isArray(items) && items.length > 0) {
+          const first = items[0];
+          const raw = first.plainLyrics || first.syncedLyrics || "";
+          if (raw && raw.trim().length > 10) {
+            return cleanLyricsHtml(raw);
+          }
+        }
+      }
+    } catch {}
+    return null;
+  };
+
+  // Provider B: Backend JioSaavn lyrics endpoint
+  const fetchFromBackend = async (): Promise<string | null> => {
+    if (song.id.startsWith("yt-")) return null;
+    try {
+      const res = await Promise.race([
+        fetch(`https://musicbackend-7a1o.onrender.com/api/songs/${encodeURIComponent(song.id)}/lyrics`),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 4000))
+      ]);
+      if (res.ok) {
+        const data = await res.json();
+        return extractLyricsText(data);
+      }
+    } catch {}
+    return null;
+  };
+
+  // Execute both in parallel, accepting whichever returns valid lyrics first
+  const lyricsText = await new Promise<string | null>((resolve) => {
+    let settledCount = 0;
+    let hasResolved = false;
+
+    const handleSuccess = (val: string | null) => {
+      if (val && !hasResolved) {
+        hasResolved = true;
+        resolve(val);
+      } else {
+        settledCount++;
+        if (settledCount >= 2 && !hasResolved) {
+          resolve(null);
+        }
+      }
+    };
+
+    fetchFromLrclib().then(handleSuccess).catch(() => handleSuccess(null));
+    fetchFromBackend().then(handleSuccess).catch(() => handleSuccess(null));
+
+    // Ultimate safeguard timeout (never hangs user's screen)
+    setTimeout(() => {
+      if (!hasResolved) {
+        hasResolved = true;
+        resolve(null);
+      }
+    }, 4500);
+  });
+
+  // 4. Save to caches
+  if (lyricsText) {
+    fullPlayerLyricsCache.set(song.id, lyricsText);
+    AsyncStorage.setItem(`lyrics_cache_${song.id}`, lyricsText).catch(() => {});
+    return lyricsText;
+  }
+
+  // Negative caching so we don't spam failed queries in the same session
+  fullPlayerLyricsCache.set(song.id, null);
+  return null;
 }
 
 export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
@@ -438,17 +541,26 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   // Load lyrics
   useEffect(() => {
     if (!currentSong || !showPlayer) return;
-    setLyricsLoading(true);
-    setLyrics("");
 
-    // If lyrics are already preloaded in the song object, use them immediately
+    // 1. If lyrics are already preloaded in the song object, use them immediately (0ms)
     if (currentSong.lyrics) {
       setLyrics(currentSong.lyrics);
       setLyricsLoading(false);
       return;
     }
 
-    fetchLyrics(currentSong.id).then((l) => {
+    // 2. If already in memory cache, display immediately (0ms)
+    if (fullPlayerLyricsCache.has(currentSong.id)) {
+      const hit = fullPlayerLyricsCache.get(currentSong.id);
+      setLyrics(hit ?? "");
+      setLyricsLoading(false);
+      return;
+    }
+
+    setLyricsLoading(true);
+    setLyrics("");
+
+    fetchLyrics(currentSong).then((l) => {
       setLyrics(l ?? "");
       setLyricsLoading(false);
     });

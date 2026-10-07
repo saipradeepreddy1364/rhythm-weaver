@@ -824,33 +824,107 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const progress = progressData.position;
   const duration = progressData.duration;
 
-  // Pre-fetch lyrics helper
-  const preloadLyrics = useCallback(async (songId: string) => {
+  // Pre-fetch lyrics helper with multi-source fallback (LRCLIB CDN + Render backend)
+  const preloadLyrics = useCallback(async (songOrId: string | Song) => {
+    if (!songOrId) return;
+    const songId = typeof songOrId === "string" ? songOrId : songOrId.id;
     if (!songId) return;
+
+    const song = typeof songOrId === "object" ? songOrId : queueRef.current.find((s) => s.id === songId);
+    const title = song?.title || "";
+    const artist = song?.artist || "";
+
+    const cleanTitle = title
+      .replace(/\s*\([^)]*\)/g, "")
+      .replace(/\s*\[[^\]]*\]/g, "")
+      .replace(/[-_]/g, " ")
+      .trim();
+    const cleanArtist = artist.split(",")[0]?.split("&")[0]?.trim() || "";
+
     try {
-      const res = await fetch(`https://musicbackend-7a1o.onrender.com/api/songs/${encodeURIComponent(songId)}/lyrics`);
-      if (res.ok) {
-        const data = await res.json();
-        // Extract lyrics text from LRCLIB response structure
-        let text = "";
-        if (data.data) {
-          text = data.data.syncedLyrics || data.data.plainLyrics || "";
-        } else {
-          text = data.syncedLyrics || data.plainLyrics || "";
-        }
-        if (text) {
-          // Write it directly to the Song object in our queue if it matches!
+      // 0. Check AsyncStorage cache
+      try {
+        const cached = await AsyncStorage.getItem(`lyrics_cache_${songId}`);
+        if (cached) {
+          setCurrentSong((curr) => {
+            if (curr && curr.id === songId && !curr.lyrics) {
+              return { ...curr, lyrics: cached };
+            }
+            return curr;
+          });
           setQueue((prevQueue) => {
             const index = prevQueue.findIndex((s) => s.id === songId);
             if (index !== -1 && !prevQueue[index].lyrics) {
               const updated = [...prevQueue];
-              updated[index] = { ...updated[index], lyrics: text };
+              updated[index] = { ...updated[index], lyrics: cached };
               return updated;
             }
             return prevQueue;
           });
-          console.log(`[PlayerContext] Successfully pre-loaded lyrics for songId: ${songId}`);
+          return;
         }
+      } catch {}
+
+      // 1. Fast LRCLIB CDN fetch (under 800ms)
+      let text = "";
+      if (cleanTitle) {
+        try {
+          const q = encodeURIComponent(`${cleanTitle} ${cleanArtist}`.trim());
+          const lrcRes = await Promise.race([
+            fetch(`https://lrclib.net/api/search?q=${q}`),
+            new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3000))
+          ]);
+          if (lrcRes.ok) {
+            const items = await lrcRes.json();
+            if (Array.isArray(items) && items.length > 0) {
+              const first = items[0];
+              const raw = first.plainLyrics || first.syncedLyrics || "";
+              if (raw && raw.trim().length > 10) {
+                text = raw.replace(/\[\d{2}:\d{2}\.\d{2,3}\]\s*/g, "").trim();
+              }
+            }
+          }
+        } catch {}
+      }
+
+      // 2. Fallback to backend JioSaavn lyrics
+      if (!text && !songId.startsWith("yt-")) {
+        try {
+          const res = await Promise.race([
+            fetch(`https://musicbackend-7a1o.onrender.com/api/songs/${encodeURIComponent(songId)}/lyrics`),
+            new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3500))
+          ]);
+          if (res.ok) {
+            const data = await res.json();
+            const inner = data?.data ?? data;
+            const raw = inner?.lyrics || inner?.plainLyrics || inner?.snippet || "";
+            if (raw && raw.trim().length > 10) {
+              text = raw.replace(/<[^>]+>/g, "").replace(/\[\d{2}:\d{2}\.\d{2,3}\]\s*/g, "").trim();
+            }
+          }
+        } catch {}
+      }
+
+      if (text) {
+        AsyncStorage.setItem(`lyrics_cache_${songId}`, text).catch(() => {});
+
+        setCurrentSong((curr) => {
+          if (curr && curr.id === songId && !curr.lyrics) {
+            return { ...curr, lyrics: text };
+          }
+          return curr;
+        });
+
+        setQueue((prevQueue) => {
+          const index = prevQueue.findIndex((s) => s.id === songId);
+          if (index !== -1 && !prevQueue[index].lyrics) {
+            const updated = [...prevQueue];
+            updated[index] = { ...updated[index], lyrics: text };
+            return updated;
+          }
+          return prevQueue;
+        });
+        console.log(`[PlayerContext] Successfully pre-loaded lyrics for songId: ${songId}`);
       }
     } catch (e) {
       console.warn("[PlayerContext] Failed to pre-fetch lyrics:", e);
@@ -1291,6 +1365,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       logPlayback(songToLog);
       DeviceEventEmitter.emit("RECORD_RECENTLY_PLAYED", songToLog);
 
+      // Preload lyrics immediately for current active track
+      if (songToLog && songToLog.id && !songToLog.lyrics) {
+        preloadLyrics(songToLog);
+      }
+
       // Sync with back/forward history stack
       if (songToLog && songToLog.id) {
         if (!isNavigatingHistoryRef.current) {
@@ -1385,6 +1464,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setCurrentSong(song);
       logPlayback(song);
       DeviceEventEmitter.emit("RECORD_RECENTLY_PLAYED", song);
+
+      // Preload lyrics immediately for selected track and next in queue
+      if (!song.lyrics) {
+        preloadLyrics(song);
+      }
+      if (q[safeIdx + 1] && !q[safeIdx + 1].lyrics) {
+        preloadLyrics(q[safeIdx + 1]);
+      }
 
       isSettingUpQueueRef.current = true;
       try {
