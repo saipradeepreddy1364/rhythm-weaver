@@ -518,6 +518,13 @@ function AlbumModal({
         const raw = extractResults(res);
         const mapped = raw.map(mapApiSong).map(cleanSong).filter((s) => s.audioUrl);
         if (mapped.length > 0) {
+          if (album.coverArt) {
+            mapped.forEach((s) => {
+              if (!s.albumArt || s.albumArt.includes("default")) {
+                s.albumArt = album.coverArt;
+              }
+            });
+          }
           setSongs(mapped);
         }
         setLoading(false);
