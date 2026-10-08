@@ -293,6 +293,20 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
   const [loadingMore, setLoadingMore] = useState(false);
   const [pageBatch, setPageBatch] = useState(1);
 
+  // Instantly restore cached recommended videos so they display directly without delay
+  useEffect(() => {
+    AsyncStorage.getItem("@rw_cached_recommended_videos")
+      .then((raw) => {
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setRecommendedVideos((prev) => (prev.length === 0 ? parsed : prev));
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // Live YouTube Autocomplete Search Suggestions
   useEffect(() => {
     if (isSelectingSuggestionRef.current) {
@@ -422,7 +436,9 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
         }
 
         if (isMounted && recItems.length > 0) {
-          setRecommendedVideos(recItems.slice(0, 15));
+          const finalRecs = recItems.slice(0, 15);
+          setRecommendedVideos(finalRecs);
+          AsyncStorage.setItem("@rw_cached_recommended_videos", JSON.stringify(finalRecs)).catch(() => {});
         }
       } catch (err) {
         console.warn("[VideosPage] Failed to fetch recommended videos:", err);
@@ -2521,64 +2537,54 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
             </View>
           ) : (
             <>
-              {!query.trim() && (recommendedVideos.length > 0 || recommendedLoading) && (
+              {!query.trim() && recommendedVideos.length > 0 && (
                 <View style={styles.recSection}>
                   <View style={styles.recShelfHeader}>
                     <View style={{ flexDirection: "row", alignItems: "center" }}>
                       <MaterialCommunityIcons name="star-four-points" size={20} color="#1DB954" style={{ marginRight: 8 }} />
-                      <View>
-                        <Text style={styles.recShelfTitle}>Recommended For You</Text>
-                        <Text style={styles.recShelfSubtitle}>Based on your recent playlist & songs</Text>
-                      </View>
+                      <Text style={styles.recShelfTitle}>Recommended For You</Text>
                     </View>
                   </View>
 
-                  {recommendedLoading && recommendedVideos.length === 0 ? (
-                    <View style={styles.recLoaderContainer}>
-                      <ActivityIndicator size="small" color="#1DB954" />
-                      <Text style={styles.recLoaderText}>Finding video recommendations...</Text>
-                    </View>
-                  ) : (
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      nestedScrollEnabled={true}
-                      contentContainerStyle={styles.recShelfScrollContent}
-                    >
-                      {recommendedVideos.map((recItem) => (
-                        <TouchableOpacity
-                          delayPressIn={0}
-                          key={`rec_${recItem.id}`}
-                          style={styles.recVideoCard}
-                          onPress={() => {
-                            setVideos((prev) => {
-                              if (prev.some((v) => v.id === recItem.id || (v.videoId && v.videoId === recItem.videoId))) {
-                                return prev;
-                              }
-                              return [recItem, ...prev];
-                            });
-                            handleVideoCardPress(recItem);
-                          }}
-                          activeOpacity={0.85}
-                        >
-                          <View style={styles.recThumbnailContainer}>
-                            <Image source={{ uri: recItem.thumbnail }} style={styles.recThumbnail} />
-                            <View style={styles.recPlayBadge}>
-                              <MaterialCommunityIcons name="play" size={16} color="#000" />
-                            </View>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    nestedScrollEnabled={true}
+                    contentContainerStyle={styles.recShelfScrollContent}
+                  >
+                    {recommendedVideos.map((recItem) => (
+                      <TouchableOpacity
+                        delayPressIn={0}
+                        key={`rec_${recItem.id}`}
+                        style={styles.recVideoCard}
+                        onPress={() => {
+                          setVideos((prev) => {
+                            if (prev.some((v) => v.id === recItem.id || (v.videoId && v.videoId === recItem.videoId))) {
+                              return prev;
+                            }
+                            return [recItem, ...prev];
+                          });
+                          handleVideoCardPress(recItem);
+                        }}
+                        activeOpacity={0.85}
+                      >
+                        <View style={styles.recThumbnailContainer}>
+                          <Image source={{ uri: recItem.thumbnail }} style={styles.recThumbnail} />
+                          <View style={styles.recPlayBadge}>
+                            <MaterialCommunityIcons name="play" size={16} color="#000" />
                           </View>
-                          <View style={styles.recMeta}>
-                            <Text style={styles.recTitle} numberOfLines={2}>
-                              {recItem.title}
-                            </Text>
-                            <Text style={styles.recArtist} numberOfLines={1}>
-                              {recItem.artist}
-                            </Text>
-                          </View>
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
-                  )}
+                        </View>
+                        <View style={styles.recMeta}>
+                          <Text style={styles.recTitle} numberOfLines={2}>
+                            {recItem.title}
+                          </Text>
+                          <Text style={styles.recArtist} numberOfLines={1}>
+                            {recItem.artist}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
                 </View>
               )}
 
