@@ -1590,18 +1590,32 @@ function HomePageComponent({ onRequireAuth, setParentScrollEnabled }: HomePagePr
   const [randomSeed] = useState(() => Math.floor(Math.random() * 100000));
   const [quickPickSongs, setQuickPickSongs] = useState<Song[]>([]);
 
-  // Recommendations based on recently played past songs
+  // Recommendations based on all recently played past songs
   const [basedOnPastSongs, setBasedOnPastSongs] = useState<Song[]>([]);
   const [basedOnPastLoading, setBasedOnPastLoading] = useState(false);
   const lastRecSeedIdsRef = useRef<string>("");
 
+  // Instantly restore cached recommendations on mount
+  useEffect(() => {
+    AsyncStorage.getItem("@rw_cached_home_recommendations")
+      .then((raw) => {
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setBasedOnPastSongs((prev) => (prev.length === 0 ? parsed : prev));
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     if (!recentlyPlayed || recentlyPlayed.length === 0) {
-      setBasedOnPastSongs([]);
       return;
     }
 
-    const seeds = recentlyPlayed.slice(0, 4);
+    // Take broad representation from ALL recently played songs (up to 12 songs)
+    const seeds = recentlyPlayed.slice(0, 12);
     const seedIds = seeds.map((s) => s.id).join(",");
     if (seedIds === lastRecSeedIdsRef.current) return;
     lastRecSeedIdsRef.current = seedIds;
@@ -1610,7 +1624,6 @@ function HomePageComponent({ onRequireAuth, setParentScrollEnabled }: HomePagePr
     const loadPastRecommendations = async () => {
       setBasedOnPastLoading(true);
       try {
-        const collected: Song[] = [];
         // Strictly exclude ALL recently played songs by both ID and normalized title
         const seenSongIds = new Set<string>();
         const seenSongKeys = new Set<string>();
@@ -1620,80 +1633,92 @@ function HomePageComponent({ onRequireAuth, setParentScrollEnabled }: HomePagePr
           if (norm) seenSongKeys.add(norm);
         }
 
-        // Build diverse recommendation queries from seeds (artists, films, language)
-        const queries: string[] = [];
-        const seenQueries = new Set<string>();
-
-        for (const seed of seeds) {
+        // Fetch candidate recommendations for each individual seed
+        const bucketPromises = seeds.map(async (seed) => {
+          const candidates: Song[] = [];
           const lang = (seed.language || "").toLowerCase().trim();
           const isHindi = lang.includes("hindi") || /hindi/i.test(`${seed.movie} ${seed.album}`);
           const targetLang = isHindi ? "hindi" : "telugu";
 
-          // 1. Artist hits query
+          // 1. Try getSongSuggestions for accurate JioSaavn similarity
+          if (seed.id && !seed.id.startsWith("yt-")) {
+            try {
+              const sugRes = await api.getSongSuggestions(seed.id);
+              const raw = sugRes?.data || sugRes?.results || [];
+              if (Array.isArray(raw) && raw.length > 0) {
+                for (const item of raw) {
+                  const s = mapApiSong(item);
+                  if (!s || !s.id || !s.audioUrl || isDevotionalSong(s)) continue;
+                  const sLang = (s.language || "").toLowerCase();
+                  if (sLang && !sLang.includes("telugu") && !sLang.includes("hindi")) continue;
+                  candidates.push(cleanSong(s));
+                }
+              }
+            } catch {}
+          }
+
+          // 2. Also search artist or movie hits for this seed
           const rawArtist = seed.artist || "";
           const cleanArtist = rawArtist.split(",")[0]?.split("&")[0]?.split("ft.")[0]?.trim();
-          if (cleanArtist && cleanArtist.length > 2 && cleanArtist.toLowerCase() !== "unknown artist" && cleanArtist.toLowerCase() !== "youtube") {
-            const q = `${cleanArtist} ${targetLang} hits`;
-            if (!seenQueries.has(q.toLowerCase())) {
-              seenQueries.add(q.toLowerCase());
-              queries.push(q);
-            }
-          }
-
-          // 2. Movie/Album songs query
           const cleanMovie = (seed.movie || seed.album || "").trim();
-          if (cleanMovie && cleanMovie.length > 2 && !/^(single|album|ep|hits|original)$/i.test(cleanMovie)) {
-            const q = `${cleanMovie} ${targetLang} songs`;
-            if (!seenQueries.has(q.toLowerCase())) {
-              seenQueries.add(q.toLowerCase());
-              queries.push(q);
-            }
+
+          let q = "";
+          if (cleanArtist && cleanArtist.length > 2 && cleanArtist.toLowerCase() !== "unknown artist" && cleanArtist.toLowerCase() !== "youtube") {
+            q = `${cleanArtist} ${targetLang} hits`;
+          } else if (cleanMovie && cleanMovie.length > 2 && !/^(single|album|ep|hits|original)$/i.test(cleanMovie)) {
+            q = `${cleanMovie} ${targetLang} songs`;
           }
-        }
 
-        // 3. Add language trending queries matching recent languages
-        const hasTelugu = seeds.some(s => !(s.language || "").toLowerCase().includes("hindi"));
-        const hasHindi = seeds.some(s => (s.language || "").toLowerCase().includes("hindi"));
-        if (hasTelugu) queries.push("trending telugu superhit songs 2026", "top telugu melody hits 2026");
-        if (hasHindi) queries.push("trending hindi blockbuster songs 2026", "top hindi romantic hits 2026");
-        if (!hasTelugu && !hasHindi) {
-          queries.push("trending telugu superhit songs 2026", "trending hindi blockbuster songs 2026");
-        }
+          if (q) {
+            try {
+              const sRes = await api.searchSongs(q, 1, 10);
+              const items = extractResults(sRes);
+              for (const item of items) {
+                const s = mapApiSong(item);
+                if (!s || !s.id || !s.audioUrl || isDevotionalSong(s)) continue;
+                const sLang = (s.language || "").toLowerCase();
+                if (sLang && !sLang.includes("telugu") && !sLang.includes("hindi")) continue;
+                candidates.push(cleanSong(s));
+              }
+            } catch {}
+          }
 
-        // 4. Fetch recommendation queries
-        const targetQueries = queries.slice(0, 5);
-        const searchPromises = targetQueries.map(q => api.searchSongs(q, 1, 15).catch(() => null));
-        const searchResults = await Promise.all(searchPromises);
+          return candidates;
+        });
 
-        for (const res of searchResults) {
-          if (!res) continue;
-          const items = extractResults(res);
-          for (const item of items) {
-            const s = mapApiSong(item);
-            if (!s || !s.id || !s.audioUrl || isDevotionalSong(s)) continue;
+        const seedBuckets = await Promise.all(bucketPromises);
 
-            // Restrict language to Telugu and Hindi
-            const sLang = (s.language || "").toLowerCase();
-            if (sLang && !sLang.includes("telugu") && !sLang.includes("hindi")) continue;
-
+        // Filter each bucket against seenSongIds and seenSongKeys
+        const filteredBuckets = seedBuckets.map((bucket) =>
+          bucket.filter((s) => {
             const norm = normalizeSongTitle(s.title, s.movie || s.album);
-            // CRUCIAL: Exclude the song played and any recently played song!
-            if (seenSongIds.has(s.id) || (norm && seenSongKeys.has(norm))) {
-              continue;
+            return !seenSongIds.has(s.id) && (!norm || !seenSongKeys.has(norm));
+          })
+        );
+
+        // Fair round-robin / interleave across ALL recent song seeds so recommendations
+        // are balanced across all recently played songs rather than just the last song
+        const collected: Song[] = [];
+        const maxLen = Math.max(0, ...filteredBuckets.map((b) => b.length));
+        for (let round = 0; round < maxLen; round++) {
+          for (let i = 0; i < filteredBuckets.length; i++) {
+            const s = filteredBuckets[i][round];
+            if (s && !seenSongIds.has(s.id)) {
+              const norm = normalizeSongTitle(s.title, s.movie || s.album);
+              if (!norm || !seenSongKeys.has(norm)) {
+                seenSongIds.add(s.id);
+                if (norm) seenSongKeys.add(norm);
+                collected.push(s);
+                if (collected.length >= 25) break;
+              }
             }
-
-            seenSongIds.add(s.id);
-            if (norm) seenSongKeys.add(norm);
-            collected.push(cleanSong(s));
-
-            if (collected.length >= 25) break;
           }
           if (collected.length >= 25) break;
         }
 
-        // 5. Fallback if collected has fewer than 10 songs: backfill from sections
+        // Fallback: If collected has fewer than 10 songs, backfill from home sections
         if (collected.length < 10) {
-          const fallbackPool = sections.flatMap(sec => sec.songs);
+          const fallbackPool = sections.flatMap((sec) => sec.songs);
           for (const s of fallbackPool) {
             if (!s || !s.id || !s.audioUrl || isDevotionalSong(s)) continue;
             const norm = normalizeSongTitle(s.title, s.movie || s.album);
@@ -1706,7 +1731,9 @@ function HomePageComponent({ onRequireAuth, setParentScrollEnabled }: HomePagePr
         }
 
         if (isMounted && collected.length > 0) {
-          setBasedOnPastSongs(collected.slice(0, 20));
+          const finalRecs = collected.slice(0, 20);
+          setBasedOnPastSongs(finalRecs);
+          AsyncStorage.setItem("@rw_cached_home_recommendations", JSON.stringify(finalRecs)).catch(() => {});
         }
       } catch (e) {
         console.warn("[HomePage] Failed to fetch recommendations based on past songs:", e);

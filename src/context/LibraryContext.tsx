@@ -67,6 +67,9 @@ interface LibraryContextType {
   toggleLikeVideo: (video: any) => Promise<void>;
   isVideoLiked: (video: any) => boolean;
   loadLikedVideos: () => Promise<void>;
+  recentlyPlayedVideos: any[];
+  addToRecentlyPlayedVideos: (video: any) => Promise<void>;
+  loadRecentlyPlayedVideos: () => Promise<void>;
 }
 
 // ─── Dual-Layer File System Backup Helper ────────────────────────────────────
@@ -78,6 +81,7 @@ async function saveLibraryToFileBackup(patch: {
   likedVideos?: any[];
   playlists?: StoredPlaylist[];
   recentlyPlayed?: Song[];
+  recentlyPlayedVideos?: any[];
 }) {
   try {
     let currentData: any = {};
@@ -189,6 +193,10 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const likedVideosRef = useRef<any[]>([]);
   likedVideosRef.current = likedVideos;
   const likedVideosSeq = useRef(0);
+
+  const [recentlyPlayedVideos, setRecentlyPlayedVideos] = useState<any[]>([]);
+  const recentlyPlayedVideosRef = useRef<any[]>([]);
+  recentlyPlayedVideosRef.current = recentlyPlayedVideos;
 
 
   // ── Single sequential liked-songs initializer ─────────────────────────────
@@ -600,11 +608,46 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     setStoredPlaylists([]);
   }, []);
 
+  // ── Load recently played videos ──────────────────────────────────────────────
+  const loadRecentlyPlayedVideos = useCallback(async () => {
+    try {
+      const raw = await localStorage.getItemAsync("rw_recently_played_videos") || await AsyncStorage.getItem("rw_recently_played_videos");
+      if (raw) {
+        const val = JSON.parse(raw);
+        if (Array.isArray(val) && val.length > 0) {
+          setRecentlyPlayedVideos(val);
+          return;
+        }
+      }
+    } catch {}
+    setRecentlyPlayedVideos([]);
+  }, []);
+
+  const addToRecentlyPlayedVideos = useCallback(async (video: any) => {
+    if (!video || (!video.videoId && !video.id)) return;
+    const vId = video.videoId || video.id;
+    let newRecent: any[] = [];
+    setRecentlyPlayedVideos((prev) => {
+      const filtered = prev.filter((v) => (v.videoId || v.id) !== vId);
+      newRecent = [video, ...filtered].slice(0, 50);
+      return newRecent;
+    });
+
+    try {
+      const json = JSON.stringify(newRecent);
+      await localStorage.setItemAsync("rw_recently_played_videos", json);
+      await AsyncStorage.setItem("rw_recently_played_videos", json);
+      saveLibraryToFileBackup({ recentlyPlayedVideos: newRecent }).catch(() => {});
+      DeviceEventEmitter.emit("RECENTLY_PLAYED_VIDEOS_UPDATED");
+    } catch {}
+  }, []);
+
   // Load non-liked data on mount & listen for recently played updates
   useEffect(() => {
     loadRecentlyPlayed();
     loadPlaylists();
-  }, [loadRecentlyPlayed, loadPlaylists]);
+    loadRecentlyPlayedVideos();
+  }, [loadRecentlyPlayed, loadPlaylists, loadRecentlyPlayedVideos]);
 
   // ── Derived playlists ─────────────────────────────────────────────────────────
 
@@ -630,13 +673,21 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const sub = DeviceEventEmitter.addListener("RECORD_RECENTLY_PLAYED", (song: Song) => {
+    const subSong = DeviceEventEmitter.addListener("RECORD_RECENTLY_PLAYED", (song: Song) => {
       if (song && song.id) {
         addToRecentlyPlayed(song);
       }
     });
-    return () => sub.remove();
-  }, [addToRecentlyPlayed]);
+    const subVideo = DeviceEventEmitter.addListener("RECORD_VIDEO_PLAYED", (video: any) => {
+      if (video) {
+        addToRecentlyPlayedVideos(video);
+      }
+    });
+    return () => {
+      subSong.remove();
+      subVideo.remove();
+    };
+  }, [addToRecentlyPlayed, addToRecentlyPlayedVideos]);
 
   // ── Like / Unlike ─────────────────────────────────────────────────────────────
 
@@ -966,6 +1017,9 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         toggleLikeVideo,
         isVideoLiked,
         loadLikedVideos,
+        recentlyPlayedVideos,
+        addToRecentlyPlayedVideos,
+        loadRecentlyPlayedVideos,
       }}
     >
       {children}

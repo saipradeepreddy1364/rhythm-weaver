@@ -277,7 +277,7 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
 }
 
 function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemPip: isSystemPipProp }: { onRequireAuth: () => void; activeTab?: string; floatingOnly?: boolean; isSystemPip?: boolean }) {
-  const { likedVideos, toggleLikeVideo, isVideoLiked, recentlyPlayed, playlists } = useLibrary();
+  const { likedVideos, toggleLikeVideo, isVideoLiked, recentlyPlayedVideos, addToRecentlyPlayedVideos } = useLibrary();
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -338,32 +338,14 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
   }, [query]);
   const [activeVideo, setActiveVideo] = useState<VideoItem | null>(null);
 
-  // Recommendations based on recently played songs and recent playlists
+  // Recommendations based exclusively on previously played videos (completely independent)
   useEffect(() => {
-    const seedCandidates: Song[] = [];
-    if (recentlyPlayed && recentlyPlayed.length > 0) {
-      seedCandidates.push(...recentlyPlayed.slice(0, 5));
-    }
-    if (seedCandidates.length < 5 && playlists && playlists.length > 0) {
-      for (const pl of playlists) {
-        if (Array.isArray(pl.songs) && pl.songs.length > 0) {
-          for (const s of pl.songs) {
-            if (!seedCandidates.some((c) => c.id === s.id)) {
-              seedCandidates.push(s);
-            }
-            if (seedCandidates.length >= 5) break;
-          }
-        }
-        if (seedCandidates.length >= 5) break;
-      }
-    }
-
-    if (seedCandidates.length === 0) {
-      setRecommendedVideos([]);
+    if (!recentlyPlayedVideos || recentlyPlayedVideos.length === 0) {
       return;
     }
 
-    const seedKey = seedCandidates.map((s) => s.id || s.title).join("|");
+    const seeds = recentlyPlayedVideos.slice(0, 8);
+    const seedKey = seeds.map((s) => s.videoId || s.id).join("|");
     if (seedKey === lastRecVideoSeedRef.current) return;
     lastRecVideoSeedRef.current = seedKey;
 
@@ -374,41 +356,30 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
         const queries: string[] = [];
         const seenQuery = new Set<string>();
 
-        for (const seed of seedCandidates) {
-          if (!seed.id || seed.id.startsWith("yt-")) {
-            const q = `${seed.title} ${seed.movie || seed.artist || ""} video song`.trim();
-            if (!seenQuery.has(q.toLowerCase())) {
-              seenQuery.add(q.toLowerCase());
-              queries.push(q);
-            }
-            continue;
+        for (const seed of seeds) {
+          // Clean title by stripping tags like (Official Video), [4K], Full Song, etc.
+          const cleanTitle = (seed.title || "")
+            .replace(/\s*\([^)]*(official|video|audio|lyrical|song|4k|hd|remix|full)[^)]*\)/gi, "")
+            .replace(/\s*\[[^\]]*(official|video|audio|lyrical|song|4k|hd|remix|full)[^\]]*\]/gi, "")
+            .replace(/\s*-\s*(official|video|audio|lyrical|song|4k|hd|remix|full).*/gi, "")
+            .trim();
+
+          const cleanArtist = (seed.artist || "")
+            .replace(/vevo|official|channel|music|records/gi, "")
+            .trim();
+
+          const q1 = `${cleanTitle} video song`.trim();
+          if (cleanTitle.length > 2 && !seenQuery.has(q1.toLowerCase())) {
+            seenQuery.add(q1.toLowerCase());
+            queries.push(q1);
           }
 
-          try {
-            const res = await api.getSongSuggestions(seed.id);
-            const raw = res?.data || res?.results || [];
-            if (Array.isArray(raw) && raw.length > 0) {
-              for (const item of raw.slice(0, 3)) {
-                const s = mapApiSong(item);
-                if (s && s.title) {
-                  const lang = (s.language || "").toLowerCase();
-                  if (lang && !lang.includes("telugu") && !lang.includes("hindi")) {
-                    continue;
-                  }
-                  const q = `${s.title} ${s.movie || s.artist || ""} video song`.trim();
-                  if (!seenQuery.has(q.toLowerCase())) {
-                    seenQuery.add(q.toLowerCase());
-                    queries.push(q);
-                  }
-                }
-              }
+          if (cleanArtist && cleanArtist.length > 2 && cleanArtist.toLowerCase() !== "youtube") {
+            const q2 = `${cleanArtist} video songs`.trim();
+            if (!seenQuery.has(q2.toLowerCase())) {
+              seenQuery.add(q2.toLowerCase());
+              queries.push(q2);
             }
-          } catch {}
-
-          const seedQ = `${seed.title} ${seed.movie || seed.artist || ""} video song`.trim();
-          if (!seenQuery.has(seedQ.toLowerCase())) {
-            seenQuery.add(seedQ.toLowerCase());
-            queries.push(seedQ);
           }
 
           if (queries.length >= 8) break;
@@ -419,24 +390,44 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
         const searchPromises = queries.slice(0, 6).map((q) => searchYouTubeVideos(q));
         const results = await Promise.allSettled(searchPromises);
 
-        const recItems: VideoItem[] = [];
+        const recBuckets: VideoItem[][] = [];
         const seenVIds = new Set<string>();
+        // Exclude all previously played videos so recommendations are fresh
+        for (const played of recentlyPlayedVideos) {
+          if (played.videoId) seenVIds.add(played.videoId);
+        }
 
         for (const r of results) {
           if (r.status === "fulfilled" && Array.isArray(r.value)) {
-            for (const item of r.value.slice(0, 3)) {
+            const bucket: VideoItem[] = [];
+            for (const item of r.value) {
               if (item.videoId && !seenVIds.has(item.videoId)) {
                 const isFolk = /\b(folk|janapada|janapadha|teenmaar)\b/i.test(`${item.title} ${item.artist}`);
                 if (isFolk) continue;
                 seenVIds.add(item.videoId);
-                recItems.push(item);
+                bucket.push(item);
+                if (bucket.length >= 4) break;
               }
             }
+            if (bucket.length > 0) recBuckets.push(bucket);
           }
         }
 
-        if (isMounted && recItems.length > 0) {
-          const finalRecs = recItems.slice(0, 15);
+        // Fair round-robin / interleave across all video seeds
+        const interleaved: VideoItem[] = [];
+        const maxLen = Math.max(0, ...recBuckets.map((b) => b.length));
+        for (let i = 0; i < maxLen; i++) {
+          for (const bucket of recBuckets) {
+            if (bucket[i]) {
+              interleaved.push(bucket[i]);
+              if (interleaved.length >= 20) break;
+            }
+          }
+          if (interleaved.length >= 20) break;
+        }
+
+        if (isMounted && interleaved.length > 0) {
+          const finalRecs = interleaved.slice(0, 15);
           setRecommendedVideos(finalRecs);
           AsyncStorage.setItem("@rw_cached_recommended_videos", JSON.stringify(finalRecs)).catch(() => {});
         }
@@ -451,7 +442,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
     return () => {
       isMounted = false;
     };
-  }, [recentlyPlayed, playlists]);
+  }, [recentlyPlayedVideos]);
   const [isMinimized, setIsMinimized] = useState(false);
   const [selectedInstanceIndex, setSelectedInstanceIndex] = useState(0);
   const [isVideoBlocked, setIsVideoBlocked] = useState(false);
@@ -1299,6 +1290,9 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
     try {
       TrackPlayer.pause().catch(() => {});
     } catch {}
+    if (addToRecentlyPlayedVideos) {
+      addToRecentlyPlayedVideos(item).catch(() => {});
+    }
     setSelectedInstanceIndex(0);
     setIsVideoBlocked(false);
     setIsMinimized(false);
