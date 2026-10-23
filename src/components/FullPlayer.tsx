@@ -52,7 +52,7 @@ async function resolveVideoStreams(song: Song): Promise<VideoStream[]> {
   // 2. If it's a JioSaavn song, try the backend's video-url matching first
   try {
     const res = await Promise.race([
-      fetch(`https://musicbackend-7a1o.onrender.com/api/songs/${songId}/video-url`),
+      fetch(`https://musicbackend-xg4u.onrender.com/api/songs/${songId}/video-url`),
       new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
     ]);
     if (res.ok) {
@@ -277,7 +277,7 @@ export async function fetchLyrics(song: Song): Promise<string | null> {
     if (song.id.startsWith("yt-")) return null;
     try {
       const res = await Promise.race([
-        fetch(`https://musicbackend-7a1o.onrender.com/api/songs/${encodeURIComponent(song.id)}/lyrics`),
+        fetch(`https://musicbackend-xg4u.onrender.com/api/songs/${encodeURIComponent(song.id)}/lyrics`),
         new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 2500))
       ]);
       if (res.ok) {

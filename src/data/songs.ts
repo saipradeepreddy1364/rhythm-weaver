@@ -130,7 +130,7 @@ export function mapApiSong(item: any): Song {
     audioUrl = item.audioUrl || item.audio_url || item.url || item.media_url || item.mediaUrl || "";
   }
   if (!audioUrl && rawId) {
-    audioUrl = `https://musicbackend-7a1o.onrender.com/api/songs/${rawId}/stream`;
+    audioUrl = `https://musicbackend-xg4u.onrender.com/api/songs/${rawId}/stream`;
   }
 
   // ── Artists ────────────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 // ─── Base URL ─────────────────────────────────────────────────────────────────
-const BASE_URL =
-  (typeof process !== "undefined" && process.env?.VITE_API_BACKEND_URL) ||
-  "https://musicbackend-7a1o.onrender.com/api";
+export const BASE_URL =
+  (typeof process !== "undefined" && (process.env?.VITE_API_BASE_URL || process.env?.VITE_API_BACKEND_URL)) ||
+  "https://musicbackend-xg4u.onrender.com/api";
 
 // Silent warm-up ping — wakes the Render free-tier backend on app start
 // so it's ready by the time the user opens the Lyrics tab (cold-start ~30s)
