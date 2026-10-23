@@ -28,12 +28,6 @@ export const PlaybackService = async () => {
   TrackPlayer.addEventListener(Event.RemoteDuck, (event) => {
     if (event.permanent) {
       TrackPlayer.pause().catch(() => {});
-    } else {
-      if (event.paused) {
-        TrackPlayer.pause().catch(() => {});
-      } else {
-        TrackPlayer.play().catch(() => {});
-      }
     }
   });
 };

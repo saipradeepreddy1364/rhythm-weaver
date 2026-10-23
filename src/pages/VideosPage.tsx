@@ -448,6 +448,9 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
   const [isVideoBlocked, setIsVideoBlocked] = useState(false);
   const [showPipControls, setShowPipControls] = useState(false);
   const [isPipPlaying, setIsPipPlaying] = useState(true);
+  const isPipPlayingRef = useRef(isPipPlaying);
+  isPipPlayingRef.current = isPipPlaying;
+  const wasVideoPlayingBeforeInterruptionRef = useRef(false);
   const userToggleTimeRef = useRef<number>(0);
   const [isSystemPip, setIsSystemPip] = useState(isSystemPipProp || false);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -1126,15 +1129,29 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
     });
 
     const pauseSub2 = DeviceEventEmitter.addListener("PAUSE_VIDEO", () => {
+      if (isPipPlayingRef.current) {
+        wasVideoPlayingBeforeInterruptionRef.current = true;
+      }
       if (webViewRef.current) {
         webViewRef.current.postMessage(JSON.stringify({ type: 'TOGGLE_PLAY', play: false }));
       }
       setIsPipPlaying(false);
     });
 
+    const resumeSub = DeviceEventEmitter.addListener("RESUME_VIDEO", () => {
+      if (wasVideoPlayingBeforeInterruptionRef.current) {
+        wasVideoPlayingBeforeInterruptionRef.current = false;
+        if (webViewRef.current) {
+          webViewRef.current.postMessage(JSON.stringify({ type: 'TOGGLE_PLAY', play: true }));
+        }
+        setIsPipPlaying(true);
+      }
+    });
+
     return () => {
       pauseSub1.remove();
       pauseSub2.remove();
+      resumeSub.remove();
     };
   }, []);
 

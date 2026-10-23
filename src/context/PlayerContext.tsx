@@ -1689,6 +1689,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         await TrackPlayer.updateOptions({
           android: {
             appKilledPlaybackBehavior: AppKilledPlaybackBehavior.StopPlaybackAndRemoveNotification,
+            alwaysPauseOnInterruption: true,
           },
           capabilities: [
             Capability.Play,
@@ -1713,9 +1714,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             Event.RemoteDuck,
             async (event) => {
               console.log("[PlayerContext] RemoteDuck event triggered:", event);
-              if (event.paused || (event as any).ducking) {
+              if (event.permanent) {
                 try { await TrackPlayer.pause(); } catch {}
-                DeviceEventEmitter.emit("PAUSE_ACTIVE_VIDEO");
+                DeviceEventEmitter.emit("PAUSE_VIDEO");
+              } else if (event.paused || (event as any).ducking) {
+                // Temporary interruption (e.g. call or other app audio).
+                // Native ExoPlayer immediately pauses audio on the media thread with zero latency.
+                // We pause any active video cleanly without destroying player state.
+                DeviceEventEmitter.emit("PAUSE_VIDEO");
+              } else {
+                // Temporary interruption finished (call ended or other app stopped audio).
+                // Native ExoPlayer immediately resumes playback natively.
+                // Resume any paused video cleanly with zero latency.
+                DeviceEventEmitter.emit("RESUME_VIDEO");
               }
             }
           );
