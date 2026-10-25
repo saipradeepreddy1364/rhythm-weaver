@@ -463,31 +463,119 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       setDownloadingIds((prev) => (prev.includes(songId) ? prev : [...prev, songId, rawId]));
 
       try {
-        let downloadUrl = "";
-        const cleanTitle = (video.title || "")
-          .replace(/(\(|\[)?(official\s*(music)?\s*video|full\s*video\s*song|4k\s*uhd|4k|hd|lyrical\s*video|audio\s*song|video\s*song|promo)(\)|\])?/gi, "")
-          .trim();
-        const cleanArtist = (video.artist || "")
-          .replace(/(\(|\[)?(topic|official|vevo)(\)|\])?/gi, "")
-          .trim();
-
-        // 1. Try matching with JioSaavn for 320kbps CD-quality official audio stream
+        // 1. Resolve exact audio stream directly from Piped video instance
         try {
-          const searchQuery = `${cleanTitle} ${cleanArtist}`.trim();
-          const res = await api.searchSongs(searchQuery, 1, 5);
-          const items = extractResults(res);
-          if (items && items.length > 0) {
-            const best = items[0];
-            const saavnUrl = extractAudioUrl(best);
-            if (saavnUrl) {
-              downloadUrl = saavnUrl;
-            }
-          }
-        } catch (searchErr) {
-          console.log("[LibraryContext] JioSaavn match failed for YouTube download:", searchErr);
+          const PIPED_INSTANCES = [
+            "https://pipedapi.adminforge.de",
+            "https://pipedapi.projectsegfau.lt",
+            "https://pipedapi.kavin.rocks",
+            "https://pipedapi-libre.kavin.rocks",
+            "https://pipedapi.leptons.xyz",
+            "https://api.looleh.xyz",
+            "https://piapi.ggtyler.dev",
+            "https://pipedapi.moomoo.me",
+            "https://pipedapi.ox.am",
+            "https://piped-api.garudalinux.org",
+            "https://pipedapi.tokhmi.xyz"
+          ];
+
+          const pipedPromises = PIPED_INSTANCES.map(async (instance) => {
+            try {
+              const res = await Promise.race([
+                fetch(`${instance}/streams/${rawId}`, {
+                  headers: {
+                    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+                    "Accept": "application/json"
+                  }
+                }),
+                new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3500))
+              ]);
+              if (res.ok) {
+                const data = await res.json();
+                const audioStreams = data.audioStreams || [];
+                if (audioStreams.length > 0) {
+                  const sorted = audioStreams.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0));
+                  if (sorted[0]?.url) return sorted[0].url as string;
+                }
+              }
+            } catch {}
+            return null;
+          });
+
+          downloadUrl = await new Promise<string>((resolve) => {
+            let completed = 0;
+            let resolved = false;
+            pipedPromises.forEach((p) => {
+              p.then((val) => {
+                if (val && !resolved) {
+                  resolved = true;
+                  resolve(val);
+                }
+              }).catch(() => {}).finally(() => {
+                completed++;
+                if (completed === pipedPromises.length && !resolved) {
+                  resolve("");
+                }
+              });
+            });
+          });
+        } catch (pipedErr) {
+          console.log("[LibraryContext] Piped stream extraction failed:", pipedErr);
         }
 
-        // 2. Fallback to backend stream URL
+        // 2. Invidious direct audio stream fallback
+        if (!downloadUrl) {
+          try {
+            const INVIDIOUS_INSTANCES = [
+              "https://iv.melmac.space",
+              "https://invidious.flokinet.to",
+              "https://invidious.privacydev.net",
+              "https://invidious.nerdvpn.de",
+              "https://invidious.slipfox.xyz",
+              "https://inv.tux.pizza"
+            ];
+            const invPromises = INVIDIOUS_INSTANCES.map(async (instance) => {
+              try {
+                const res = await Promise.race([
+                  fetch(`${instance}/api/v1/videos/${rawId}`, {
+                    headers: {
+                      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+                      "Accept": "application/json"
+                    }
+                  }),
+                  new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3500))
+                ]);
+                if (res.ok) {
+                  const data = await res.json();
+                  const adaptive = data.adaptiveFormats || [];
+                  const audio = adaptive.filter((f: any) => f.type && f.type.startsWith("audio/"));
+                  if (audio.length > 0 && audio[0]?.url) return audio[0].url as string;
+                }
+              } catch {}
+              return null;
+            });
+
+            downloadUrl = await new Promise<string>((resolve) => {
+              let completed = 0;
+              let resolved = false;
+              invPromises.forEach((p) => {
+                p.then((val) => {
+                  if (val && !resolved) {
+                    resolved = true;
+                    resolve(val);
+                  }
+                }).catch(() => {}).finally(() => {
+                  completed++;
+                  if (completed === invPromises.length && !resolved) {
+                    resolve("");
+                  }
+                });
+              });
+            });
+          } catch {}
+        }
+
+        // 3. Backend direct YouTube stream fallback
         if (!downloadUrl) {
           downloadUrl = `https://musicbackend-xg4u.onrender.com/api/songs/${songId}/stream`;
         }
