@@ -1,6 +1,25 @@
-const { withMainActivity, withMainApplication, withAndroidManifest } = require('@expo/config-plugins');
+let configPlugins = null;
+try {
+  configPlugins = require('@expo/config-plugins');
+} catch (e) {
+  try {
+    const path = require('path');
+    const easConfigPlugins = path.join(
+      process.env.APPDATA || '',
+      'npm/node_modules/eas-cli/node_modules/@expo/config-plugins'
+    );
+    configPlugins = require(easConfigPlugins);
+  } catch (e2) {
+    configPlugins = null;
+  }
+}
+
+const withMainActivity = configPlugins?.withMainActivity;
+const withMainApplication = configPlugins?.withMainApplication;
+const withAndroidManifest = configPlugins?.withAndroidManifest;
 
 function withAndroidPipManifest(config) {
+  if (!withAndroidManifest) return config;
   return withAndroidManifest(config, (config) => {
     const mainActivity = config.modResults.manifest.application[0].activity.find(
       (activity) => activity['$']['android:name'] === '.MainActivity'
@@ -19,6 +38,7 @@ function withAndroidPipManifest(config) {
 }
 
 function withAndroidPipApplication(config) {
+  if (!withMainApplication) return config;
   return withMainApplication(config, (config) => {
     let mainApp = config.modResults.contents;
     if (!mainApp.includes('PipPackage()')) {
@@ -35,6 +55,9 @@ function withAndroidPipApplication(config) {
 }
 
 module.exports = function withAndroidPip(config) {
+  if (!configPlugins || !withMainActivity) {
+    return config;
+  }
   config = withAndroidPipManifest(config);
   config = withAndroidPipApplication(config);
   return withMainActivity(config, (config) => {
