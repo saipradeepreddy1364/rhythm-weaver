@@ -429,7 +429,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   const videoReadyRef = useRef(false);
 
   // Lyrics scrolling refs & states
-  const lyricsScrollRef = useRef<ScrollView>(null);
+  const lyricsScrollRef = useRef<any>(null);
   const [lyricsContentHeight, setLyricsContentHeight] = useState(0);
   const [userIsScrollingLyrics, setUserIsScrollingLyrics] = useState(false);
   const userScrollTimeoutRef = useRef<any>(null);

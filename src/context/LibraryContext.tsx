@@ -62,6 +62,7 @@ interface LibraryContextType {
   deleteDownloadedSong: (songId: string) => Promise<void>;
   isDownloaded: (songId: string) => boolean;
   isVideoDownloaded: (idOrVideoId: string) => boolean;
+  checkVideoDownloadable: (idOrVideoId: string) => Promise<boolean>;
   likedAlbums: AlbumData[];
   toggleLikeAlbum: (album: AlbumData) => Promise<void>;
   updateLikedAlbum: (album: AlbumData) => Promise<void>;
@@ -171,6 +172,90 @@ export function deduplicateSongs(songs: Song[]): Song[] {
     seenTitleArtist.add(exactTitleArtist);
     return true;
   });
+}
+
+const videoDownloadableCache = new Map<string, boolean>();
+
+export async function resolveVideoAudioUrl(rawId: string): Promise<string | null> {
+  const cleanId = rawId.replace(/^yt_/, "").trim();
+  if (!cleanId || !/^[a-zA-Z0-9_-]{11}$/.test(cleanId)) return null;
+
+  // 1. Invidious instances (prioritizing working yt.chocolatemoo53.com)
+  const INVIDIOUS_INSTANCES = [
+    "https://yt.chocolatemoo53.com",
+    "https://invidious.nerdvpn.de",
+    "https://invidious.flokinet.to",
+    "https://inv.tux.pizza"
+  ];
+
+  for (const instance of INVIDIOUS_INSTANCES) {
+    try {
+      const res = await Promise.race([
+        fetch(`${instance}/api/v1/videos/${cleanId}`, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15",
+            "Accept": "application/json"
+          }
+        }),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 2500))
+      ]);
+      if (res.ok) {
+        const data = await res.json();
+        const adaptive = data.adaptiveFormats || [];
+        const audio = adaptive.filter((f: any) => f.type && f.type.startsWith("audio/"));
+        if (audio.length > 0 && audio[0]?.url) {
+          videoDownloadableCache.set(cleanId, true);
+          return audio[0].url as string;
+        }
+      }
+    } catch {}
+  }
+
+  // 2. Piped instances
+  const PIPED_INSTANCES = [
+    "https://pipedapi.ducks.party",
+    "https://pipedapi.in.projectsegfau.lt",
+    "https://pipedapi.adminforge.de",
+    "https://pipedapi.kavin.rocks"
+  ];
+
+  for (const instance of PIPED_INSTANCES) {
+    try {
+      const res = await Promise.race([
+        fetch(`${instance}/streams/${cleanId}`, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15",
+            "Accept": "application/json"
+          }
+        }),
+        new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 2500))
+      ]);
+      if (res.ok) {
+        const data = await res.json();
+        const audioStreams = data.audioStreams || [];
+        if (audioStreams.length > 0) {
+          const sorted = audioStreams.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0));
+          if (sorted[0]?.url) {
+            videoDownloadableCache.set(cleanId, true);
+            return sorted[0].url as string;
+          }
+        }
+      }
+    } catch {}
+  }
+
+  videoDownloadableCache.set(cleanId, false);
+  return null;
+}
+
+export async function checkVideoDownloadable(rawId: string): Promise<boolean> {
+  const cleanId = rawId.replace(/^yt_/, "").trim();
+  if (!cleanId || !/^[a-zA-Z0-9_-]{11}$/.test(cleanId)) return false;
+  if (videoDownloadableCache.has(cleanId)) {
+    return videoDownloadableCache.get(cleanId) === true;
+  }
+  const url = await resolveVideoAudioUrl(cleanId);
+  return Boolean(url && url.length > 10);
 }
 
 // ─── Context ───────────────────────────────────────────────────────────────────
@@ -463,122 +548,9 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       setDownloadingIds((prev) => (prev.includes(songId) ? prev : [...prev, songId, rawId]));
 
       try {
-        let downloadUrl = "";
-        // 1. Resolve exact audio stream directly from Piped video instance
-        try {
-          const PIPED_INSTANCES = [
-            "https://pipedapi.adminforge.de",
-            "https://pipedapi.projectsegfau.lt",
-            "https://pipedapi.kavin.rocks",
-            "https://pipedapi-libre.kavin.rocks",
-            "https://pipedapi.leptons.xyz",
-            "https://api.looleh.xyz",
-            "https://piapi.ggtyler.dev",
-            "https://pipedapi.moomoo.me",
-            "https://pipedapi.ox.am",
-            "https://piped-api.garudalinux.org",
-            "https://pipedapi.tokhmi.xyz"
-          ];
-
-          const pipedPromises = PIPED_INSTANCES.map(async (instance) => {
-            try {
-              const res = await Promise.race([
-                fetch(`${instance}/streams/${rawId}`, {
-                  headers: {
-                    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
-                    "Accept": "application/json"
-                  }
-                }),
-                new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3500))
-              ]);
-              if (res.ok) {
-                const data = await res.json();
-                const audioStreams = data.audioStreams || [];
-                if (audioStreams.length > 0) {
-                  const sorted = audioStreams.sort((a: any, b: any) => (b.bitrate || 0) - (a.bitrate || 0));
-                  if (sorted[0]?.url) return sorted[0].url as string;
-                }
-              }
-            } catch {}
-            return null;
-          });
-
-          downloadUrl = await new Promise<string>((resolve) => {
-            let completed = 0;
-            let resolved = false;
-            pipedPromises.forEach((p) => {
-              p.then((val) => {
-                if (val && !resolved) {
-                  resolved = true;
-                  resolve(val);
-                }
-              }).catch(() => {}).finally(() => {
-                completed++;
-                if (completed === pipedPromises.length && !resolved) {
-                  resolve("");
-                }
-              });
-            });
-          });
-        } catch (pipedErr) {
-          console.log("[LibraryContext] Piped stream extraction failed:", pipedErr);
-        }
-
-        // 2. Invidious direct audio stream fallback
+        const downloadUrl = await resolveVideoAudioUrl(rawId);
         if (!downloadUrl) {
-          try {
-            const INVIDIOUS_INSTANCES = [
-              "https://iv.melmac.space",
-              "https://invidious.flokinet.to",
-              "https://invidious.privacydev.net",
-              "https://invidious.nerdvpn.de",
-              "https://invidious.slipfox.xyz",
-              "https://inv.tux.pizza"
-            ];
-            const invPromises = INVIDIOUS_INSTANCES.map(async (instance) => {
-              try {
-                const res = await Promise.race([
-                  fetch(`${instance}/api/v1/videos/${rawId}`, {
-                    headers: {
-                      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
-                      "Accept": "application/json"
-                    }
-                  }),
-                  new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3500))
-                ]);
-                if (res.ok) {
-                  const data = await res.json();
-                  const adaptive = data.adaptiveFormats || [];
-                  const audio = adaptive.filter((f: any) => f.type && f.type.startsWith("audio/"));
-                  if (audio.length > 0 && audio[0]?.url) return audio[0].url as string;
-                }
-              } catch {}
-              return null;
-            });
-
-            downloadUrl = await new Promise<string>((resolve) => {
-              let completed = 0;
-              let resolved = false;
-              invPromises.forEach((p) => {
-                p.then((val) => {
-                  if (val && !resolved) {
-                    resolved = true;
-                    resolve(val);
-                  }
-                }).catch(() => {}).finally(() => {
-                  completed++;
-                  if (completed === invPromises.length && !resolved) {
-                    resolve("");
-                  }
-                });
-              });
-            });
-          } catch {}
-        }
-
-        // 3. Backend direct YouTube stream fallback
-        if (!downloadUrl) {
-          downloadUrl = `https://musicbackend-xg4u.onrender.com/api/songs/${songId}/stream`;
+          throw new Error("No direct audio stream available for this video");
         }
 
         const audioLocalUri = (FileSystem.documentDirectory || "") + songId + ".mp3";
@@ -1247,6 +1219,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         deleteDownloadedSong,
         isDownloaded,
         isVideoDownloaded,
+        checkVideoDownloadable,
         likedAlbums,
         toggleLikeAlbum,
         updateLikedAlbum,

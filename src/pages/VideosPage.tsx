@@ -302,8 +302,8 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
                 fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${v.videoId}&format=json`),
                 new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1500))
               ]);
-              // 401 or 403 explicitly indicates: "Embedding/playback on other sites disabled by video owner"
-              if (oembedRes.status === 401 || oembedRes.status === 403) {
+              // 401, 403, 404 explicitly indicate embedding/playback disabled by owner or unplayable
+              if (oembedRes.status === 401 || oembedRes.status === 403 || oembedRes.status === 404 || (!oembedRes.ok && oembedRes.status !== 429)) {
                 return null;
               }
               return v;
@@ -426,6 +426,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
     downloadVideo,
     isDownloaded,
     isVideoDownloaded,
+    checkVideoDownloadable,
     deleteDownloadedSong,
     downloadingIds,
   } = useLibrary();
@@ -1515,11 +1516,11 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
     ? downloadingIds.includes(`yt_${(activeVideo.videoId || activeVideo.id).replace(/^yt_/, "")}`) || downloadingIds.includes(activeVideo.id)
     : false;
 
-  const [isCurrentDownloadable, setIsCurrentDownloadable] = useState(true);
+  const [isCurrentDownloadable, setIsCurrentDownloadable] = useState(false);
 
   useEffect(() => {
     if (!activeVideo) {
-      setIsCurrentDownloadable(true);
+      setIsCurrentDownloadable(false);
       return;
     }
     let isMounted = true;
@@ -1528,23 +1529,33 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
       setIsCurrentDownloadable(false);
       return;
     }
-    // Verify video is freely downloadable/embeddable and not restricted by owner
-    fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${rawId}&format=json`)
-      .then((res) => {
+
+    // Default to false immediately whenever active video changes
+    setIsCurrentDownloadable(false);
+
+    // If it is already downloaded, it is accessible
+    if (isVideoDownloaded(rawId)) {
+      setIsCurrentDownloadable(true);
+      return;
+    }
+
+    // Verify if direct audio stream can actually be extracted for offline download
+    checkVideoDownloadable(rawId)
+      .then((canDownload) => {
         if (isMounted) {
-          if (res.status === 401 || res.status === 403 || res.status === 404) {
-            setIsCurrentDownloadable(false);
-          } else {
-            setIsCurrentDownloadable(true);
-          }
+          setIsCurrentDownloadable(Boolean(canDownload));
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        if (isMounted) {
+          setIsCurrentDownloadable(false);
+        }
+      });
 
     return () => {
       isMounted = false;
     };
-  }, [activeVideo]);
+  }, [activeVideo, isVideoDownloaded, checkVideoDownloadable]);
 
   const handleDownloadVideo = async (item: VideoItem) => {
     const rawId = (item.videoId || item.id || "").replace(/^yt_/, "").trim();
@@ -2979,23 +2990,23 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                     ) : null}
                   </View>
 
-                  <TouchableOpacity
-                    delayPressIn={0}
-                    style={styles.cardDownloadBtn}
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      handleDownloadVideo(item);
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    {downloadingIds.includes(`yt_${(item.videoId || item.id).replace(/^yt_/, "")}`) || downloadingIds.includes(item.id) ? (
+                  {downloadingIds.includes(`yt_${(item.videoId || item.id).replace(/^yt_/, "")}`) || downloadingIds.includes(item.id) ? (
+                    <View style={styles.cardDownloadBtn}>
                       <ActivityIndicator size="small" color="#1DB954" />
-                    ) : isVideoDownloaded(item.videoId || item.id) ? (
+                    </View>
+                  ) : isVideoDownloaded(item.videoId || item.id) ? (
+                    <TouchableOpacity
+                      delayPressIn={0}
+                      style={styles.cardDownloadBtn}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        handleDownloadVideo(item);
+                      }}
+                      activeOpacity={0.7}
+                    >
                       <MaterialCommunityIcons name="check-circle" size={22} color="#1DB954" />
-                    ) : (
-                      <MaterialCommunityIcons name="arrow-down-circle-outline" size={22} color="rgba(255,255,255,0.6)" />
-                    )}
-                  </TouchableOpacity>
+                    </TouchableOpacity>
+                  ) : null}
                 </TouchableOpacity>
               ))}
 
@@ -3675,23 +3686,23 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                           ) : null}
                         </View>
 
-                        <TouchableOpacity
-                          delayPressIn={0}
-                          style={styles.cardDownloadBtn}
-                          onPress={(e) => {
-                            e.stopPropagation();
-                            handleDownloadVideo(item);
-                          }}
-                          activeOpacity={0.7}
-                        >
-                          {itemDownloading ? (
+                        {itemDownloading ? (
+                          <View style={styles.cardDownloadBtn}>
                             <ActivityIndicator size="small" color="#1DB954" />
-                          ) : itemDownloaded ? (
+                          </View>
+                        ) : itemDownloaded ? (
+                          <TouchableOpacity
+                            delayPressIn={0}
+                            style={styles.cardDownloadBtn}
+                            onPress={(e) => {
+                              e.stopPropagation();
+                              handleDownloadVideo(item);
+                            }}
+                            activeOpacity={0.7}
+                          >
                             <MaterialCommunityIcons name="check-circle" size={22} color="#1DB954" />
-                          ) : (
-                            <MaterialCommunityIcons name="arrow-down-circle-outline" size={22} color="rgba(255,255,255,0.6)" />
-                          )}
-                        </TouchableOpacity>
+                          </TouchableOpacity>
+                        ) : null}
                       </TouchableOpacity>
                     );
                   })
