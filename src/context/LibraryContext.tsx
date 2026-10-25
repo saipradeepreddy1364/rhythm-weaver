@@ -463,6 +463,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       setDownloadingIds((prev) => (prev.includes(songId) ? prev : [...prev, songId, rawId]));
 
       try {
+        let downloadUrl = "";
         // 1. Resolve exact audio stream directly from Piped video instance
         try {
           const PIPED_INSTANCES = [
