@@ -156,6 +156,15 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
             // 1. Video renderer
             const video = item.videoRenderer;
             if (video && video.videoId) {
+              // Filter out restricted/unplayable videos: upcoming premieres, live streams, members-only, paid
+              if (video.upcomingEventData) continue;
+              if (video.unplayableText) continue;
+              if (video.badges?.some((b: any) => {
+                const s = b.metadataBadgeRenderer?.style || "";
+                const l = (b.metadataBadgeRenderer?.label || "").toUpperCase();
+                return s === "BADGE_STYLE_TYPE_LIVE_NOW" || s === "BADGE_STYLE_TYPE_MEMBERS_ONLY" || s === "BADGE_STYLE_TYPE_PREMIUM" || l.includes("LIVE") || l.includes("PREVIEW");
+              })) continue;
+
               const vId = String(video.videoId).trim();
               if (vId && /^[a-zA-Z0-9_-]{11}$/.test(vId) && !seenIds.has(vId)) {
                 seenIds.add(vId);
@@ -184,6 +193,15 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
             for (const subItem of shelfContents) {
               const subVideo = subItem.videoRenderer;
               if (subVideo && subVideo.videoId) {
+                // Filter out restricted/unplayable videos: upcoming premieres, live streams, members-only, paid
+                if (subVideo.upcomingEventData) continue;
+                if (subVideo.unplayableText) continue;
+                if (subVideo.badges?.some((b: any) => {
+                  const s = b.metadataBadgeRenderer?.style || "";
+                  const l = (b.metadataBadgeRenderer?.label || "").toUpperCase();
+                  return s === "BADGE_STYLE_TYPE_LIVE_NOW" || s === "BADGE_STYLE_TYPE_MEMBERS_ONLY" || s === "BADGE_STYLE_TYPE_PREMIUM" || l.includes("LIVE") || l.includes("PREVIEW");
+                })) continue;
+
                 const vId = String(subVideo.videoId).trim();
                 if (vId && /^[a-zA-Z0-9_-]{11}$/.test(vId) && !seenIds.has(vId)) {
                   seenIds.add(vId);
@@ -267,6 +285,38 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
             if (videoItems.length > 0) break;
           }
         } catch {}
+      }
+    }
+
+    // Fast validation: filter out videos where owners disabled third-party embedding/display
+    if (videoItems.length > 0) {
+      try {
+        const checkCount = Math.min(videoItems.length, 25);
+        const toCheck = videoItems.slice(0, checkCount);
+        const remainder = videoItems.slice(checkCount);
+
+        const checkResults = await Promise.all(
+          toCheck.map(async (v) => {
+            try {
+              const oembedRes = await Promise.race([
+                fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${v.videoId}&format=json`),
+                new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1500))
+              ]);
+              // 401 or 403 explicitly indicates: "Embedding/playback on other sites disabled by video owner"
+              if (oembedRes.status === 401 || oembedRes.status === 403) {
+                return null;
+              }
+              return v;
+            } catch {
+              return v;
+            }
+          })
+        );
+
+        const filtered = checkResults.filter((v): v is VideoItem => v !== null);
+        return [...filtered, ...remainder];
+      } catch {
+        return videoItems;
       }
     }
 
@@ -1464,6 +1514,37 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
   const isCurrentVideoDownloading = activeVideo
     ? downloadingIds.includes(`yt_${(activeVideo.videoId || activeVideo.id).replace(/^yt_/, "")}`) || downloadingIds.includes(activeVideo.id)
     : false;
+
+  const [isCurrentDownloadable, setIsCurrentDownloadable] = useState(true);
+
+  useEffect(() => {
+    if (!activeVideo) {
+      setIsCurrentDownloadable(true);
+      return;
+    }
+    let isMounted = true;
+    const rawId = (activeVideo.videoId || activeVideo.id || "").replace(/^yt_/, "").trim();
+    if (!rawId) {
+      setIsCurrentDownloadable(false);
+      return;
+    }
+    // Verify video is freely downloadable/embeddable and not restricted by owner
+    fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${rawId}&format=json`)
+      .then((res) => {
+        if (isMounted) {
+          if (res.status === 401 || res.status === 403 || res.status === 404) {
+            setIsCurrentDownloadable(false);
+          } else {
+            setIsCurrentDownloadable(true);
+          }
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeVideo]);
 
   const handleDownloadVideo = async (item: VideoItem) => {
     const rawId = (item.videoId || item.id || "").replace(/^yt_/, "").trim();
@@ -2972,7 +3053,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                 <MaterialCommunityIcons name="chevron-down" size={28} color="#fff" />
               </TouchableOpacity>
 
-              {/* Centered Controls Row: Previous, Next, Like */}
+              {/* Centered Controls Row: Previous, Next, Like, Download */}
               <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 16 }}>
                 <TouchableOpacity delayPressIn={0} onPress={playPrevVideo} style={{ padding: 6 }} activeOpacity={0.7}>
                   <MaterialCommunityIcons name="skip-previous" size={26} color="#fff" />
@@ -2984,9 +3065,28 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                   <MaterialCommunityIcons
                     name={isVideoLiked(activeVideo) ? "heart" : "heart-outline"}
                     size={24}
-                    color={isVideoLiked(activeVideo) ? "#1DB954" : "#fff"}
+                    color={isVideoLiked(activeVideo) ? "#E91E63" : "#fff"}
                   />
                 </TouchableOpacity>
+
+                {/* Download Button right beside the Like Heart Button at the top of the video */}
+                {((!isVideoBlocked && isCurrentDownloadable) || isCurrentVideoDownloaded) && (
+                  <TouchableOpacity
+                    delayPressIn={0}
+                    onPress={() => handleDownloadVideo(activeVideo)}
+                    disabled={isCurrentVideoDownloading}
+                    style={{ padding: 6 }}
+                    activeOpacity={0.7}
+                  >
+                    {isCurrentVideoDownloading ? (
+                      <ActivityIndicator size="small" color="#1DB954" />
+                    ) : isCurrentVideoDownloaded ? (
+                      <MaterialCommunityIcons name="check-circle" size={24} color="#1DB954" />
+                    ) : (
+                      <MaterialCommunityIcons name="arrow-down-circle-outline" size={24} color="#fff" />
+                    )}
+                  </TouchableOpacity>
+                )}
               </View>
 
               <TouchableOpacity delayPressIn={0} onPress={() => { setActiveVideo(null); setIsMinimized(false); setIsManualLandscape(false); }} style={styles.closeBtn} activeOpacity={0.7}>
@@ -3430,9 +3530,28 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                         <MaterialCommunityIcons
                           name={isVideoLiked(activeVideo) ? "heart" : "heart-outline"}
                           size={22}
-                          color={isVideoLiked(activeVideo) ? "#1DB954" : "#fff"}
+                          color={isVideoLiked(activeVideo) ? "#E91E63" : "#fff"}
                         />
                       </TouchableOpacity>
+
+                      {/* Download button in landscape right beside Like */}
+                      {((!isVideoBlocked && isCurrentDownloadable) || isCurrentVideoDownloaded) && (
+                        <TouchableOpacity
+                          delayPressIn={0}
+                          onPress={() => handleDownloadVideo(activeVideo)}
+                          disabled={isCurrentVideoDownloading}
+                          style={styles.landscapeIconBtn}
+                          activeOpacity={0.7}
+                        >
+                          {isCurrentVideoDownloading ? (
+                            <ActivityIndicator size="small" color="#1DB954" />
+                          ) : isCurrentVideoDownloaded ? (
+                            <MaterialCommunityIcons name="check-circle" size={22} color="#1DB954" />
+                          ) : (
+                            <MaterialCommunityIcons name="arrow-down-circle-outline" size={22} color="#fff" />
+                          )}
+                        </TouchableOpacity>
+                      )}
 
                       {/* Close player */}
                       <TouchableOpacity
@@ -3495,67 +3614,9 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
           {!isMinimized && !isSystemPipActive && !isLandscape && (
             /* Full Screen Player Body (Up Next Songs & Info) */
             <ScrollView style={styles.modalBody} contentContainerStyle={{ padding: 16 }}>
-              <View style={{ marginBottom: 12 }}>
+              <View style={{ marginBottom: 16 }}>
                 <Text style={styles.infoHeading}>{activeVideo.title}</Text>
                 <Text style={styles.infoSub}>{activeVideo.artist}</Text>
-
-                {/* Video Action Buttons: Like, Download, Open in YouTube */}
-                <View style={styles.activeVideoActionBar}>
-                  <TouchableOpacity
-                    delayPressIn={0}
-                    style={[styles.actionPillBtn, isVideoLiked(activeVideo) && styles.actionPillBtnActive]}
-                    onPress={() => toggleLikeVideo(activeVideo)}
-                    activeOpacity={0.7}
-                  >
-                    <MaterialCommunityIcons
-                      name={isVideoLiked(activeVideo) ? "heart" : "heart-outline"}
-                      size={18}
-                      color={isVideoLiked(activeVideo) ? "#E91E63" : "#fff"}
-                      style={{ marginRight: 6 }}
-                    />
-                    <Text style={[styles.actionPillText, isVideoLiked(activeVideo) && { color: "#E91E63" }]}>
-                      {isVideoLiked(activeVideo) ? "Liked" : "Like"}
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    delayPressIn={0}
-                    style={[styles.actionPillBtn, isCurrentVideoDownloaded && styles.actionPillBtnDownloaded]}
-                    onPress={() => handleDownloadVideo(activeVideo)}
-                    disabled={isCurrentVideoDownloading}
-                    activeOpacity={0.7}
-                  >
-                    {isCurrentVideoDownloading ? (
-                      <>
-                        <ActivityIndicator size="small" color="#1DB954" style={{ marginRight: 6 }} />
-                        <Text style={[styles.actionPillText, { color: "#1DB954" }]}>Downloading...</Text>
-                      </>
-                    ) : isCurrentVideoDownloaded ? (
-                      <>
-                        <MaterialCommunityIcons name="check-circle" size={18} color="#1DB954" style={{ marginRight: 6 }} />
-                        <Text style={[styles.actionPillText, { color: "#1DB954" }]}>Downloaded</Text>
-                      </>
-                    ) : (
-                      <>
-                        <MaterialCommunityIcons name="arrow-down-circle-outline" size={18} color="#fff" style={{ marginRight: 6 }} />
-                        <Text style={styles.actionPillText}>Download</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    delayPressIn={0}
-                    style={[styles.actionPillBtn, { backgroundColor: "rgba(229, 9, 20, 0.15)", borderColor: "rgba(229, 9, 20, 0.3)" }]}
-                    onPress={() => {
-                      const ytUrl = `https://www.youtube.com/watch?v=${targetId || activeVideo.videoId}`;
-                      Linking.openURL(ytUrl).catch(() => {});
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <MaterialCommunityIcons name="youtube" size={18} color="#FF0000" style={{ marginRight: 6 }} />
-                    <Text style={[styles.actionPillText, { color: "#fff" }]}>YouTube</Text>
-                  </TouchableOpacity>
-                </View>
               </View>
 
               {/* Only render Server Switcher when YouTube blocks the video */}
