@@ -39,12 +39,22 @@ function LibraryPageComponent({ onRequireAuth, initialTab }: LibraryPageProps) {
   const [showUserMenu, setShowUserMenu] = useState(false);
 
   const [tab, setTab] = useState<Tab>(initialTab ?? "liked");
+  const [downloadSubFilter, setDownloadSubFilter] = useState<"all" | "songs" | "videos">("all");
   const [playlistSongs, setPlaylistSongs] = useState<Song[]>([]);
   const [loadingPlaylist, setLoadingPlaylist] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [creatingPlaylist, setCreatingPlaylist] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState("");
+
+  const videoDownloads = downloadedSongs.filter((s) => (s as any).isVideo || s.id.startsWith("yt_"));
+  const regularDownloads = downloadedSongs.filter((s) => !((s as any).isVideo || s.id.startsWith("yt_")));
+  const displayedDownloads =
+    downloadSubFilter === "videos"
+      ? videoDownloads
+      : downloadSubFilter === "songs"
+      ? regularDownloads
+      : downloadedSongs;
 
   useEffect(() => {
     loadLikedSongs();
@@ -382,7 +392,7 @@ function LibraryPageComponent({ onRequireAuth, initialTab }: LibraryPageProps) {
         <View style={{ flexDirection: "row", alignItems: "center" }}>
           <TouchableOpacity
             delayPressIn={0}
-            onPress={() => (global as any).triggerOTAUpdateModal?.()}
+            onPress={() => (globalThis as any).triggerOTAUpdateModal?.()}
             style={{ padding: 6 }}
             activeOpacity={0.7}
           >
@@ -639,18 +649,71 @@ function LibraryPageComponent({ onRequireAuth, initialTab }: LibraryPageProps) {
         {/* Tab content: Downloads */}
         {activeTabStr === "downloads" && (
           <View style={{ paddingBottom: 60 }}>
-            {downloadedSongs.length === 0 ? (
+            {downloadedSongs.length > 0 && (
+              <View style={styles.downloadSubFilterBar}>
+                <TouchableOpacity
+                  delayPressIn={0}
+                  onPress={() => setDownloadSubFilter("all")}
+                  style={[styles.subFilterPill, downloadSubFilter === "all" && styles.activeSubFilterPill]}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.subFilterPillText, downloadSubFilter === "all" && styles.activeSubFilterPillText]}>
+                    All ({downloadedSongs.length})
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  delayPressIn={0}
+                  onPress={() => setDownloadSubFilter("songs")}
+                  style={[styles.subFilterPill, downloadSubFilter === "songs" && styles.activeSubFilterPill]}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.subFilterPillText, downloadSubFilter === "songs" && styles.activeSubFilterPillText]}>
+                    Songs ({regularDownloads.length})
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  delayPressIn={0}
+                  onPress={() => setDownloadSubFilter("videos")}
+                  style={[styles.subFilterPill, downloadSubFilter === "videos" && styles.activeSubFilterPill]}
+                  activeOpacity={0.7}
+                >
+                  <MaterialCommunityIcons
+                    name="youtube"
+                    size={14}
+                    color={downloadSubFilter === "videos" ? "#fff" : "#FF0000"}
+                    style={{ marginRight: 4 }}
+                  />
+                  <Text style={[styles.subFilterPillText, downloadSubFilter === "videos" && styles.activeSubFilterPillText]}>
+                    Videos ({videoDownloads.length})
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {displayedDownloads.length === 0 ? (
               <LibraryEmpty
-                icon="download-outline"
-                title="No downloaded songs yet"
-                subtitle="Tap the download icon on any song to listen offline."
+                icon={downloadSubFilter === "videos" ? "video-outline" : "download-outline"}
+                title={
+                  downloadSubFilter === "videos"
+                    ? "No downloaded videos yet"
+                    : downloadSubFilter === "songs"
+                    ? "No downloaded songs yet"
+                    : "No downloaded songs yet"
+                }
+                subtitle={
+                  downloadSubFilter === "videos"
+                    ? "Tap the download icon on any YouTube video to watch and listen offline."
+                    : "Tap the download icon on any song to listen offline."
+                }
               />
             ) : (
-              downloadedSongs.map((song) => (
+              displayedDownloads.map((song) => (
                 <SongRow
                   key={song.id}
                   song={song}
-                  queue={downloadedSongs}
+                  queue={displayedDownloads}
                   onRequireAuth={handleRequireAuth}
                   fromLibrary={true}
                 />
@@ -886,6 +949,35 @@ const styles = StyleSheet.create({
   },
   activeTabBtnText: {
     color: "#fff",
+  },
+  downloadSubFilterBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 14,
+    paddingHorizontal: 2,
+  },
+  subFilterPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+  },
+  activeSubFilterPill: {
+    backgroundColor: "rgba(29, 185, 84, 0.2)",
+    borderColor: "rgba(29, 185, 84, 0.4)",
+  },
+  subFilterPillText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "rgba(255,255,255,0.6)",
+  },
+  activeSubFilterPillText: {
+    color: "#1DB954",
   },
   body: {
     flex: 1,
