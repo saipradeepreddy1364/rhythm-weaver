@@ -295,7 +295,8 @@ function LanguageAlbumModal({
   onClose: () => void;
   onRequireAuth: () => void;
 }) {
-  const { playSong } = usePlayer();
+  const { playSong, isPlaying, currentSong, togglePlay } = usePlayer();
+  const { toggleLikeAlbum, isAlbumLiked } = useLibrary();
   const [songs, setSongs]               = useState<Song[]>([]);
   const [loadingMore, setLoadingMore]   = useState(true);
   const [loadingCover, setLoadingCover] = useState(true);
@@ -396,11 +397,53 @@ function LanguageAlbumModal({
             </Text>
           </View>
 
-          {songs.length > 0 ? (
-            <TouchableOpacity delayPressIn={0} onPress={() => playSong(songs[0], songs)} style={modalStyles.playBtn} activeOpacity={0.8}>
-              <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <TouchableOpacity
+              delayPressIn={0}
+              onPress={() => {
+                toggleLikeAlbum({
+                  title: `${displayName} Music`,
+                  coverArt: coverArt || "",
+                  songs,
+                  type: "language",
+                  query: language,
+                });
+              }}
+              style={modalStyles.likeBtn}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons
+                name={isAlbumLiked({ title: `${displayName} Music`, coverArt: coverArt || "", songs, type: "language" }) ? "heart" : "heart-outline"}
+                size={26}
+                color={isAlbumLiked({ title: `${displayName} Music`, coverArt: coverArt || "", songs, type: "language" }) ? "#E91E63" : "#fff"}
+              />
             </TouchableOpacity>
-          ) : null}
+
+            {songs.length > 0 ? (
+              <TouchableOpacity
+                delayPressIn={0}
+                onPress={() => {
+                  const isCurrentPlayingThis = Boolean(isPlaying && currentSong && songs.some((s) => s.id === currentSong.id));
+                  if (isCurrentPlayingThis) {
+                    togglePlay();
+                  } else if (currentSong && songs.some((s) => s.id === currentSong.id)) {
+                    togglePlay();
+                  } else {
+                    playSong(songs[0], songs);
+                  }
+                }}
+                style={modalStyles.playBtn}
+                activeOpacity={0.8}
+              >
+                <MaterialCommunityIcons
+                  name={isPlaying && currentSong && songs.some((s) => s.id === currentSong.id) ? "pause" : "play"}
+                  size={24}
+                  color="#000"
+                  style={{ marginLeft: isPlaying && currentSong && songs.some((s) => s.id === currentSong.id) ? 0 : 2 }}
+                />
+              </TouchableOpacity>
+            ) : null}
+          </View>
         </View>
 
         {/* Large cover art */}
@@ -490,7 +533,7 @@ function AlbumModal({
   onClose: () => void;
   onRequireAuth: () => void;
 }) {
-  const { playSong } = usePlayer();
+  const { playSong, isPlaying, currentSong, togglePlay } = usePlayer();
   const { toggleLikeAlbum, isAlbumLiked } = useLibrary();
   const [songs, setSongs] = useState<Song[]>(album.songs);
   const [loading, setLoading] = useState(false);
@@ -565,6 +608,7 @@ function AlbumModal({
           </View>
 
           <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            {/* Like button directly to the left of the Play/Pause button */}
             <TouchableOpacity
               delayPressIn={0}
               onPress={() => {
@@ -587,8 +631,27 @@ function AlbumModal({
             </TouchableOpacity>
 
             {songs.length > 0 ? (
-              <TouchableOpacity delayPressIn={0} onPress={() => playSong(songs[0], songs)} style={modalStyles.playBtn} activeOpacity={0.8}>
-                <MaterialCommunityIcons name="play" size={24} color="#000" style={{ marginLeft: 2 }} />
+              <TouchableOpacity
+                delayPressIn={0}
+                onPress={() => {
+                  const isCurrentPlayingThis = Boolean(isPlaying && currentSong && songs.some((s) => s.id === currentSong.id));
+                  if (isCurrentPlayingThis) {
+                    togglePlay();
+                  } else if (currentSong && songs.some((s) => s.id === currentSong.id)) {
+                    togglePlay();
+                  } else {
+                    playSong(songs[0], songs);
+                  }
+                }}
+                style={modalStyles.playBtn}
+                activeOpacity={0.8}
+              >
+                <MaterialCommunityIcons
+                  name={isPlaying && currentSong && songs.some((s) => s.id === currentSong.id) ? "pause" : "play"}
+                  size={24}
+                  color="#000"
+                  style={{ marginLeft: isPlaying && currentSong && songs.some((s) => s.id === currentSong.id) ? 0 : 2 }}
+                />
               </TouchableOpacity>
             ) : null}
           </View>
@@ -1400,12 +1463,6 @@ function SearchPageComponent({ onRequireAuth }: SearchPageProps) {
               <View style={styles.resultSection}>
                 {activeTab === "all" && <Text style={styles.sectionSubHeader}>Albums / Movies</Text>}
                 {albumsResult.slice(0, activeTab === "all" ? 6 : undefined).map((album) => {
-                  const isLiked = isAlbumLiked({
-                    title: album.title,
-                    coverArt: album.coverArt,
-                    songs: album.songs,
-                    type: album.type || "movie",
-                  });
                   return (
                     <TouchableOpacity delayPressIn={0} key={album.title} onPress={() => setActiveAlbum(album)} style={styles.albumRowItem} activeOpacity={0.7}>
                       {album.coverArt ? (
@@ -1421,29 +1478,6 @@ function SearchPageComponent({ onRequireAuth }: SearchPageProps) {
                           {album.songs.length > 0 ? `${album.songs.length} songs` : "Movie Soundtrack · Album"}
                         </Text>
                       </View>
-
-                      {/* Like Entire Album Button */}
-                      <TouchableOpacity
-                        delayPressIn={0}
-                        style={styles.albumLikeBtn}
-                        onPress={(e: any) => {
-                          e.stopPropagation();
-                          toggleLikeAlbum({
-                            title: album.title,
-                            coverArt: album.coverArt,
-                            songs: album.songs,
-                            type: album.type || "movie",
-                            query: album.query,
-                          });
-                        }}
-                        activeOpacity={0.7}
-                      >
-                        <MaterialCommunityIcons
-                          name={isLiked ? "heart" : "heart-outline"}
-                          size={22}
-                          color={isLiked ? "#E91E63" : "rgba(255,255,255,0.6)"}
-                        />
-                      </TouchableOpacity>
 
                       <MaterialCommunityIcons name="chevron-right" size={18} color="rgba(255,255,255,0.4)" />
                     </TouchableOpacity>

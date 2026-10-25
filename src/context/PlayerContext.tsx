@@ -877,10 +877,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           if (lrcRes.ok) {
             const items = await lrcRes.json();
             if (Array.isArray(items) && items.length > 0) {
-              const first = items[0];
-              const raw = first.plainLyrics || first.syncedLyrics || "";
+              const matchedWithSynced = items.find((x: any) => x.syncedLyrics && x.syncedLyrics.trim().length > 10) || items[0];
+              const raw = matchedWithSynced.syncedLyrics || matchedWithSynced.plainLyrics || "";
               if (raw && raw.trim().length > 10) {
-                text = raw.replace(/\[\d{2}:\d{2}\.\d{2,3}\]\s*/g, "").trim();
+                text = raw.trim();
               }
             }
           }
@@ -897,9 +897,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           if (res.ok) {
             const data = await res.json();
             const inner = data?.data ?? data;
-            const raw = inner?.lyrics || inner?.plainLyrics || inner?.snippet || "";
+            const raw = inner?.syncedLyrics || inner?.lyrics || inner?.plainLyrics || inner?.snippet || "";
             if (raw && raw.trim().length > 10) {
-              text = raw.replace(/<[^>]+>/g, "").replace(/\[\d{2}:\d{2}\.\d{2,3}\]\s*/g, "").trim();
+              text = raw.replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "").trim();
             }
           }
         } catch {}
