@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image, AppState, DeviceEventEmitter } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image, AppState, DeviceEventEmitter, Alert } from 'react-native'
 import React, {
   createContext,
   useContext,
@@ -8,7 +8,8 @@ import React, {
   useRef,
   ReactNode,
 } from "react";
-import type { Song } from "../data/songs";
+import { Song, mapApiSong } from "../data/songs";
+import { api, extractResults } from "../services/api";
 import { useAuth } from "./AuthContext";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { localStorage } from "../lib/storage";
@@ -58,7 +59,8 @@ interface LibraryContextType {
   loadLikedAlbums: () => Promise<void>;
   downloadSong: (song: Song) => Promise<void>;
   deleteDownloadedSong: (songId: string) => Promise<void>;
-  isDownloaded: (songId: string) => boolean;
+  isDownloaded: (songId: string, title?: string) => boolean;
+  isDownloading: (songId: string) => boolean;
   likedAlbums: AlbumData[];
   toggleLikeAlbum: (album: AlbumData) => Promise<void>;
   updateLikedAlbum: (album: AlbumData) => Promise<void>;
@@ -355,17 +357,126 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const isDownloaded = useCallback(
-    (songId: string) => downloadedSongs.some((s) => String(s.id) === String(songId)),
+    (songId: string, title?: string) => {
+      if (!songId && !title) return false;
+      const cleanId = String(songId || "").replace(/^yt-/, "");
+      return downloadedSongs.some((s) => {
+        const sCleanId = String(s.id || "").replace(/^yt-/, "");
+        if (cleanId && sCleanId === cleanId) return true;
+        if (s.id && songId && String(s.id) === String(songId)) return true;
+        if (title && s.title && normalizeSongTitle(s.title, "") === normalizeSongTitle(title, "")) {
+          return true;
+        }
+        return false;
+      });
+    },
     [downloadedSongs]
+  );
+
+  const isDownloading = useCallback(
+    (songId: string) => {
+      if (!songId) return false;
+      const cleanId = String(songId).replace(/^yt-/, "");
+      return downloadingIds.some((id) => {
+        const cId = String(id).replace(/^yt-/, "");
+        return cId === cleanId || String(id) === String(songId);
+      });
+    },
+    [downloadingIds]
   );
 
   const downloadSong = useCallback(
     async (song: Song) => {
-      if (downloadedSongs.some((s) => String(s.id) === String(song.id))) return;
+      if (downloadedSongs.some((s) => String(s.id) === String(song.id) || (song.title && normalizeSongTitle(s.title, "") === normalizeSongTitle(song.title, "")))) return;
       setDownloadingIds((prev) => [...prev, song.id]);
 
       try {
-        const audioUrl = song.audioUrl || `https://musicbackend-xg4u.onrender.com/api/songs/${song.id}/stream`;
+        let audioUrl = song.audioUrl || "";
+        let albumArt = song.albumArt || "";
+
+        // If audioUrl is missing, a youtube pseudo-scheme, or points to the unresolvable backend proxy, resolve a high-quality stream
+        if (!audioUrl || audioUrl.startsWith("youtube://") || audioUrl.includes("musicbackend-") || !audioUrl.startsWith("http")) {
+          // 1. Clean title and search JioSaavn for studio-quality official 320kbps CDN stream
+          const cleanTitle = (song.title || "")
+            .replace(/\s*\([^)]*(official|video|audio|lyrical|song|4k|hd|remix|full|teaser|trailer|clip)[^)]*\)/gi, "")
+            .replace(/\s*\[[^\]]*(official|video|audio|lyrical|song|4k|hd|remix|full|teaser|trailer|clip)[^\]]*\]/gi, "")
+            .replace(/\s*-\s*(official|video|audio|lyrical|song|4k|hd|remix|full).*/gi, "")
+            .replace(/\|.*$/g, "")
+            .trim();
+
+          let resolvedFromJio = false;
+          if (cleanTitle) {
+            try {
+              const res = await api.searchSongs(cleanTitle, 1, 5);
+              const items = extractResults(res);
+              if (Array.isArray(items) && items.length > 0) {
+                const mapped = mapApiSong(items[0]);
+                if (mapped && mapped.audioUrl && mapped.audioUrl.startsWith("http")) {
+                  audioUrl = mapped.audioUrl;
+                  if (mapped.albumArt && !mapped.albumArt.includes("placeholder")) {
+                    albumArt = mapped.albumArt;
+                  }
+                  resolvedFromJio = true;
+                }
+              }
+            } catch (e) {
+              console.warn("[LibraryContext] JioSaavn search resolution error:", e);
+            }
+          }
+
+          // 2. Fallback to YouTube stream resolvers if not on JioSaavn
+          if (!resolvedFromJio) {
+            const vId = song.id.startsWith("yt-") ? song.id.replace("yt-", "") : (song.audioUrl ? song.audioUrl.replace("youtube://", "") : "");
+            if (vId) {
+              const streamInstances = [
+                "https://inv.tux.pizza",
+                "https://invidious.nerdvpn.de",
+                "https://invidious.privacydev.net",
+                "https://iv.melmac.space",
+                "https://invidious.flokinet.to",
+                "https://pipedapi.adminforge.de",
+                "https://pipedapi.kavin.rocks"
+              ];
+              for (const inst of streamInstances) {
+                try {
+                  const isPiped = inst.includes("piped");
+                  const fetchUrl = isPiped ? `${inst}/streams/${vId}` : `${inst}/api/v1/videos/${vId}`;
+                  const sRes = await Promise.race([
+                    fetch(fetchUrl, { headers: { "User-Agent": "Mozilla/5.0" } }),
+                    new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 3500))
+                  ]);
+                  if (sRes.ok) {
+                    const data = await sRes.json();
+                    if (isPiped) {
+                      const aStreams = data.audioStreams || [];
+                      if (aStreams.length > 0 && aStreams[aStreams.length - 1]?.url) {
+                        audioUrl = aStreams[aStreams.length - 1].url;
+                        break;
+                      }
+                    } else {
+                      const adaptive = data.adaptiveFormats || [];
+                      const a = adaptive.find((f: any) => f.type && f.type.startsWith("audio/"));
+                      if (a && a.url) {
+                        audioUrl = a.url;
+                        break;
+                      }
+                      const fStreams = data.formatStreams || [];
+                      if (fStreams.length > 0 && fStreams[0]?.url) {
+                        audioUrl = fStreams[0].url;
+                        break;
+                      }
+                    }
+                  }
+                } catch {}
+              }
+            }
+          }
+        }
+
+        if (!audioUrl || !audioUrl.startsWith("http")) {
+          throw new Error("Unable to resolve a valid downloadable audio stream for this track.");
+        }
+
         const audioLocalUri = FileSystem.documentDirectory + song.id + ".mp3";
 
         // Download audio file
@@ -379,10 +490,10 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
         // Download album art if present
         let artLocalUri = "";
-        if (song.albumArt) {
+        if (albumArt && albumArt.startsWith("http")) {
           try {
             const artResult = await FileSystem.downloadAsync(
-              song.albumArt,
+              albumArt,
               FileSystem.documentDirectory + song.id + "_art.jpg"
             );
             artLocalUri = artResult.uri;
@@ -394,7 +505,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         const downloadedSong: Song = {
           ...song,
           audioUrl: `${song.id}.mp3`,
-          albumArt: artLocalUri ? `${song.id}_art.jpg` : song.albumArt,
+          albumArt: artLocalUri ? `${song.id}_art.jpg` : albumArt,
         };
 
         const inMemorySong = {
@@ -423,8 +534,13 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         });
         await AsyncStorage.setItem("rw_downloads", JSON.stringify(stripped));
         setDownloadedSongs(next);
-      } catch (err) {
+        DeviceEventEmitter.emit("DOWNLOADS_UPDATED");
+      } catch (err: any) {
         console.error("Failed to download song:", err);
+        Alert.alert(
+          "Download Incomplete",
+          "Unable to download this track for offline listening. Please check your internet connection and try again."
+        );
       } finally {
         setDownloadingIds((prev) => prev.filter((id) => id !== song.id));
       }
@@ -434,8 +550,11 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
 
   const deleteDownloadedSong = useCallback(async (songId: string) => {
     try {
-      // 1. Update list and store in AsyncStorage first for instant UI response and robustness
-      const next = downloadedSongs.filter((s) => String(s.id) !== String(songId));
+      const cleanId = String(songId || "").replace(/^yt-/, "");
+      const next = downloadedSongs.filter((s) => {
+        const sClean = String(s.id || "").replace(/^yt-/, "");
+        return String(s.id) !== String(songId) && sClean !== cleanId;
+      });
       const stripped = next.map((s) => {
         let aUrl = s.audioUrl || "";
         if (FileSystem.documentDirectory && aUrl.startsWith(FileSystem.documentDirectory)) {
@@ -454,11 +573,16 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       await AsyncStorage.setItem("rw_downloads", JSON.stringify(stripped));
       setDownloadedSongs(next);
 
-      // 2. Cleanup physical files in the background without blocking the UI/state flow
+      // Clean up files on disk
       const audioLocalUri = (FileSystem.documentDirectory || "") + songId + ".mp3";
       const artLocalUri = (FileSystem.documentDirectory || "") + songId + "_art.jpg";
       FileSystem.deleteAsync(audioLocalUri, { idempotent: true }).catch(() => {});
       FileSystem.deleteAsync(artLocalUri, { idempotent: true }).catch(() => {});
+      if (cleanId !== songId) {
+        FileSystem.deleteAsync((FileSystem.documentDirectory || "") + cleanId + ".mp3", { idempotent: true }).catch(() => {});
+        FileSystem.deleteAsync((FileSystem.documentDirectory || "") + cleanId + "_art.jpg", { idempotent: true }).catch(() => {});
+      }
+      DeviceEventEmitter.emit("DOWNLOADS_UPDATED");
     } catch (err) {
       console.error("Failed to delete downloaded song:", err);
     }
@@ -1009,6 +1133,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         downloadSong,
         deleteDownloadedSong,
         isDownloaded,
+        isDownloading,
         likedAlbums,
         toggleLikeAlbum,
         updateLikedAlbum,

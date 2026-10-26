@@ -277,7 +277,42 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
 }
 
 function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemPip: isSystemPipProp }: { onRequireAuth: () => void; activeTab?: string; floatingOnly?: boolean; isSystemPip?: boolean }) {
-  const { likedVideos, toggleLikeVideo, isVideoLiked, recentlyPlayedVideos, addToRecentlyPlayedVideos } = useLibrary();
+  const {
+    likedVideos,
+    toggleLikeVideo,
+    isVideoLiked,
+    recentlyPlayedVideos,
+    addToRecentlyPlayedVideos,
+    downloadSong,
+    deleteDownloadedSong,
+    isDownloaded,
+    isDownloading,
+  } = useLibrary();
+
+  const handleDownloadVideo = useCallback(
+    async (item: VideoItem) => {
+      const vId = item.videoId || item.id?.replace(/^yt_/, "");
+      const songId = vId ? `yt-${vId}` : item.id;
+      const downloaded = isDownloaded(songId, item.title);
+
+      if (downloaded) {
+        deleteDownloadedSong(songId);
+        return;
+      }
+
+      const songToDownload: Song = {
+        id: songId,
+        title: item.title,
+        artist: item.artist,
+        albumArt: item.thumbnail,
+        audioUrl: `youtube://${vId}`,
+        duration: item.duration || 0,
+      };
+
+      await downloadSong(songToDownload);
+    },
+    [downloadSong, deleteDownloadedSong, isDownloaded]
+  );
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -2682,7 +2717,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                 <MaterialCommunityIcons name="chevron-down" size={28} color="#fff" />
               </TouchableOpacity>
 
-              {/* Centered Controls Row: Previous, Next, Like */}
+              {/* Centered Controls Row: Previous, Next, Like, Download */}
               <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 16 }}>
                 <TouchableOpacity delayPressIn={0} onPress={playPrevVideo} style={{ padding: 6 }} activeOpacity={0.7}>
                   <MaterialCommunityIcons name="skip-previous" size={26} color="#fff" />
@@ -2696,6 +2731,23 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                     size={24}
                     color={isVideoLiked(activeVideo) ? "#1DB954" : "#fff"}
                   />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  delayPressIn={0}
+                  onPress={() => handleDownloadVideo(activeVideo)}
+                  style={{ padding: 6 }}
+                  activeOpacity={0.7}
+                  disabled={isDownloading(activeVideo.videoId || activeVideo.id)}
+                >
+                  {isDownloading(activeVideo.videoId || activeVideo.id) ? (
+                    <ActivityIndicator size="small" color="#1DB954" />
+                  ) : (
+                    <MaterialCommunityIcons
+                      name={isDownloaded(activeVideo.videoId || activeVideo.id, activeVideo.title) ? "check-circle" : "download"}
+                      size={24}
+                      color={isDownloaded(activeVideo.videoId || activeVideo.id, activeVideo.title) ? "#1DB954" : "#fff"}
+                    />
+                  )}
                 </TouchableOpacity>
               </View>
 
