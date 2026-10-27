@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, TextInput, ActivityIndicator, Platform, Modal, Dimensions, DeviceEventEmitter, AppState, Animated, PanResponder, Linking, Keyboard, RefreshControl, useWindowDimensions } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, TextInput, ActivityIndicator, Platform, Modal, Dimensions, DeviceEventEmitter, AppState, Animated, PanResponder, Linking, Keyboard, RefreshControl, useWindowDimensions, ToastAndroid } from 'react-native'
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { WebView } from "react-native-webview";
@@ -11,6 +11,9 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const { width } = Dimensions.get("window");
 
+// Persistent in-memory set of video IDs that cannot be embedded / played outside YouTube
+export const globalBlockedVideoIds = new Set<string>();
+
 interface VideoItem {
   id: string;
   videoId: string;
@@ -20,6 +23,7 @@ interface VideoItem {
   duration?: number;
   uploadedAt?: string;
   views?: string;
+  categoryBadge?: string;
 }
 
 function formatViews(views?: number | string): string {
@@ -86,7 +90,7 @@ async function getYouTubeVideoId(title: string, artist: string): Promise<string>
       if (matches && matches.length > 0) {
         for (const m of matches) {
           const vId = m.replace('"videoId":"', '').replace('"', '');
-          if (vId && /^[a-zA-Z0-9_-]{11}$/.test(vId)) {
+          if (vId && /^[a-zA-Z0-9_-]{11}$/.test(vId) && !globalBlockedVideoIds.has(vId)) {
             return vId;
           }
         }
@@ -113,7 +117,7 @@ async function getYouTubeVideoId(title: string, artist: string): Promise<string>
         for (const item of items) {
           const raw = item.url || item.videoId || "";
           const vId = raw.replace("/watch?v=", "").split("&")[0];
-          if (vId && /^[a-zA-Z0-9_-]{11}$/.test(vId)) return vId;
+          if (vId && /^[a-zA-Z0-9_-]{11}$/.test(vId) && !globalBlockedVideoIds.has(vId)) return vId;
         }
       }
     } catch {}
@@ -157,7 +161,7 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
             const video = item.videoRenderer;
             if (video && video.videoId) {
               const vId = String(video.videoId).trim();
-              if (vId && /^[a-zA-Z0-9_-]{11}$/.test(vId) && !seenIds.has(vId)) {
+              if (vId && /^[a-zA-Z0-9_-]{11}$/.test(vId) && !seenIds.has(vId) && !globalBlockedVideoIds.has(vId)) {
                 seenIds.add(vId);
 
                 const title = video.title?.runs?.[0]?.text || video.title?.simpleText || searchQuery;
@@ -185,7 +189,7 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
               const subVideo = subItem.videoRenderer;
               if (subVideo && subVideo.videoId) {
                 const vId = String(subVideo.videoId).trim();
-                if (vId && /^[a-zA-Z0-9_-]{11}$/.test(vId) && !seenIds.has(vId)) {
+                if (vId && /^[a-zA-Z0-9_-]{11}$/.test(vId) && !seenIds.has(vId) && !globalBlockedVideoIds.has(vId)) {
                   seenIds.add(vId);
                   const title = subVideo.title?.runs?.[0]?.text || subVideo.title?.simpleText || searchQuery;
                   const artist = subVideo.ownerText?.runs?.[0]?.text || subVideo.shortBylineText?.runs?.[0]?.text || "YouTube";
@@ -216,7 +220,7 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
       while ((match = regex.exec(html)) !== null && videoItems.length < 35) {
         const [, rawVId, title] = match;
         const vId = rawVId ? String(rawVId).trim() : "";
-        if (vId && /^[a-zA-Z0-9_-]{11}$/.test(vId) && !seenIds.has(vId)) {
+        if (vId && /^[a-zA-Z0-9_-]{11}$/.test(vId) && !seenIds.has(vId) && !globalBlockedVideoIds.has(vId)) {
           seenIds.add(vId);
           videoItems.push({
             id: `yt_${vId}`,
@@ -249,7 +253,7 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
             for (const item of items) {
               const rawUrl = item.url || item.videoId || "";
               const vId = rawUrl.replace("/watch?v=", "").split("&")[0]?.trim();
-              if (vId && /^[a-zA-Z0-9_-]{11}$/.test(vId) && !seenIds.has(vId)) {
+              if (vId && /^[a-zA-Z0-9_-]{11}$/.test(vId) && !seenIds.has(vId) && !globalBlockedVideoIds.has(vId)) {
                 seenIds.add(vId);
                 const uploadedAt = item.uploadedDate || item.publishedText || item.uploaded || "";
                 const rawViews = item.views ?? item.viewCount;
@@ -276,6 +280,77 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
   }
 }
 
+interface VideoMetadataCategories {
+  cleanTitle: string;
+  movie?: string;
+  hero?: string;
+  heroine?: string;
+  artist?: string;
+  language?: string;
+  year?: string;
+}
+
+interface CategoryTab {
+  key: string;
+  label: string;
+  icon: string;
+  badgeLabel: string;
+  searchQuery: string;
+}
+
+function parseMetadataFromTitle(rawTitle: string, rawArtist: string): VideoMetadataCategories {
+  const cleanTitle = (rawTitle || "")
+    .replace(/\s*\([^)]*(official|video|audio|lyrical|song|4k|hd|remix|full|teaser|trailer|promo)[^)]*\)/gi, "")
+    .replace(/\s*\[[^\]]*(official|video|audio|lyrical|song|4k|hd|remix|full|teaser|trailer|promo)[^\]]*\]/gi, "")
+    .replace(/\s*-\s*(official|video|audio|lyrical|song|4k|hd|remix|full).*/gi, "")
+    .trim();
+
+  const meta: VideoMetadataCategories = { cleanTitle: cleanTitle || rawTitle };
+
+  // 1. Detect (From "Movie Name")
+  const fromMovieMatch = (rawTitle || "").match(/(?:from|soundtrack|film)\s*["'“]?([^"'”)\]|]+)/i);
+  if (fromMovieMatch && fromMovieMatch[1]) {
+    const m = fromMovieMatch[1].trim();
+    if (m.length > 1) meta.movie = m;
+  }
+
+  // 2. Parse title segments separated by | or // or -
+  const segments = cleanTitle.split(/\s*\|\s*|\s*\/\/\s*|\s* - \s*/).map((s) => s.trim()).filter(Boolean);
+  if (segments.length >= 2) {
+    if (!meta.movie && segments[1].length > 1) {
+      meta.movie = segments[1];
+    }
+    if (segments.length >= 3) {
+      const seg2 = segments[2];
+      if (seg2.includes(",")) {
+        const parts = seg2.split(",").map((s) => s.trim()).filter(Boolean);
+        if (parts[0]) meta.hero = parts[0];
+        if (parts[1]) meta.heroine = parts[1];
+      } else if (seg2.length > 2) {
+        meta.hero = seg2;
+      }
+    }
+    if (segments.length >= 4) {
+      const seg3 = segments[3];
+      if (!meta.heroine && seg3.length > 2) {
+        meta.heroine = seg3;
+      }
+    }
+    if (segments.length >= 5) {
+      const seg4 = segments[4];
+      if (seg4.length > 2) {
+        meta.artist = seg4;
+      }
+    }
+  }
+
+  if (!meta.artist && rawArtist && rawArtist.toLowerCase() !== "youtube") {
+    meta.artist = rawArtist;
+  }
+
+  return meta;
+}
+
 function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemPip: isSystemPipProp }: { onRequireAuth: () => void; activeTab?: string; floatingOnly?: boolean; isSystemPip?: boolean }) {
   const {
     likedVideos,
@@ -283,36 +358,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
     isVideoLiked,
     recentlyPlayedVideos,
     addToRecentlyPlayedVideos,
-    downloadSong,
-    deleteDownloadedSong,
-    isDownloaded,
-    isDownloading,
   } = useLibrary();
-
-  const handleDownloadVideo = useCallback(
-    async (item: VideoItem) => {
-      const vId = item.videoId || item.id?.replace(/^yt_/, "");
-      const songId = vId ? `yt-${vId}` : item.id;
-      const downloaded = isDownloaded(songId, item.title);
-
-      if (downloaded) {
-        deleteDownloadedSong(songId);
-        return;
-      }
-
-      const songToDownload: Song = {
-        id: songId,
-        title: item.title,
-        artist: item.artist,
-        albumArt: item.thumbnail,
-        audioUrl: `youtube://${vId}`,
-        duration: item.duration || 0,
-      };
-
-      await downloadSong(songToDownload);
-    },
-    [downloadSong, deleteDownloadedSong, isDownloaded]
-  );
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -480,13 +526,44 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
   }, [recentlyPlayedVideos]);
   const [isMinimized, setIsMinimized] = useState(false);
   const [selectedInstanceIndex, setSelectedInstanceIndex] = useState(0);
-  const [isVideoBlocked, setIsVideoBlocked] = useState(false);
   const [showPipControls, setShowPipControls] = useState(false);
   const [isPipPlaying, setIsPipPlaying] = useState(true);
   const isPipPlayingRef = useRef(isPipPlaying);
   isPipPlayingRef.current = isPipPlaying;
-  const wasVideoPlayingBeforeInterruptionRef = useRef(false);
   const userToggleTimeRef = useRef<number>(0);
+  const wasVideoPlayingBeforeInterruptionRef = useRef(false);
+
+  const [blockedVideoIds, setBlockedVideoIds] = useState<Set<string>>(new Set());
+  const blockedVideoIdsRef = useRef<Set<string>>(blockedVideoIds);
+  blockedVideoIdsRef.current = blockedVideoIds;
+
+  const [upNextCategories, setUpNextCategories] = useState<CategoryTab[]>([]);
+  const [selectedCategoryKey, setSelectedCategoryKey] = useState<string>("all");
+  const [categorizedVideos, setCategorizedVideos] = useState<Record<string, VideoItem[]>>({});
+  const [upNextLoading, setUpNextLoading] = useState<boolean>(false);
+
+  // Restore stored blocked video IDs on mount
+  useEffect(() => {
+    AsyncStorage.getItem("@rw_blocked_video_ids")
+      .then((stored) => {
+        if (stored) {
+          try {
+            const parsed = JSON.parse(stored);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              parsed.forEach((id: string) => globalBlockedVideoIds.add(String(id)));
+              setBlockedVideoIds(new Set(parsed));
+            }
+          } catch {}
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const isVideoBlockedById = useCallback((idOrVideoId?: string) => {
+    if (!idOrVideoId) return false;
+    const cleanId = String(idOrVideoId).replace(/^yt_/, "").replace(/^yt-/, "").trim();
+    return blockedVideoIdsRef.current.has(cleanId) || globalBlockedVideoIds.has(cleanId);
+  }, []);
   const [isSystemPip, setIsSystemPip] = useState(isSystemPipProp || false);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const [isManualLandscape, setIsManualLandscape] = useState(false);
@@ -1346,7 +1423,6 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
       addToRecentlyPlayedVideos(item).catch(() => {});
     }
     setSelectedInstanceIndex(0);
-    setIsVideoBlocked(false);
     setIsMinimized(false);
     setIsPipPlaying(true);
     if (isYouTubeVideoId(item.videoId)) {
@@ -1361,24 +1437,267 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
   };
 
   const playNextVideo = useCallback(() => {
-    if (!activeVideo || videos.length === 0) return;
-    const currentIndex = videos.findIndex((v) => v.id === activeVideo.id || (v.videoId && v.videoId === activeVideo.videoId));
-    const nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % videos.length;
-    const nextVideo = videos[nextIndex];
+    if (!activeVideo) return;
+    const currentList = categorizedVideos[selectedCategoryKey] || categorizedVideos["all"] || [];
+    const pool = currentList.length > 0 ? currentList : videos;
+    const activeVId = activeVideo.videoId || activeVideo.id?.replace(/^yt_/, "");
+    const available = pool.filter((v) => {
+      const vId = v.videoId || v.id?.replace(/^yt_/, "");
+      return vId !== activeVId && !isVideoBlockedById(vId);
+    });
+
+    if (available.length === 0) {
+      setActiveVideo(null);
+      return;
+    }
+
+    const currentIndex = available.findIndex((v) => (v.videoId || v.id?.replace(/^yt_/, "")) === activeVId);
+    const nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % available.length;
+    const nextVideo = available[nextIndex];
     if (nextVideo) {
       handleVideoCardPress(nextVideo);
     }
-  }, [activeVideo, videos]);
+  }, [activeVideo, categorizedVideos, selectedCategoryKey, videos, isVideoBlockedById]);
 
   const playPrevVideo = useCallback(() => {
-    if (!activeVideo || videos.length === 0) return;
-    const currentIndex = videos.findIndex((v) => v.id === activeVideo.id || (v.videoId && v.videoId === activeVideo.videoId));
-    const prevIndex = currentIndex <= 0 ? videos.length - 1 : currentIndex - 1;
-    const prevVideo = videos[prevIndex];
+    if (!activeVideo) return;
+    const currentList = categorizedVideos[selectedCategoryKey] || categorizedVideos["all"] || [];
+    const pool = currentList.length > 0 ? currentList : videos;
+    const activeVId = activeVideo.videoId || activeVideo.id?.replace(/^yt_/, "");
+    const available = pool.filter((v) => {
+      const vId = v.videoId || v.id?.replace(/^yt_/, "");
+      return vId !== activeVId && !isVideoBlockedById(vId);
+    });
+
+    if (available.length === 0) return;
+
+    const currentIndex = available.findIndex((v) => (v.videoId || v.id?.replace(/^yt_/, "")) === activeVId);
+    const prevIndex = currentIndex <= 0 ? available.length - 1 : currentIndex - 1;
+    const prevVideo = available[prevIndex];
     if (prevVideo) {
       handleVideoCardPress(prevVideo);
     }
-  }, [activeVideo, videos]);
+  }, [activeVideo, categorizedVideos, selectedCategoryKey, videos, isVideoBlockedById]);
+
+  const handleVideoBlocked = useCallback((blockedId?: string) => {
+    const rawId = (blockedId || activeVideo?.videoId || activeVideo?.id?.replace(/^yt_/, ""))?.trim();
+    if (!rawId) return;
+
+    globalBlockedVideoIds.add(rawId);
+    setBlockedVideoIds((prev) => {
+      const next = new Set(prev);
+      next.add(rawId);
+      AsyncStorage.setItem("@rw_blocked_video_ids", JSON.stringify(Array.from(next))).catch(() => {});
+      return next;
+    });
+
+    setVideos((prev) => prev.filter((v) => (v.videoId || v.id?.replace(/^yt_/, "")) !== rawId));
+    setRecommendedVideos((prev) => prev.filter((v) => (v.videoId || v.id?.replace(/^yt_/, "")) !== rawId));
+    setCategorizedVideos((prev) => {
+      const updated: Record<string, VideoItem[]> = {};
+      for (const [k, list] of Object.entries(prev)) {
+        updated[k] = list.filter((v) => (v.videoId || v.id?.replace(/^yt_/, "")) !== rawId);
+      }
+      return updated;
+    });
+
+    if (Platform.OS === "android") {
+      try {
+        ToastAndroid.show("Playback disallowed by owner — playing next video", ToastAndroid.SHORT);
+      } catch {}
+    }
+
+    setTimeout(() => {
+      playNextVideo();
+    }, 250);
+  }, [activeVideo, playNextVideo]);
+
+  // Dynamically load exact categories (Same Movie, Same Hero, Same Heroine, Same Artist, Same Year/Language)
+  useEffect(() => {
+    if (!activeVideo) {
+      setUpNextCategories([]);
+      setCategorizedVideos({});
+      return;
+    }
+
+    let isMounted = true;
+    setUpNextLoading(true);
+
+    const activeVId = activeVideo.videoId || activeVideo.id?.replace(/^yt_/, "");
+
+    const fetchCategorizedUpNext = async () => {
+      try {
+        const rawTitle = activeVideo.title || "";
+        const rawArtist = activeVideo.artist || "";
+        const meta = parseMetadataFromTitle(rawTitle, rawArtist);
+
+        // Query JioSaavn in parallel for exact movie name, starring actors, language, year
+        try {
+          const saavnRes = await api.searchSongs(meta.cleanTitle, 1, 3);
+          const results = extractResults(saavnRes);
+          if (results && results.length > 0) {
+            const first = results[0];
+            const foundMovie = first.album?.name || first.album || first.movie || first.film;
+            if (foundMovie && typeof foundMovie === "string") {
+              meta.movie = foundMovie;
+            }
+            if (first.language && typeof first.language === "string") {
+              meta.language = first.language;
+            }
+            if (first.year) {
+              meta.year = String(first.year);
+            }
+            const starring = first.more_info?.starring || first.starring;
+            if (starring && typeof starring === "string") {
+              const stars = starring.split(",").map((s: string) => s.trim()).filter(Boolean);
+              if (stars[0] && !meta.hero) meta.hero = stars[0];
+              if (stars[1] && !meta.heroine) meta.heroine = stars[1];
+            }
+            const primaryArt = first.artists?.primary?.[0]?.name || first.primary_artists || first.singers;
+            if (primaryArt && (!meta.artist || meta.artist.toLowerCase() === "youtube")) {
+              meta.artist = primaryArt;
+            }
+          }
+        } catch {}
+
+        // Construct distinct metadata category tabs
+        const tabs: CategoryTab[] = [
+          {
+            key: "all",
+            label: "✨ All Related",
+            icon: "sparkles",
+            badgeLabel: "Related",
+            searchQuery: `${meta.cleanTitle} ${meta.movie || meta.artist || ""} video songs`,
+          },
+        ];
+
+        if (meta.movie && meta.movie.trim().length > 1) {
+          const cleanMovie = meta.movie.trim();
+          tabs.push({
+            key: "movie",
+            label: `🎬 ${cleanMovie}`,
+            icon: "movie-open",
+            badgeLabel: cleanMovie,
+            searchQuery: `"${cleanMovie}" video songs official`,
+          });
+        }
+
+        if (meta.hero && meta.hero.trim().length > 2) {
+          const cleanHero = meta.hero.trim();
+          tabs.push({
+            key: "hero",
+            label: `🦸 ${cleanHero}`,
+            icon: "account-star",
+            badgeLabel: cleanHero,
+            searchQuery: `"${cleanHero}" ${meta.language || ""} hit video songs 4k`,
+          });
+        }
+
+        if (meta.heroine && meta.heroine.trim().length > 2 && meta.heroine.toLowerCase() !== meta.hero?.toLowerCase()) {
+          const cleanHeroine = meta.heroine.trim();
+          tabs.push({
+            key: "heroine",
+            label: `💃 ${cleanHeroine}`,
+            icon: "account-heart",
+            badgeLabel: cleanHeroine,
+            searchQuery: `"${cleanHeroine}" ${meta.language || ""} hit video songs`,
+          });
+        }
+
+        if (meta.artist && meta.artist.trim().length > 2 && meta.artist.toLowerCase() !== "youtube") {
+          const cleanArt = meta.artist.trim();
+          tabs.push({
+            key: "artist",
+            label: `🎤 ${cleanArt}`,
+            icon: "microphone-variant",
+            badgeLabel: cleanArt,
+            searchQuery: `"${cleanArt}" ${meta.language || ""} video songs hits`,
+          });
+        }
+
+        if (meta.language || meta.year) {
+          const langYearLabel = [meta.language, meta.year].filter(Boolean).join(" ");
+          tabs.push({
+            key: "year_lang",
+            label: `📅 ${langYearLabel}`,
+            icon: "calendar-star",
+            badgeLabel: langYearLabel,
+            searchQuery: `${meta.language || ""} ${meta.year || ""} top video songs 4k`.trim(),
+          });
+        }
+
+        if (!isMounted) return;
+        setUpNextCategories(tabs);
+        setSelectedCategoryKey("all");
+
+        const catMap: Record<string, VideoItem[]> = {};
+
+        // Fetch each category query
+        await Promise.all(
+          tabs.map(async (tab) => {
+            if (tab.key === "all") return;
+            try {
+              const resList = await searchYouTubeVideos(tab.searchQuery);
+              const cleanList = resList
+                .filter((item) => {
+                  const itemVId = item.videoId || item.id?.replace(/^yt_/, "");
+                  return itemVId !== activeVId && !isVideoBlockedById(itemVId);
+                })
+                .map((item) => ({ ...item, categoryBadge: tab.badgeLabel }));
+              catMap[tab.key] = cleanList;
+            } catch {}
+          })
+        );
+
+        // Interleave categories into the "all" category
+        const allItems: VideoItem[] = [];
+        const seenIds = new Set<string>();
+        if (activeVId) seenIds.add(activeVId);
+
+        const specificKeys = tabs.filter((t) => t.key !== "all").map((t) => t.key);
+        for (let i = 0; i < 6; i++) {
+          for (const k of specificKeys) {
+            const itm = catMap[k]?.[i];
+            if (itm) {
+              const itmVId = itm.videoId || itm.id?.replace(/^yt_/, "");
+              if (!seenIds.has(itmVId) && !isVideoBlockedById(itmVId)) {
+                seenIds.add(itmVId);
+                allItems.push(itm);
+              }
+            }
+          }
+        }
+
+        if (allItems.length < 5) {
+          try {
+            const fallback = await searchYouTubeVideos(`${meta.cleanTitle} video songs`);
+            for (const itm of fallback) {
+              const itmVId = itm.videoId || itm.id?.replace(/^yt_/, "");
+              if (!seenIds.has(itmVId) && !isVideoBlockedById(itmVId)) {
+                seenIds.add(itmVId);
+                allItems.push({ ...itm, categoryBadge: "Related" });
+              }
+            }
+          } catch {}
+        }
+
+        catMap["all"] = allItems;
+
+        if (isMounted) {
+          setCategorizedVideos(catMap);
+          setUpNextLoading(false);
+        }
+      } catch (err) {
+        if (isMounted) setUpNextLoading(false);
+      }
+    };
+
+    fetchCategorizedUpNext();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeVideo?.id, activeVideo?.videoId, activeVideo?.title, isVideoBlockedById]);
 
   const providerBase = VIDEO_EMBED_PROVIDERS[selectedInstanceIndex];
   const isResolvingVideo = activeVideo && !isYouTubeVideoId(activeVideo.videoId);
@@ -1562,16 +1881,14 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
       } else if (data && data.event === "TOGGLE_LANDSCAPE_CONTROLS") {
         handlePlayerTap();
       } else if (data && data.event === "VIDEO_BLOCKED") {
-        setIsVideoBlocked(true);
-        setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length);
+        handleVideoBlocked(data.videoId || targetId);
       }
     } catch {}
-  }, [playNextVideo, applyZoomDirect, isLandscape, handlePlayerTap]);
+  }, [playNextVideo, applyZoomDirect, isLandscape, handlePlayerTap, handleVideoBlocked, targetId]);
 
   const handleWebViewError = useCallback(() => {
-    setIsVideoBlocked(true);
-    setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length);
-  }, []);
+    handleVideoBlocked(targetId);
+  }, [targetId, handleVideoBlocked]);
 
   const webViewSource = useMemo(() => {
     if (!targetId) return null;
@@ -1909,11 +2226,25 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                       },
                       'onError': function(event) {
                         if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-                          window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_BLOCKED' }));
+                          window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_BLOCKED', videoId: '${targetId}', code: event ? event.data : 0 }));
                         }
                       }
                     }
                   });
+
+                  // Detect YouTube restricted / blocked overlay in DOM
+                  var blockedCheckTimer = setInterval(function() {
+                    try {
+                      var errEl = document.querySelector('.ytp-error, .ytp-embed-error, .ytp-error-content');
+                      var bodyText = (document.body && document.body.innerText) ? document.body.innerText : '';
+                      if (errEl || bodyText.indexOf('Playback on other websites has been disabled') !== -1 || bodyText.indexOf('Video unavailable') !== -1) {
+                        clearInterval(blockedCheckTimer);
+                        if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                          window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'VIDEO_BLOCKED', videoId: '${targetId}' }));
+                        }
+                      }
+                    } catch(e) {}
+                  }, 800);
                 }
               `
               }
@@ -2598,7 +2929,9 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                     nestedScrollEnabled={true}
                     contentContainerStyle={styles.recShelfScrollContent}
                   >
-                    {recommendedVideos.map((recItem) => (
+                    {recommendedVideos
+                      .filter((recItem) => !isVideoBlockedById(recItem.videoId || recItem.id))
+                      .map((recItem) => (
                       <TouchableOpacity
                         delayPressIn={0}
                         key={`rec_${recItem.id}`}
@@ -2641,7 +2974,9 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                 </View>
               )}
 
-              {videos.map((item) => (
+              {videos
+                .filter((item) => !isVideoBlockedById(item.videoId || item.id))
+                .map((item) => (
                 <TouchableOpacity
                   delayPressIn={0}
                   key={item.id}
@@ -2717,7 +3052,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                 <MaterialCommunityIcons name="chevron-down" size={28} color="#fff" />
               </TouchableOpacity>
 
-              {/* Centered Controls Row: Previous, Next, Like, Download */}
+              {/* Centered Controls Row: Previous, Next, Like */}
               <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 16 }}>
                 <TouchableOpacity delayPressIn={0} onPress={playPrevVideo} style={{ padding: 6 }} activeOpacity={0.7}>
                   <MaterialCommunityIcons name="skip-previous" size={26} color="#fff" />
@@ -2731,23 +3066,6 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                     size={24}
                     color={isVideoLiked(activeVideo) ? "#1DB954" : "#fff"}
                   />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  delayPressIn={0}
-                  onPress={() => handleDownloadVideo(activeVideo)}
-                  style={{ padding: 6 }}
-                  activeOpacity={0.7}
-                  disabled={isDownloading(activeVideo.videoId || activeVideo.id)}
-                >
-                  {isDownloading(activeVideo.videoId || activeVideo.id) ? (
-                    <ActivityIndicator size="small" color="#1DB954" />
-                  ) : (
-                    <MaterialCommunityIcons
-                      name={isDownloaded(activeVideo.videoId || activeVideo.id, activeVideo.title) ? "check-circle" : "download"}
-                      size={24}
-                      color={isDownloaded(activeVideo.videoId || activeVideo.id, activeVideo.title) ? "#1DB954" : "#fff"}
-                    />
-                  )}
                 </TouchableOpacity>
               </View>
 
@@ -3262,38 +3580,68 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                 <Text style={styles.infoSub}>{activeVideo.artist}</Text>
               </View>
 
-              {/* Only render Server Switcher & Open in YouTube buttons when YouTube blocks the video */}
-              {isVideoBlocked && (
-                <View style={{ flexDirection: "row", gap: 10, marginTop: 12, marginBottom: 8 }}>
-                  <TouchableOpacity
-                    delayPressIn={0}
-                    style={[styles.switchInstanceBtn, { flex: 1 }]}
-                    onPress={() => setSelectedInstanceIndex((prev) => (prev + 1) % VIDEO_EMBED_PROVIDERS.length)}
-                  >
-                    <MaterialCommunityIcons name="swap-horizontal" size={18} color="#fff" style={{ marginRight: 6 }} />
-                    <Text style={styles.switchInstanceText}>Server ({selectedInstanceIndex + 1}/{VIDEO_EMBED_PROVIDERS.length})</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    delayPressIn={0}
-                    style={[styles.switchInstanceBtn, { flex: 1, backgroundColor: "#E50914" }]}
-                    onPress={() => {
-                      const ytUrl = `https://www.youtube.com/watch?v=${targetId || activeVideo.videoId}`;
-                      Linking.openURL(ytUrl).catch(() => {});
-                    }}
-                  >
-                    <MaterialCommunityIcons name="youtube" size={18} color="#fff" style={{ marginRight: 6 }} />
-                    <Text style={styles.switchInstanceText}>Open in YouTube</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-
-              {/* Up Next / Related Songs List */}
+              {/* Up Next / Related Songs List with Exact Metadata Categories */}
               <View style={styles.upNextSection}>
-                <Text style={styles.upNextTitle}>Up Next / Related Songs</Text>
-                {videos
-                  .filter((v) => v.id !== activeVideo.id)
-                  .map((item) => (
+                <View style={styles.upNextHeaderRow}>
+                  <Text style={styles.upNextTitle}>Up Next / Related Songs</Text>
+                  {upNextLoading && (
+                    <ActivityIndicator size="small" color="#1DB954" style={{ marginLeft: 8 }} />
+                  )}
+                </View>
+
+                {/* Exact Metadata Category Filter Pills */}
+                {upNextCategories.length > 0 && (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.categoryPillsContainer}
+                    style={{ marginBottom: 14 }}
+                  >
+                    {upNextCategories.map((cat) => {
+                      const isActive = selectedCategoryKey === cat.key;
+                      const catCount = (categorizedVideos[cat.key] || []).length;
+                      return (
+                        <TouchableOpacity
+                          delayPressIn={0}
+                          key={cat.key}
+                          onPress={() => setSelectedCategoryKey(cat.key)}
+                          style={[styles.categoryPill, isActive && styles.categoryPillActive]}
+                          activeOpacity={0.75}
+                        >
+                          <Text style={[styles.categoryPillText, isActive && styles.categoryPillTextActive]}>
+                            {cat.label} {catCount > 0 ? `(${catCount})` : ""}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                )}
+
+                {/* Categorized Video Cards */}
+                {(() => {
+                  const activeList = (categorizedVideos[selectedCategoryKey] || categorizedVideos["all"] || []).filter(
+                    (item) => {
+                      const itemVId = item.videoId || item.id?.replace(/^yt_/, "");
+                      const activeVId = activeVideo?.videoId || activeVideo?.id?.replace(/^yt_/, "");
+                      return itemVId !== activeVId && !isVideoBlockedById(itemVId);
+                    }
+                  );
+
+                  if (activeList.length === 0) {
+                    if (upNextLoading) {
+                      return (
+                        <View style={styles.upNextLoadingBox}>
+                          <ActivityIndicator size="small" color="#1DB954" />
+                          <Text style={styles.upNextLoadingText}>Finding exact songs for this category...</Text>
+                        </View>
+                      );
+                    }
+                    return (
+                      <Text style={styles.noRelatedText}>No songs found in this category.</Text>
+                    );
+                  }
+
+                  return activeList.map((item) => (
                     <TouchableOpacity
                       delayPressIn={0}
                       key={item.id}
@@ -3305,13 +3653,21 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                       <View style={styles.upNextMeta}>
                         <Text style={styles.upNextSongTitle} numberOfLines={2}>{item.title}</Text>
                         <Text style={styles.upNextSongArtist} numberOfLines={1}>{item.artist}</Text>
-                        {item.uploadedAt ? (
-                          <Text style={styles.upNextSubMeta} numberOfLines={1}>{item.uploadedAt}</Text>
-                        ) : null}
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 }}>
+                          {item.categoryBadge ? (
+                            <View style={styles.categoryBadgePill}>
+                              <Text style={styles.categoryBadgeText} numberOfLines={1}>{item.categoryBadge}</Text>
+                            </View>
+                          ) : null}
+                          {item.uploadedAt ? (
+                            <Text style={styles.upNextSubMeta} numberOfLines={1}>{item.uploadedAt}</Text>
+                          ) : null}
+                        </View>
                       </View>
                       <MaterialCommunityIcons name="play-circle-outline" size={24} color="#1DB954" />
                     </TouchableOpacity>
-                  ))}
+                  ));
+                })()}
               </View>
             </ScrollView>
           )}
@@ -3775,44 +4131,77 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 4,
   },
-  instanceNotice: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(29, 185, 84, 0.1)",
-    padding: 10,
-    borderRadius: 8,
-    marginTop: 16,
-  },
-  instanceNoticeText: {
-    color: "#1DB954",
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  switchInstanceBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.08)",
-    paddingVertical: 12,
-    borderRadius: 10,
-    marginTop: 12,
-  },
-  switchInstanceText: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "600",
-  },
   upNextSection: {
-    marginTop: 24,
+    marginTop: 20,
     paddingTop: 16,
     borderTopWidth: 1,
     borderTopColor: "rgba(255,255,255,0.08)",
+  },
+  upNextHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
   },
   upNextTitle: {
     color: "#fff",
     fontSize: 16,
     fontWeight: "bold",
-    marginBottom: 14,
+  },
+  categoryPillsContainer: {
+    gap: 8,
+    paddingVertical: 2,
+  },
+  categoryPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+  },
+  categoryPillActive: {
+    backgroundColor: "#1DB954",
+    borderColor: "#1DB954",
+  },
+  categoryPillText: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  categoryPillTextActive: {
+    color: "#000",
+    fontWeight: "700",
+  },
+  categoryBadgePill: {
+    backgroundColor: "rgba(29, 185, 84, 0.12)",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: "rgba(29, 185, 84, 0.25)",
+    alignSelf: "flex-start",
+    maxWidth: 160,
+  },
+  categoryBadgeText: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "#1DB954",
+  },
+  upNextLoadingBox: {
+    paddingVertical: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  upNextLoadingText: {
+    fontSize: 12,
+    color: "rgba(255, 255, 255, 0.5)",
+  },
+  noRelatedText: {
+    fontSize: 13,
+    color: "rgba(255, 255, 255, 0.4)",
+    paddingVertical: 18,
+    textAlign: "center",
   },
   upNextCard: {
     flexDirection: "row",

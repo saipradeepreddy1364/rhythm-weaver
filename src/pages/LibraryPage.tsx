@@ -673,70 +673,30 @@ function LibraryPageComponent({ onRequireAuth, initialTab }: LibraryPageProps) {
                 subtitle="Tap the heart icon on any music video to save it here."
               />
             ) : (
-              likedVideos.map((item) => {
-                const vId = item.videoId || item.id?.replace(/^yt_/, "");
-                const songId = vId ? `yt-${vId}` : item.id;
-                const downloaded = isDownloaded(songId, item.title);
-                const downloading = isDownloading(songId);
-
-                return (
+              likedVideos.map((item) => (
+                <TouchableOpacity
+                  key={item.id || item.videoId}
+                  style={styles.likedVideoCard}
+                  onPress={() => {
+                    DeviceEventEmitter.emit("PLAY_VIDEO_ITEM", item);
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Image source={{ uri: item.thumbnail }} style={styles.likedVideoThumb} />
+                  <View style={{ flex: 1, marginLeft: 12, marginRight: 8 }}>
+                    <Text style={styles.likedVideoTitle} numberOfLines={2}>{item.title}</Text>
+                    <Text style={styles.likedVideoArtist} numberOfLines={1}>{item.artist}</Text>
+                  </View>
                   <TouchableOpacity
-                    key={item.id || item.videoId}
-                    style={styles.likedVideoCard}
-                    onPress={() => {
-                      DeviceEventEmitter.emit("PLAY_VIDEO_ITEM", item);
-                    }}
-                    activeOpacity={0.85}
+                    delayPressIn={0}
+                    onPress={() => toggleLikeVideo(item)}
+                    style={{ padding: 8 }}
+                    activeOpacity={0.7}
                   >
-                    <Image source={{ uri: item.thumbnail }} style={styles.likedVideoThumb} />
-                    <View style={{ flex: 1, marginLeft: 12, marginRight: 8 }}>
-                      <Text style={styles.likedVideoTitle} numberOfLines={2}>{item.title}</Text>
-                      <Text style={styles.likedVideoArtist} numberOfLines={1}>{item.artist}</Text>
-                    </View>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                      <TouchableOpacity
-                        delayPressIn={0}
-                        onPress={(e) => {
-                          e.stopPropagation();
-                          if (downloaded) {
-                            deleteDownloadedSong(songId);
-                          } else {
-                            downloadSong({
-                              id: songId,
-                              title: item.title,
-                              artist: item.artist,
-                              albumArt: item.thumbnail,
-                              audioUrl: `youtube://${vId}`,
-                              duration: item.duration || 0,
-                            });
-                          }
-                        }}
-                        style={{ padding: 8 }}
-                        activeOpacity={0.7}
-                        disabled={downloading}
-                      >
-                        {downloading ? (
-                          <ActivityIndicator size="small" color="#1DB954" />
-                        ) : (
-                          <MaterialCommunityIcons
-                            name={downloaded ? "check-circle" : "download"}
-                            size={22}
-                            color={downloaded ? "#1DB954" : "rgba(255,255,255,0.7)"}
-                          />
-                        )}
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        delayPressIn={0}
-                        onPress={() => toggleLikeVideo(item)}
-                        style={{ padding: 8 }}
-                        activeOpacity={0.7}
-                      >
-                        <MaterialCommunityIcons name="heart" size={24} color="#1DB954" />
-                      </TouchableOpacity>
-                    </View>
+                    <MaterialCommunityIcons name="heart" size={24} color="#1DB954" />
                   </TouchableOpacity>
-                );
-              })
+                </TouchableOpacity>
+              ))
             )}
           </View>
         )}
