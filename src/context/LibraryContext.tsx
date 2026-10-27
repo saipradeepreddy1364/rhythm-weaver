@@ -9,7 +9,6 @@ import React, {
   ReactNode,
 } from "react";
 import { Song, mapApiSong } from "../data/songs";
-import { api, extractResults } from "../services/api";
 import { useAuth } from "./AuthContext";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { localStorage } from "../lib/storage";

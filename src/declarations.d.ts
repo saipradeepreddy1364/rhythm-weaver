@@ -76,6 +76,8 @@ declare module 'react-native' {
   export const Share: any;
   export const SafeAreaView: any;
   export const KeyboardAvoidingView: any;
+  export const Switch: any;
+  export const ToastAndroid: any;
 
   export type AppStateStatus = any;
   export type GestureResponderEvent = any;
@@ -109,6 +111,9 @@ declare module 'react-native-track-player' {
   export const usePlaybackState: any;
   export const useProgress: any;
   export const useTrackPlayerEvents: any;
+  export const useActiveTrack: any;
+  export enum RepeatMode { Off = 0, Track = 1, Queue = 2 }
+  export const AndroidAudioContentType: any;
   export const Track: any;
   export const AppKilledPlaybackBehavior: any;
   const TrackPlayer: any;
@@ -163,6 +168,8 @@ declare module 'react-native-screens' {
 
 declare module 'expo-av' {
   export const Audio: any;
+  export const Video: any;
+  export const ResizeMode: any;
   const content: any;
   export default content;
 }

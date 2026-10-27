@@ -160,15 +160,6 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
             // 1. Video renderer
             const video = item.videoRenderer;
             if (video && video.videoId) {
-              // Filter out restricted/unplayable videos: upcoming premieres, live streams, members-only, paid
-              if (video.upcomingEventData) continue;
-              if (video.unplayableText) continue;
-              if (video.badges?.some((b: any) => {
-                const s = b.metadataBadgeRenderer?.style || "";
-                const l = (b.metadataBadgeRenderer?.label || "").toUpperCase();
-                return s === "BADGE_STYLE_TYPE_LIVE_NOW" || s === "BADGE_STYLE_TYPE_MEMBERS_ONLY" || s === "BADGE_STYLE_TYPE_PREMIUM" || l.includes("LIVE") || l.includes("PREVIEW");
-              })) continue;
-
               const vId = String(video.videoId).trim();
               if (vId && /^[a-zA-Z0-9_-]{11}$/.test(vId) && !seenIds.has(vId) && !globalBlockedVideoIds.has(vId)) {
                 seenIds.add(vId);
@@ -197,15 +188,6 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
             for (const subItem of shelfContents) {
               const subVideo = subItem.videoRenderer;
               if (subVideo && subVideo.videoId) {
-                // Filter out restricted/unplayable videos: upcoming premieres, live streams, members-only, paid
-                if (subVideo.upcomingEventData) continue;
-                if (subVideo.unplayableText) continue;
-                if (subVideo.badges?.some((b: any) => {
-                  const s = b.metadataBadgeRenderer?.style || "";
-                  const l = (b.metadataBadgeRenderer?.label || "").toUpperCase();
-                  return s === "BADGE_STYLE_TYPE_LIVE_NOW" || s === "BADGE_STYLE_TYPE_MEMBERS_ONLY" || s === "BADGE_STYLE_TYPE_PREMIUM" || l.includes("LIVE") || l.includes("PREVIEW");
-                })) continue;
-
                 const vId = String(subVideo.videoId).trim();
                 if (vId && /^[a-zA-Z0-9_-]{11}$/.test(vId) && !seenIds.has(vId) && !globalBlockedVideoIds.has(vId)) {
                   seenIds.add(vId);
@@ -289,38 +271,6 @@ async function searchYouTubeVideos(searchQuery: string): Promise<VideoItem[]> {
             if (videoItems.length > 0) break;
           }
         } catch {}
-      }
-    }
-
-    // Fast validation: filter out videos where owners disabled third-party embedding/display
-    if (videoItems.length > 0) {
-      try {
-        const checkCount = Math.min(videoItems.length, 25);
-        const toCheck = videoItems.slice(0, checkCount);
-        const remainder = videoItems.slice(checkCount);
-
-        const checkResults = await Promise.all(
-          toCheck.map(async (v) => {
-            try {
-              const oembedRes = await Promise.race([
-                fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${v.videoId}&format=json`),
-                new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1500))
-              ]);
-              // 401, 403, 404 explicitly indicate embedding/playback disabled by owner or unplayable
-              if (oembedRes.status === 401 || oembedRes.status === 403 || oembedRes.status === 404 || (!oembedRes.ok && oembedRes.status !== 429)) {
-                return null;
-              }
-              return v;
-            } catch {
-              return v;
-            }
-          })
-        );
-
-        const filtered = checkResults.filter((v): v is VideoItem => v !== null);
-        return [...filtered, ...remainder];
-      } catch {
-        return videoItems;
       }
     }
 
@@ -414,15 +364,11 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
   const [showSuggestions, setShowSuggestions] = useState(false);
   const isSelectingSuggestionRef = useRef(false);
   const isInteractingWithSuggestionsRef = useRef(false);
-  const suggestionsScrollTimeoutRef = useRef<any>(null);
+  const suggestionsScrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [recommendedVideos, setRecommendedVideos] = useState<VideoItem[]>([]);
   const [recommendedLoading, setRecommendedLoading] = useState(false);
   const lastRecVideoSeedRef = useRef<string>("");
-  const [relatedVideos, setRelatedVideos] = useState<VideoItem[]>([]);
-  const [relatedCategoryInfo, setRelatedCategoryInfo] = useState<{ language: string; category: string } | null>(null);
-  const [loadingRelated, setLoadingRelated] = useState(false);
-  const lastRelatedSeedRef = useRef<string>("");
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -662,7 +608,8 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
 
     if (Platform.OS === 'android') {
       try {
-        if (NativeModules?.PipModule && typeof NativeModules.PipModule.setPipEligible === 'function') {
+        const { NativeModules } = require('react-native');
+        if (NativeModules.PipModule && typeof NativeModules.PipModule.setPipEligible === 'function') {
           NativeModules.PipModule.setPipEligible(isEligible, isPipPlaying);
         }
       } catch {}
@@ -786,40 +733,11 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
     };
   }, [handleTogglePipPlay, activeVideo, isPipPlaying]);
 
-  // Auto-resume video playback when device is unlocked or app returns to foreground
-  useEffect(() => {
-    const sub = AppState.addEventListener("change", (nextState) => {
-      const prevState = appStateRef.current;
-      appStateRef.current = nextState;
-
-      if (nextState === "background" || nextState === "inactive") {
-        // Device locked or app minimized
-        if (isPipPlayingRef.current) {
-          wasPlayingBeforeLockRef.current = true;
-        }
-      } else if (nextState === "active") {
-        // Device unlocked or app resumed
-        if (wasPlayingBeforeLockRef.current && activeVideo) {
-          wasPlayingBeforeLockRef.current = false;
-          // Auto-resume playback immediately
-          handleTogglePipPlay(true);
-          setTimeout(() => {
-            handleTogglePipPlay(true);
-          }, 350);
-        }
-      }
-    });
-
-    return () => {
-      sub.remove();
-    };
-  }, [activeVideo, handleTogglePipPlay]);
-
   const isSystemPipActive = Boolean(isSystemPipProp || isSystemPip);
   const isSystemPipRef = useRef(false);
   isSystemPipRef.current = isSystemPipActive;
 
-  const pipControlsTimeoutRef = useRef<any>(null);
+  const pipControlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const webViewRef = useRef<any>(null);
 
   const togglePipControls = useCallback((forceState?: boolean) => {
@@ -851,9 +769,9 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
   const [activeGesture, setActiveGesture] = useState<'brightness' | 'volume' | null>(null);
   const activeGestureRef = useRef<'brightness' | 'volume' | null>(null);
   const [showLandscapeControls, setShowLandscapeControls] = useState(false);
-  const landscapeControlsTimeoutRef = useRef<any>(null);
+  const landscapeControlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const hudFadeAnim = useRef(new Animated.Value(0)).current;
-  const hudFadeTimeoutRef = useRef<any>(null);
+  const hudFadeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const startBrightnessRef = useRef(100);
   const startVolumeRef = useRef(100);
   const isLandscapeDraggingRef = useRef(false);
@@ -1518,171 +1436,6 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
     }
   };
 
-  const isCurrentVideoDownloaded = activeVideo ? isVideoDownloaded(activeVideo.videoId || activeVideo.id) : false;
-  const isCurrentVideoDownloading = activeVideo
-    ? downloadingIds.includes(`yt_${(activeVideo.videoId || activeVideo.id).replace(/^yt_/, "")}`) || downloadingIds.includes(activeVideo.id)
-    : false;
-
-  const [isCurrentDownloadable, setIsCurrentDownloadable] = useState(false);
-
-  useEffect(() => {
-    if (!activeVideo) {
-      setIsCurrentDownloadable(false);
-      return;
-    }
-    let isMounted = true;
-    const rawId = (activeVideo.videoId || activeVideo.id || "").replace(/^yt_/, "").trim();
-    if (!rawId) {
-      setIsCurrentDownloadable(false);
-      return;
-    }
-
-    // Default to false immediately whenever active video changes
-    setIsCurrentDownloadable(false);
-
-    // If it is already downloaded, it is accessible
-    if (isVideoDownloaded(rawId)) {
-      setIsCurrentDownloadable(true);
-      return;
-    }
-
-    // Verify if direct audio stream can actually be extracted for offline download
-    checkVideoDownloadable(rawId)
-      .then((canDownload) => {
-        if (isMounted) {
-          setIsCurrentDownloadable(Boolean(canDownload));
-        }
-      })
-      .catch(() => {
-        if (isMounted) {
-          setIsCurrentDownloadable(false);
-        }
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [activeVideo, isVideoDownloaded, checkVideoDownloadable]);
-
-  const handleDownloadVideo = async (item: VideoItem) => {
-    const rawId = (item.videoId || item.id || "").replace(/^yt_/, "").trim();
-    const isDl = isVideoDownloaded(rawId);
-    if (isDl) {
-      Alert.alert(
-        "Downloaded Video",
-        `"${item.title}" is already in your Downloads page. Would you like to remove it?`,
-        [
-          { text: "Keep", style: "cancel" },
-          {
-            text: "Remove from Downloads",
-            style: "destructive",
-            onPress: () => deleteDownloadedSong(`yt_${rawId}`)
-          }
-        ]
-      );
-      return;
-    }
-    const success = await downloadVideo(item);
-    if (success) {
-      Alert.alert("Downloaded!", `"${item.title}" has been saved to your Downloads page for offline listening.`);
-    } else {
-      Alert.alert("Download Note", "Could not download direct stream. You can still stream this video online.");
-    }
-  };
-
-  // Fetch high-relevance related videos matching the EXACT SAME category & language
-  useEffect(() => {
-    if (!activeVideo || !activeVideo.title) {
-      setRelatedVideos([]);
-      setRelatedCategoryInfo(null);
-      return;
-    }
-
-    const currentVId = activeVideo.videoId || activeVideo.id;
-    if (currentVId === lastRelatedSeedRef.current) return;
-    lastRelatedSeedRef.current = currentVId;
-
-    let isMounted = true;
-    setLoadingRelated(true);
-
-    const loadRelated = async () => {
-      try {
-        const { language, category, cleanTitle, cleanArtist, movieOrAlbum } = analyzeVideoCategory(
-          activeVideo.title,
-          activeVideo.artist
-        );
-
-        if (isMounted) {
-          setRelatedCategoryInfo({ language, category });
-        }
-
-        const queries: string[] = [];
-        if (movieOrAlbum) {
-          queries.push(`${movieOrAlbum} ${language} video songs`);
-        }
-        if (cleanTitle && cleanArtist) {
-          queries.push(`${cleanTitle} ${cleanArtist} ${language} video songs`);
-        }
-        queries.push(`${language} ${category === "Hit Songs" ? "hit video songs" : category} 2026`);
-        queries.push(`top ${language} ${category === "Hit Songs" ? "video songs 4k" : category}`);
-
-        const results = await Promise.all(
-          queries.slice(0, 3).map((q) => searchYouTubeVideos(q))
-        );
-
-        const seen = new Set<string>();
-        seen.add(currentVId);
-        if (activeVideo.videoId) seen.add(activeVideo.videoId);
-        if (activeVideo.id) seen.add(activeVideo.id);
-
-        const otherLangRegex = getOtherLanguageRegex(language);
-        const candidateList: VideoItem[] = [];
-
-        for (const list of results) {
-          for (const item of list) {
-            const itemVId = item.videoId || item.id;
-            if (!itemVId || seen.has(itemVId)) continue;
-
-            const combinedText = `${item.title} ${item.artist}`.toLowerCase();
-
-            // Filter out songs that belong to a completely different language
-            if (otherLangRegex && otherLangRegex.test(combinedText)) {
-              continue;
-            }
-
-            seen.add(itemVId);
-            candidateList.push(item);
-          }
-        }
-
-        if (isMounted) {
-          if (candidateList.length > 0) {
-            setRelatedVideos(candidateList.slice(0, 25));
-          } else {
-            // Fallback: filter current videos feed to same language
-            const sameLangFallback = videos.filter((v) => {
-              if (v.id === activeVideo.id || (v.videoId && v.videoId === activeVideo.videoId)) return false;
-              const text = `${v.title} ${v.artist}`.toLowerCase();
-              if (otherLangRegex && otherLangRegex.test(text)) return false;
-              return true;
-            });
-            setRelatedVideos(sameLangFallback.slice(0, 15));
-          }
-        }
-      } catch (err) {
-        console.warn("Failed to fetch same-category related videos:", err);
-      } finally {
-        if (isMounted) setLoadingRelated(false);
-      }
-    };
-
-    loadRelated();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [activeVideo?.videoId, activeVideo?.id, activeVideo?.title]);
-
   const playNextVideo = useCallback(() => {
     if (!activeVideo) return;
     const currentList = categorizedVideos[selectedCategoryKey] || categorizedVideos["all"] || [];
@@ -1743,7 +1496,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
     setCategorizedVideos((prev) => {
       const updated: Record<string, VideoItem[]> = {};
       for (const [k, list] of Object.entries(prev)) {
-        updated[k] = list.filter((v) => (v.videoId || v.id?.replace(/^yt_/, "")) !== rawId);
+        updated[k] = (list as VideoItem[]).filter((v) => (v.videoId || v.id?.replace(/^yt_/, "")) !== rawId);
       }
       return updated;
     });
@@ -2102,12 +1855,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
       if (data && data.event === "VIDEO_PLAYING") {
         if (!isRecentUserToggle) setIsPipPlaying(true);
       } else if (data && data.event === "VIDEO_PAUSED") {
-        if (appStateRef.current === "active") {
-          if (!isRecentUserToggle) setIsPipPlaying(false);
-        } else {
-          wasPlayingBeforeLockRef.current = true;
-          setIsPipPlaying(false);
-        }
+        if (!isRecentUserToggle) setIsPipPlaying(false);
       } else if (data && data.event === "VIDEO_ENDED") {
         playNextVideo();
       } else if (data && data.event === "FULLSCREEN_ENTER") {
@@ -2410,10 +2158,6 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
               <div id="web-zoom-toast" class="web-zoom-toast"><span id="web-zoom-toast-text">Zoomed to fill</span></div>
             </div>
             <script>
-              try {
-                Object.defineProperty(document, 'hidden', { get: function() { return false; }, configurable: true });
-                Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; }, configurable: true });
-              } catch(e) {}
               ${
                 isPipedOrInvidious
                   ? `
@@ -3251,24 +2995,6 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                       <Text style={styles.videoSubMeta} numberOfLines={1}>{item.uploadedAt}</Text>
                     ) : null}
                   </View>
-
-                  {downloadingIds.includes(`yt_${(item.videoId || item.id).replace(/^yt_/, "")}`) || downloadingIds.includes(item.id) ? (
-                    <View style={styles.cardDownloadBtn}>
-                      <ActivityIndicator size="small" color="#1DB954" />
-                    </View>
-                  ) : isVideoDownloaded(item.videoId || item.id) ? (
-                    <TouchableOpacity
-                      delayPressIn={0}
-                      style={styles.cardDownloadBtn}
-                      onPress={(e) => {
-                        e.stopPropagation();
-                        handleDownloadVideo(item);
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <MaterialCommunityIcons name="check-circle" size={22} color="#1DB954" />
-                    </TouchableOpacity>
-                  ) : null}
                 </TouchableOpacity>
               ))}
 
@@ -3326,7 +3052,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                 <MaterialCommunityIcons name="chevron-down" size={28} color="#fff" />
               </TouchableOpacity>
 
-              {/* Centered Controls Row: Previous, Next, Like, Download */}
+              {/* Centered Controls Row: Previous, Next, Like */}
               <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 16 }}>
                 <TouchableOpacity delayPressIn={0} onPress={playPrevVideo} style={{ padding: 6 }} activeOpacity={0.7}>
                   <MaterialCommunityIcons name="skip-previous" size={26} color="#fff" />
@@ -3338,28 +3064,9 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                   <MaterialCommunityIcons
                     name={isVideoLiked(activeVideo) ? "heart" : "heart-outline"}
                     size={24}
-                    color={isVideoLiked(activeVideo) ? "#E91E63" : "#fff"}
+                    color={isVideoLiked(activeVideo) ? "#1DB954" : "#fff"}
                   />
                 </TouchableOpacity>
-
-                {/* Download Button right beside the Like Heart Button at the top of the video */}
-                {((!isVideoBlocked && isCurrentDownloadable) || isCurrentVideoDownloaded) && (
-                  <TouchableOpacity
-                    delayPressIn={0}
-                    onPress={() => handleDownloadVideo(activeVideo)}
-                    disabled={isCurrentVideoDownloading}
-                    style={{ padding: 6 }}
-                    activeOpacity={0.7}
-                  >
-                    {isCurrentVideoDownloading ? (
-                      <ActivityIndicator size="small" color="#1DB954" />
-                    ) : isCurrentVideoDownloaded ? (
-                      <MaterialCommunityIcons name="check-circle" size={24} color="#1DB954" />
-                    ) : (
-                      <MaterialCommunityIcons name="arrow-down-circle-outline" size={24} color="#fff" />
-                    )}
-                  </TouchableOpacity>
-                )}
               </View>
 
               <TouchableOpacity delayPressIn={0} onPress={() => { setActiveVideo(null); setIsMinimized(false); setIsManualLandscape(false); }} style={styles.closeBtn} activeOpacity={0.7}>
@@ -3803,28 +3510,9 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                         <MaterialCommunityIcons
                           name={isVideoLiked(activeVideo) ? "heart" : "heart-outline"}
                           size={22}
-                          color={isVideoLiked(activeVideo) ? "#E91E63" : "#fff"}
+                          color={isVideoLiked(activeVideo) ? "#1DB954" : "#fff"}
                         />
                       </TouchableOpacity>
-
-                      {/* Download button in landscape right beside Like */}
-                      {((!isVideoBlocked && isCurrentDownloadable) || isCurrentVideoDownloaded) && (
-                        <TouchableOpacity
-                          delayPressIn={0}
-                          onPress={() => handleDownloadVideo(activeVideo)}
-                          disabled={isCurrentVideoDownloading}
-                          style={styles.landscapeIconBtn}
-                          activeOpacity={0.7}
-                        >
-                          {isCurrentVideoDownloading ? (
-                            <ActivityIndicator size="small" color="#1DB954" />
-                          ) : isCurrentVideoDownloaded ? (
-                            <MaterialCommunityIcons name="check-circle" size={22} color="#1DB954" />
-                          ) : (
-                            <MaterialCommunityIcons name="arrow-down-circle-outline" size={22} color="#fff" />
-                          )}
-                        </TouchableOpacity>
-                      )}
 
                       {/* Close player */}
                       <TouchableOpacity
@@ -4456,20 +4144,7 @@ const styles = StyleSheet.create({
   },
   upNextTitle: {
     color: "#fff",
-    fontSize: 15,
-    fontWeight: "bold",
-  },
-  categoryBadge: {
-    backgroundColor: "rgba(29, 185, 84, 0.15)",
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "rgba(29, 185, 84, 0.3)",
-  },
-  categoryBadgeText: {
-    color: "#1DB954",
-    fontSize: 11,
+    fontSize: 16,
     fontWeight: "bold",
   },
   categoryPillsContainer: {
