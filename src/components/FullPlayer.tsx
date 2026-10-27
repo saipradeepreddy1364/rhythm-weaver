@@ -1,5 +1,5 @@
 import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView, Modal, ActivityIndicator, Linking, Platform, PanResponder, Dimensions } from 'react-native'
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Animated } from 'react-native';
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Video, ResizeMode } from "expo-av";
@@ -172,7 +172,6 @@ async function fetchInvidiousStreams(videoId: string): Promise<VideoStream[]> {
 // Clean lyrics utility matching web app regex cleaning
 function cleanLyricsHtml(raw: string): string {
   return raw
-    .replace(/\[\d{2}:\d{2}\.\d{2,3}\]\s*/g, "") // strip LRC timestamps if any
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<[^>]+>/g, "")
     .replace(/&amp;/g, "&")
@@ -188,19 +187,69 @@ function cleanLyricsHtml(raw: string): string {
     .trim();
 }
 
+export interface LyricLine {
+  id: number;
+  time: number;
+  text: string;
+}
+
+export function parseLyrics(rawLyrics: string): { isSynced: boolean; lines: LyricLine[] } {
+  if (!rawLyrics || !rawLyrics.trim()) {
+    return { isSynced: false, lines: [] };
+  }
+  const rawLines = rawLyrics.split("\n");
+  const syncedLines: LyricLine[] = [];
+  let idCounter = 0;
+
+  for (const raw of rawLines) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    // Match [mm:ss.xx] or [mm:ss]
+    const match = trimmed.match(/^\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\](.*)$/);
+    if (match) {
+      const m = parseInt(match[1], 10);
+      const s = parseInt(match[2], 10);
+      const ms = match[3] ? parseInt(match[3].padEnd(3, "0").slice(0, 3), 10) : 0;
+      const timeInSec = m * 60 + s + ms / 1000;
+      const text = match[4].trim();
+      syncedLines.push({
+        id: ++idCounter,
+        time: timeInSec,
+        text,
+      });
+    }
+  }
+
+  if (syncedLines.length > 0) {
+    syncedLines.sort((a, b) => a.time - b.time);
+    return { isSynced: true, lines: syncedLines };
+  }
+
+  // Fallback: plain text lines
+  const plain = rawLines
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((text, idx) => ({
+      id: idx + 1,
+      time: -1,
+      text,
+    }));
+  return { isSynced: false, lines: plain };
+}
+
 function extractLyricsText(data: any): string | null {
   const inner = data?.data ?? data;
   const candidates = [
+    inner?.syncedLyrics,
+    data?.syncedLyrics,
     inner?.lyrics,
     inner?.plainLyrics,
-    inner?.syncedLyrics,
     inner?.snippet,
     inner?.lyric,
     inner?.lyricsSnippet,
     inner?.lyrics_snippet,
     data?.lyrics,
     data?.plainLyrics,
-    data?.syncedLyrics,
     data?.snippet,
     typeof inner === "string" ? inner : null,
     typeof data  === "string" ? data  : null,
@@ -261,8 +310,8 @@ export async function fetchLyrics(song: Song): Promise<string | null> {
       if (res.ok) {
         const items = await res.json();
         if (Array.isArray(items) && items.length > 0) {
-          const first = items[0];
-          const raw = first.plainLyrics || first.syncedLyrics || "";
+          const matchedWithSynced = items.find((x: any) => x.syncedLyrics && x.syncedLyrics.trim().length > 10) || items[0];
+          const raw = matchedWithSynced.syncedLyrics || matchedWithSynced.plainLyrics || "";
           if (raw && raw.trim().length > 10) {
             return cleanLyricsHtml(raw);
           }
@@ -380,7 +429,7 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
   const videoReadyRef = useRef(false);
 
   // Lyrics scrolling refs & states
-  const lyricsScrollRef = useRef<ScrollView>(null);
+  const lyricsScrollRef = useRef<any>(null);
   const [lyricsContentHeight, setLyricsContentHeight] = useState(0);
   const [userIsScrollingLyrics, setUserIsScrollingLyrics] = useState(false);
   const userScrollTimeoutRef = useRef<any>(null);
@@ -393,17 +442,59 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
     }, 4000);
   };
 
-  useEffect(() => {
-    if (activeTab === "lyrics" && lyricsScrollRef.current && lyricsContentHeight > 0 && totalDuration > 0 && !userIsScrollingLyrics) {
-      const pct = (progress / totalDuration);
-      const targetOffset = pct * (lyricsContentHeight - 200);
-      lyricsScrollRef.current.scrollTo({ y: Math.max(0, targetOffset), animated: true });
-    }
-  }, [progress, totalDuration, activeTab, lyricsContentHeight, userIsScrollingLyrics]);
-
   const [translationLang, setTranslationLang] = useState<"original" | "en">("original");
   const [translatedLyrics, setTranslatedLyrics] = useState<Record<string, string>>({});
   const [translating, setTranslating] = useState(false);
+
+  const activeRawLyrics = useMemo(() => {
+    if (!lyrics) return "";
+    return translationLang === "original"
+      ? lyrics
+      : (translatedLyrics[`${currentSong?.id}_${translationLang}`] || lyrics);
+  }, [lyrics, translationLang, translatedLyrics, currentSong?.id]);
+
+  const parsedLyrics = useMemo(() => {
+    return parseLyrics(activeRawLyrics);
+  }, [activeRawLyrics]);
+
+  // Current active line index based strictly on song playback progress
+  const currentLineIndex = useMemo(() => {
+    if (!parsedLyrics.isSynced || parsedLyrics.lines.length === 0) return -1;
+    // Before the very first line's timestamp, the song is in intro BGM
+    if (progress < parsedLyrics.lines[0].time) return -1;
+
+    let active = -1;
+    for (let i = 0; i < parsedLyrics.lines.length; i++) {
+      if (progress >= parsedLyrics.lines[i].time) {
+        active = i;
+      } else {
+        break;
+      }
+    }
+    return active;
+  }, [progress, parsedLyrics]);
+
+  // Synchronized smooth scrolling: centers the active line; does not move during BGM gaps!
+  useEffect(() => {
+    if (activeTab !== "lyrics" || !lyricsScrollRef.current || userIsScrollingLyrics) return;
+
+    if (parsedLyrics.isSynced) {
+      if (currentLineIndex >= 0) {
+        const targetY = Math.max(0, currentLineIndex * 50 - 100);
+        lyricsScrollRef.current.scrollTo({ y: targetY, animated: true });
+      } else {
+        // Intro BGM: stay at top
+        lyricsScrollRef.current.scrollTo({ y: 0, animated: true });
+      }
+    } else {
+      // Plain lyrics without timestamps: only scroll after 15s intro
+      if (totalDuration > 30 && progress > 15 && lyricsContentHeight > 200) {
+        const effectivePct = Math.max(0, (progress - 15) / (totalDuration - 15));
+        const targetOffset = effectivePct * (lyricsContentHeight - 200);
+        lyricsScrollRef.current.scrollTo({ y: Math.max(0, targetOffset), animated: true });
+      }
+    }
+  }, [currentLineIndex, progress, activeTab, userIsScrollingLyrics, parsedLyrics.isSynced, totalDuration, lyricsContentHeight]);
 
   const translateLyrics = async (targetLang: "en") => {
     if (!lyrics || !currentSong) return;
@@ -445,13 +536,30 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
       };
 
       if (hasIndic) {
-        // Process in batches of 15 lines to avoid URL size limit
-        const lines = lyrics.split("\n");
+        // Process in batches of 15 lines, preserving [mm:ss.xx] timestamps
+        const rawLines = lyrics.split("\n");
         const romanLines: string[] = [];
-        for (let i = 0; i < lines.length; i += 15) {
-          const batch = lines.slice(i, i + 15).join("\n");
-          const romanBatch = await romanizeChunk(batch);
-          romanLines.push(romanBatch);
+        for (let i = 0; i < rawLines.length; i += 15) {
+          const batch = rawLines.slice(i, i + 15);
+          const batchPrefixes: string[] = [];
+          const batchTexts: string[] = [];
+          for (const l of batch) {
+            const m = l.match(/^(\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]\s*)(.*)$/);
+            if (m) {
+              batchPrefixes.push(m[1]);
+              batchTexts.push(m[2]);
+            } else {
+              batchPrefixes.push("");
+              batchTexts.push(l);
+            }
+          }
+          const romanBatch = await romanizeChunk(batchTexts.join("\n"));
+          const romanSplit = romanBatch.split("\n");
+          for (let j = 0; j < batch.length; j++) {
+            const prefix = batchPrefixes[j] || "";
+            const body = romanSplit[j] !== undefined ? romanSplit[j] : (batchTexts[j] || "");
+            romanLines.push(`${prefix}${body}`.trim());
+          }
         }
         resolvedText = romanLines.join("\n");
       } else {
@@ -786,11 +894,48 @@ export function FullPlayer({ onRequireAuth }: FullPlayerProps) {
                         <Text style={styles.translatingText}>Translating lyrics...</Text>
                       </View>
                     ) : (
-                      <Text style={styles.lyricsText}>
-                        {translationLang === "original"
-                          ? lyrics
-                          : (translatedLyrics[`${currentSong.id}_${translationLang}`] || lyrics)}
-                      </Text>
+                      <View style={{ paddingVertical: 16 }}>
+                        {/* If intro BGM is currently playing */}
+                        {parsedLyrics.isSynced && currentLineIndex === -1 && (
+                          <View style={styles.introBgmBadge}>
+                            <MaterialCommunityIcons name="music-note" size={16} color="#1DB954" style={{ marginRight: 6 }} />
+                            <Text style={styles.introBgmText}>♪ Instrumental Intro ♪</Text>
+                          </View>
+                        )}
+
+                        {parsedLyrics.lines.map((line, idx) => {
+                          const isActive = parsedLyrics.isSynced && idx === currentLineIndex;
+                          const isPassed = parsedLyrics.isSynced && currentLineIndex !== -1 && idx < currentLineIndex;
+
+                          return (
+                            <TouchableOpacity
+                              key={`${line.id}_${idx}`}
+                              disabled={!parsedLyrics.isSynced || line.time < 0}
+                              onPress={() => {
+                                if (line.time >= 0) {
+                                  setProgress(Math.max(0, Math.floor(line.time)));
+                                  updateDragImmediate(Math.max(0, Math.floor(line.time)));
+                                }
+                              }}
+                              activeOpacity={parsedLyrics.isSynced ? 0.7 : 1}
+                              style={[
+                                styles.lyricLineContainer,
+                                isActive && styles.lyricLineActiveContainer,
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.lyricLineText,
+                                  isPassed && styles.lyricLinePassedText,
+                                  isActive && styles.lyricLineActiveText,
+                                ]}
+                              >
+                                {line.text || "♪ ♪ ♪"}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
                     )
                   ) : (
                     <View style={styles.emptyLyrics}>
@@ -1141,6 +1286,55 @@ const styles = StyleSheet.create({
     lineHeight: 28,
     color: "rgba(255, 255, 255, 0.82)",
     textAlign: "center",
+  },
+  introBgmBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    alignSelf: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: "rgba(29, 185, 84, 0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(29, 185, 84, 0.35)",
+    marginBottom: 20,
+  },
+  introBgmText: {
+    color: "#1DB954",
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: 0.6,
+  },
+  lyricLineContainer: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    marginVertical: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  lyricLineActiveContainer: {
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+  },
+  lyricLineText: {
+    fontSize: 16,
+    lineHeight: 26,
+    color: "rgba(255, 255, 255, 0.35)",
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  lyricLinePassedText: {
+    color: "rgba(255, 255, 255, 0.6)",
+  },
+  lyricLineActiveText: {
+    fontSize: 20,
+    lineHeight: 30,
+    color: "#1DB954",
+    fontWeight: "800",
+    textShadowColor: "rgba(29, 185, 84, 0.4)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
   },
   emptyLyrics: {
     alignItems: "center",

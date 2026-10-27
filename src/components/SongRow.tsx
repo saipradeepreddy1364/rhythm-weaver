@@ -8,6 +8,7 @@ import { LikeButton } from "./LikeButton";
 import { useLibrary } from "../context/LibraryContext";
 
 interface SongRowProps {
+  key?: any;
   song: Song;
   queue?: Song[];
   onRequireAuth?: () => void;
@@ -79,6 +80,13 @@ export function SongRow({ song, queue, onRequireAuth, fromLibrary, hideActions }
               <MaterialCommunityIcons name="volume-high" size={16} color="#1DB954" />
             </View>
           )}
+
+          {/* Video badge for YouTube videos */}
+          {((song as any).isVideo || song.id.startsWith("yt_")) && (
+            <View style={styles.videoBadgeOverlay}>
+              <MaterialCommunityIcons name="play" size={10} color="#fff" />
+            </View>
+          )}
         </View>
 
         {/* Song info */}
@@ -100,7 +108,7 @@ export function SongRow({ song, queue, onRequireAuth, fromLibrary, hideActions }
         {!hideActions && (
           <TouchableOpacity
             delayPressIn={0}
-            onPress={(e) => {
+            onPress={(e: any) => {
               e.stopPropagation();
               setShowOptionsModal(true);
             }}
@@ -211,6 +219,36 @@ export function SongRow({ song, queue, onRequireAuth, fromLibrary, hideActions }
                   {queued ? "Added to Queue" : "Add to Queue"}
                 </Text>
               </TouchableOpacity>
+
+              {/* Option 4: Watch Music Video (if video item) */}
+              {((song as any).isVideo || song.id.startsWith("yt_")) && (
+                <TouchableOpacity
+                  delayPressIn={0}
+                  onPress={() => {
+                    setShowOptionsModal(false);
+                    const cleanVId = (song as any).videoId || song.id.replace(/^yt_/, "");
+                    DeviceEventEmitter.emit("PLAY_VIDEO_ITEM", {
+                      id: song.id,
+                      videoId: cleanVId,
+                      title: song.title,
+                      artist: song.artist,
+                      thumbnail: song.albumArt,
+                    });
+                  }}
+                  style={styles.optionItem}
+                  activeOpacity={0.7}
+                >
+                  <MaterialCommunityIcons
+                    name="youtube"
+                    size={24}
+                    color="#FF0000"
+                    style={{ marginRight: 14 }}
+                  />
+                  <Text style={[styles.optionLabel, { color: "#fff" }]}>
+                    Watch Music Video
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           </TouchableOpacity>
         </TouchableOpacity>
@@ -256,6 +294,17 @@ const styles = StyleSheet.create({
   playingOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0, 0, 0, 0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  videoBadgeOverlay: {
+    position: "absolute",
+    bottom: 2,
+    right: 2,
+    backgroundColor: "rgba(229, 9, 20, 0.9)",
+    borderRadius: 8,
+    width: 16,
+    height: 16,
     alignItems: "center",
     justifyContent: "center",
   },

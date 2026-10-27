@@ -187,27 +187,55 @@ function AppContent() {
     return () => { subscription.remove(); };
   }, []);
 
-  // Check for EAS Updates on startup and prompt user with a popup to reload when downloaded
-  useEffect(() => {
-    async function checkUpdates() {
-      if (__DEV__ || !Updates.isEnabled) return;
-      try {
-        const update = await Updates.checkForUpdateAsync();
-        if (update.isAvailable) {
-          await Updates.fetchUpdateAsync();
-          Alert.alert(
-            "Update Available",
-            "A new update has been downloaded. Would you like to restart the app now to apply the changes?",
-            [
-              { text: "Later", style: "cancel" },
-              { text: "Restart Now", onPress: () => Updates.reloadAsync() }
-            ]
-          );
-        }
-      } catch (err) {}
+  // Check for EAS Updates on startup and provide manual trigger from Library page
+  const checkForOtaUpdate = useCallback(async (isManual: boolean = false) => {
+    if (__DEV__) {
+      if (isManual) Alert.alert("Development Mode", "OTA updates are disabled in development mode.");
+      return;
     }
-    checkUpdates();
+    if (!Updates.isEnabled) {
+      if (isManual) Alert.alert("Updates Disabled", "EAS Updates are not enabled for this build.");
+      return;
+    }
+
+    try {
+      const update = await Updates.checkForUpdateAsync();
+      if (update.isAvailable) {
+        if (isManual) {
+          Alert.alert("Downloading Update", "A new update was found and is being downloaded...");
+        }
+        await Updates.fetchUpdateAsync();
+        Alert.alert(
+          "Update Available",
+          "A new update has been downloaded. Would you like to restart the app now to apply the changes?",
+          [
+            { text: "Later", style: "cancel" },
+            { text: "Restart Now", onPress: () => Updates.reloadAsync() }
+          ]
+        );
+      } else {
+        if (isManual) {
+          Alert.alert("Up to Date", "You are already using the latest version of Medley.");
+        }
+      }
+    } catch (err: any) {
+      if (isManual) {
+        Alert.alert("Update Check", err?.message || "Could not check for updates. Please check your internet connection.");
+      }
+    }
   }, []);
+
+  useEffect(() => {
+    (globalThis as any).triggerOTAUpdateModal = () => checkForOtaUpdate(true);
+    // Slight delay on launch so native Android background check doesn't conflict
+    const timer = setTimeout(() => {
+      checkForOtaUpdate(false);
+    }, 2500);
+    return () => {
+      clearTimeout(timer);
+      (globalThis as any).triggerOTAUpdateModal = undefined;
+    };
+  }, [checkForOtaUpdate]);
 
   // While initializing keep a plain dark screen visible (native splash still covers it)
   if (isInitializing) {

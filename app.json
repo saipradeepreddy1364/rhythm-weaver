@@ -20,6 +20,8 @@
       "infoPlist": {
         "UIBackgroundModes": [
           "audio",
+          "audio",
+          "audio",
           "audio"
         ]
       }
@@ -54,9 +56,37 @@
         "screenLayout",
         "density",
         "uiMode",
+        "smallestScreenSize",
+        "orientation",
+        "keyboardHidden",
+        "keyboard",
+        "screenSize",
+        "locale",
+        "layoutDirection",
+        "fontScale",
+        "screenLayout",
+        "density",
+        "uiMode",
+        "smallestScreenSize",
+        "orientation",
+        "keyboardHidden",
+        "keyboard",
+        "screenSize",
+        "locale",
+        "layoutDirection",
+        "fontScale",
+        "screenLayout",
+        "density",
+        "uiMode",
         "smallestScreenSize"
       ],
       "permissions": [
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "WAKE_LOCK",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "WAKE_LOCK",
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_MEDIA_PLAYBACK",
         "WAKE_LOCK",
@@ -77,6 +107,9 @@
         "projectId": "23599d69-c8e7-4b99-8a84-c819e0c76a51"
       }
     },
-    "owner": "suresh_reddy"
+    "owner": "suresh_reddy",
+    "updates": {
+      "url": "https://u.expo.dev/23599d69-c8e7-4b99-8a84-c819e0c76a51"
+    }
   }
 }
