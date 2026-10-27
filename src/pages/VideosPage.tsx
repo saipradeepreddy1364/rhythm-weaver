@@ -532,6 +532,8 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
   isPipPlayingRef.current = isPipPlaying;
   const userToggleTimeRef = useRef<number>(0);
   const wasVideoPlayingBeforeInterruptionRef = useRef(false);
+  const appStateRef = useRef<string>(AppState.currentState);
+  const wasPlayingBeforeLockRef = useRef<boolean>(false);
 
   const [blockedVideoIds, setBlockedVideoIds] = useState<Set<string>>(new Set());
   const blockedVideoIdsRef = useRef<Set<string>>(blockedVideoIds);
@@ -732,6 +734,37 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
       audioFocusSub.remove();
     };
   }, [handleTogglePipPlay, activeVideo, isPipPlaying]);
+
+  // Auto-resume video playback when device is unlocked or app returns to foreground
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (nextState) => {
+      appStateRef.current = nextState;
+
+      if (nextState === "background" || nextState === "inactive") {
+        // Device locked or app minimized
+        if (isPipPlayingRef.current) {
+          wasPlayingBeforeLockRef.current = true;
+        }
+      } else if (nextState === "active") {
+        // Device unlocked or app resumed
+        if (wasPlayingBeforeLockRef.current && activeVideo) {
+          wasPlayingBeforeLockRef.current = false;
+          // Auto-resume playback immediately
+          handleTogglePipPlay(true);
+          setTimeout(() => {
+            handleTogglePipPlay(true);
+          }, 350);
+          setTimeout(() => {
+            handleTogglePipPlay(true);
+          }, 800);
+        }
+      }
+    });
+
+    return () => {
+      sub.remove();
+    };
+  }, [activeVideo, handleTogglePipPlay]);
 
   const isSystemPipActive = Boolean(isSystemPipProp || isSystemPip);
   const isSystemPipRef = useRef(false);
@@ -1438,7 +1471,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
 
   const playNextVideo = useCallback(() => {
     if (!activeVideo) return;
-    const currentList = categorizedVideos[selectedCategoryKey] || categorizedVideos["all"] || [];
+    const currentList = categorizedVideos["all"] || [];
     const pool = currentList.length > 0 ? currentList : videos;
     const activeVId = activeVideo.videoId || activeVideo.id?.replace(/^yt_/, "");
     const available = pool.filter((v) => {
@@ -1457,11 +1490,11 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
     if (nextVideo) {
       handleVideoCardPress(nextVideo);
     }
-  }, [activeVideo, categorizedVideos, selectedCategoryKey, videos, isVideoBlockedById]);
+  }, [activeVideo, categorizedVideos, videos, isVideoBlockedById]);
 
   const playPrevVideo = useCallback(() => {
     if (!activeVideo) return;
-    const currentList = categorizedVideos[selectedCategoryKey] || categorizedVideos["all"] || [];
+    const currentList = categorizedVideos["all"] || [];
     const pool = currentList.length > 0 ? currentList : videos;
     const activeVId = activeVideo.videoId || activeVideo.id?.replace(/^yt_/, "");
     const available = pool.filter((v) => {
@@ -1477,7 +1510,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
     if (prevVideo) {
       handleVideoCardPress(prevVideo);
     }
-  }, [activeVideo, categorizedVideos, selectedCategoryKey, videos, isVideoBlockedById]);
+  }, [activeVideo, categorizedVideos, videos, isVideoBlockedById]);
 
   const handleVideoBlocked = useCallback((blockedId?: string) => {
     const rawId = (blockedId || activeVideo?.videoId || activeVideo?.id?.replace(/^yt_/, ""))?.trim();
@@ -1855,7 +1888,12 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
       if (data && data.event === "VIDEO_PLAYING") {
         if (!isRecentUserToggle) setIsPipPlaying(true);
       } else if (data && data.event === "VIDEO_PAUSED") {
-        if (!isRecentUserToggle) setIsPipPlaying(false);
+        if (appStateRef.current === "active") {
+          if (!isRecentUserToggle) setIsPipPlaying(false);
+        } else {
+          wasPlayingBeforeLockRef.current = true;
+          setIsPipPlaying(false);
+        }
       } else if (data && data.event === "VIDEO_ENDED") {
         playNextVideo();
       } else if (data && data.event === "FULLSCREEN_ENTER") {
@@ -2158,6 +2196,20 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
               <div id="web-zoom-toast" class="web-zoom-toast"><span id="web-zoom-toast-text">Zoomed to fill</span></div>
             </div>
             <script>
+              try {
+                Object.defineProperty(document, 'hidden', { get: function() { return false; }, configurable: true });
+                Object.defineProperty(document, 'visibilityState', { get: function() { return 'visible'; }, configurable: true });
+              } catch(e) {}
+
+              // Prevent background lock from breaking video playback
+              window.addEventListener('visibilitychange', function(e) {
+                e.stopImmediatePropagation();
+              }, true);
+
+              document.addEventListener('visibilitychange', function(e) {
+                e.stopImmediatePropagation();
+              }, true);
+
               ${
                 isPipedOrInvidious
                   ? `
@@ -3580,7 +3632,7 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                 <Text style={styles.infoSub}>{activeVideo.artist}</Text>
               </View>
 
-              {/* Up Next / Related Songs List with Exact Metadata Categories */}
+              {/* Up Next / Related Songs List */}
               <View style={styles.upNextSection}>
                 <View style={styles.upNextHeaderRow}>
                   <Text style={styles.upNextTitle}>Up Next / Related Songs</Text>
@@ -3589,37 +3641,12 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                   )}
                 </View>
 
-                {/* Exact Metadata Category Filter Pills */}
-                {upNextCategories.length > 0 && (
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.categoryPillsContainer}
-                    style={{ marginBottom: 14 }}
-                  >
-                    {upNextCategories.map((cat) => {
-                      const isActive = selectedCategoryKey === cat.key;
-                      const catCount = (categorizedVideos[cat.key] || []).length;
-                      return (
-                        <TouchableOpacity
-                          delayPressIn={0}
-                          key={cat.key}
-                          onPress={() => setSelectedCategoryKey(cat.key)}
-                          style={[styles.categoryPill, isActive && styles.categoryPillActive]}
-                          activeOpacity={0.75}
-                        >
-                          <Text style={[styles.categoryPillText, isActive && styles.categoryPillTextActive]}>
-                            {cat.label} {catCount > 0 ? `(${catCount})` : ""}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </ScrollView>
-                )}
-
-                {/* Categorized Video Cards */}
+                {/* Related Video Cards */}
                 {(() => {
-                  const activeList = (categorizedVideos[selectedCategoryKey] || categorizedVideos["all"] || []).filter(
+                  const pool = (categorizedVideos["all"] && categorizedVideos["all"].length > 0)
+                    ? categorizedVideos["all"]
+                    : videos;
+                  const activeList = pool.filter(
                     (item) => {
                       const itemVId = item.videoId || item.id?.replace(/^yt_/, "");
                       const activeVId = activeVideo?.videoId || activeVideo?.id?.replace(/^yt_/, "");
@@ -3632,12 +3659,12 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                       return (
                         <View style={styles.upNextLoadingBox}>
                           <ActivityIndicator size="small" color="#1DB954" />
-                          <Text style={styles.upNextLoadingText}>Finding exact songs for this category...</Text>
+                          <Text style={styles.upNextLoadingText}>Finding related songs...</Text>
                         </View>
                       );
                     }
                     return (
-                      <Text style={styles.noRelatedText}>No songs found in this category.</Text>
+                      <Text style={styles.noRelatedText}>No related songs found.</Text>
                     );
                   }
 
@@ -3653,16 +3680,11 @@ function VideosPageComponent({ onRequireAuth, activeTab, floatingOnly, isSystemP
                       <View style={styles.upNextMeta}>
                         <Text style={styles.upNextSongTitle} numberOfLines={2}>{item.title}</Text>
                         <Text style={styles.upNextSongArtist} numberOfLines={1}>{item.artist}</Text>
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 }}>
-                          {item.categoryBadge ? (
-                            <View style={styles.categoryBadgePill}>
-                              <Text style={styles.categoryBadgeText} numberOfLines={1}>{item.categoryBadge}</Text>
-                            </View>
-                          ) : null}
-                          {item.uploadedAt ? (
+                        {item.uploadedAt ? (
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 }}>
                             <Text style={styles.upNextSubMeta} numberOfLines={1}>{item.uploadedAt}</Text>
-                          ) : null}
-                        </View>
+                          </View>
+                        ) : null}
                       </View>
                       <MaterialCommunityIcons name="play-circle-outline" size={24} color="#1DB954" />
                     </TouchableOpacity>
